@@ -1,0 +1,11 @@
+{
+    "initial_capital": 10.0,
+    "current_balance": 10.0,
+    "transactions": [],
+    "stats": {
+        "total_invested": 0.0,
+        "total_profit": 0.0,
+        "roi": 0.0,
+        "win_rate": 0.0
+    }
+}
