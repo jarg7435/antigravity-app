@@ -24,8 +24,8 @@ class Predictor:
         bpa_res = self.bpa_engine.calculate_match_bpa(match)
         bpa_h, bpa_a = bpa_res['home_bpa'], bpa_res['away_bpa']
 
-        # 2. Poisson Statistics (Goals & Lambdas)
-        h_lambda, a_lambda = self.poisson.estimate_lambdas(match.home_team, match.away_team)
+        # 2. Poisson Statistics (Goals & Lambdas con Integración BPA)
+        h_lambda, a_lambda = self.poisson.estimate_lambdas(match.home_team, match.away_team, home_bpa=bpa_h, away_bpa=bpa_a)
         p_matrix = self.poisson.predict_score_matrix(h_lambda, a_lambda)
         p_home, p_draw, p_away = self.poisson.calculate_match_probabilities(h_lambda, a_lambda)
 

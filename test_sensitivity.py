@@ -43,13 +43,13 @@ res1 = predictor.predict_match(match1)
 res2 = predictor.predict_match(match2)
 
 print(f"--- CASE 1: STRICT REF ---")
-print(f"Goals: {res1.predicted_goals_home} vs {res1.predicted_goals_away}")
-print(f"Corners: {res1.predicted_corners_home} vs {res1.predicted_corners_away}")
-print(f"Cards: {res1.predicted_cards_home} vs {res1.predicted_cards_away}")
-print(f"Shots: {res1.predicted_shots_home} vs {res1.predicted_shots_away}")
+print(f"BPA: {res1.bpa_home} vs {res1.bpa_away}")
+print(f"Expected Goals (xG): {res1.total_goals_expected}")
+print(f"Score Pred: {res1.score_prediction}")
+print(f"Win Probs: {res1.win_prob_home} / {res1.draw_prob} / {res1.win_prob_away}")
 
 print(f"\n--- CASE 2: PERMISSIVE REF ---")
-print(f"Cards: {res2.predicted_cards_home} vs {res2.predicted_cards_away}")
+print(f"Cards: {res2.predicted_cards}")
 
 if res1.predicted_cards_home != res2.predicted_cards_home:
     print("\n✅ VARIABILITY DETECTED: Cards changed with referee!")

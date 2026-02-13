@@ -67,9 +67,55 @@ class LineupFetcher:
             html = resp.text
             soup = BeautifulSoup(html, 'html.parser')
             
+            # --- FIX: Handle Redirect to Main Page / Multiple Matches ---
+            # If we are on the main lineups page, we need to find the specific match ID and fetch via AJAX
+            page_title = soup.title.string if soup.title else ""
+            if "Football Lineups" in page_title or len(soup.find_all(class_='lineup-row')) > 5:
+                print(f"  ⚠️ Redirected to main page. Searching for match: {home_team_name} vs {away_team_name}...")
+                
+                # Normalize names for search (simple check)
+                home_simple = home_team_name.split()[0] if home_team_name else ""
+                away_simple = away_team_name.split()[0] if away_team_name else ""
+                
+                # Find the match container
+                # We look for a container that has both team names
+                found_id = None
+                
+                # Regex search in HTML to be robust
+                # Look for home team, then away team (or vice-versa), then reply_click
+                # This is a bit expensive but robust
+                import re
+                
+                # Pattern: Team1 ... Team2 ... reply_click(ID) (or Team2 ... Team1)
+                # We limit the distance to avoid false positives from different matches
+                
+                # Try finding the row first
+                rows = soup.find_all(class_='lineup-row')
+                for row in rows:
+                    row_text = row.get_text()
+                    if home_simple in row_text and away_simple in row_text:
+                        # Found the row, now get the ID
+                        link = row.find('a', class_='view-lineups')
+                        if link and link.get('id'):
+                            found_id = link.get('id')
+                            print(f"  ✅ Found match ID: {found_id}")
+                            break
+                            
+                if found_id:
+                    ajax_url = f"https://www.sportsgambler.com/lineups/lineups-load2.php?id={found_id}"
+                    print(f"  🔄 Fetching AJAX content: {ajax_url}")
+                    resp_ajax = requests.get(ajax_url, headers=headers, timeout=10)
+                    if resp_ajax.status_code == 200:
+                        html = resp_ajax.text
+                        soup = BeautifulSoup(html, 'html.parser')
+                    else:
+                        print(f"  ❌ AJAX fetch failed: {resp_ajax.status_code}")
+                else:
+                    print("  ❌ Could not find match on main page.")
+            
             # 2. Extract Names (Multiple Strategies)
             
-            # Strategy A: Links containing 'jugadores/' or 'player/'
+            # Strategy A: Links containing 'jugadores/' or 'player/' (Updated for AJAX content)
             for a in soup.find_all('a', href=True):
                 href = a['href'].lower()
                 if 'jugadores/' in href or 'player/' in href:
@@ -96,6 +142,12 @@ class LineupFetcher:
             raw_regex = re.findall(r'>\s*([A-Z][a-z]+(?:\s[A-Z][a-z]+)+)\s*<', html)
             for name in raw_regex:
                 extracted_names.add(name)
+
+            # Strategy D: Spans with class 'player-name' (Common in AJAX loaded lineups)
+            for span in soup.find_all('span', class_='player-name'):
+                name = span.get_text().strip()
+                if name and len(name.split()) > 1:
+                    extracted_names.add(name)
 
         except Exception as e:
             return {"error": f"Scraping failed: {str(e)}", "home": [], "away": []}
@@ -139,6 +191,8 @@ class LineupFetcher:
         
         # 4. Result Verification
         if not found_home and not found_away:
+
+             
              return {"error": "No se detectaron jugadores conocidos en el enlace.", "home": [], "away": []}
              
         return {
