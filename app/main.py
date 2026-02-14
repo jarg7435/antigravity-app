@@ -72,20 +72,41 @@ if os.path.exists(css_path):
 
 # Initialize Services
 @st.cache_resource
-def get_services(version: str = "6.25.3"):
+def get_services(version: str = "6.25.4 (Nuclear Reload)"):
+    # NUCLEAR RELOAD: Ensure Streamlit Cloud sees disk changes
+    import importlib
+    import src.models.base
+    import src.logic.poisson_engine
+    import src.logic.predictors
+    import src.logic.bpa_engine
+    import src.logic.external_analyst
+    import src.data.mock_provider
+    import src.data.bankroll_manager
+    
+    importlib.reload(src.models.base)
+    importlib.reload(src.logic.poisson_engine)
+    importlib.reload(src.logic.bpa_engine)
+    importlib.reload(src.logic.external_analyst)
+    importlib.reload(src.logic.predictors)
+    importlib.reload(src.data.mock_provider)
+    importlib.reload(src.data.bankroll_manager)
+
+    from src.data.mock_provider import MockDataProvider
+    from src.data.db_manager import DataManager
+    from src.logic.bpa_engine import BPAEngine
+    from src.logic.predictors import Predictor
+    from src.logic.validator import Validator
+    from src.data.bankroll_manager import BankrollManager
+    from src.logic.report_engine import ReportEngine
+
     data_provider = MockDataProvider()
     db_manager = DataManager()
     bpa_engine = BPAEngine()
     predictor = Predictor(bpa_engine)
     validator = Validator()
-    
-    # Force reload of BankrollManager to avoid persistent AttributeError
-    import src.data.bankroll_manager
-    importlib.reload(src.data.bankroll_manager)
-    from src.data.bankroll_manager import BankrollManager
-    
     bankroll_manager = BankrollManager()
     report_engine = ReportEngine()
+    
     return data_provider, db_manager, bpa_engine, predictor, validator, bankroll_manager, report_engine
 
 data_provider, db_manager, bpa_engine, predictor, validator, bankroll_manager, report_engine = get_services()
