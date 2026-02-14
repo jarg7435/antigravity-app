@@ -72,7 +72,7 @@ if os.path.exists(css_path):
 
 # Initialize Services
 @st.cache_resource
-def get_services(version: str = "6.25.2"):
+def get_services(version: str = "6.25.3"):
     data_provider = MockDataProvider()
     db_manager = DataManager()
     bpa_engine = BPAEngine()
