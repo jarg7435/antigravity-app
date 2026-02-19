@@ -8,7 +8,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import streamlit as st
 
-# LAGEMA JARG74 - VERSION 6.25.9 - HOTFIX VALIDATION
+# LAGEMA JARG74 - VERSION 6.26.0 - STABLE PLATFORM
 SECRET_CODE = "1234"
 # Force rebuild comment: f"Resetting system at {os.environ.get('PORT', '0')}"
 
@@ -73,7 +73,7 @@ if os.path.exists(css_path):
 
 # Initialize Services
 @st.cache_resource
-def get_services(version: str = "6.25.9 (Hotfix Validation)"):
+def get_services(version: str = "6.26.0 (Stable Release)"):
     # NUCLEAR RELOAD: Ensure Streamlit Cloud sees disk changes
     import importlib
     import src.models.base
@@ -111,7 +111,7 @@ def get_services(version: str = "6.25.9 (Hotfix Validation)"):
     return data_provider, db_manager, bpa_engine, predictor, validator, bankroll_manager, report_engine
 
 # --- SERVICE INITIALIZATION ---
-CURRENT_VERSION = "6.25.9"
+CURRENT_VERSION = "6.26.0"
 data_provider, db_manager, bpa_engine, predictor, validator, bankroll_manager, report_engine = get_services(CURRENT_VERSION)
 
 # --- MAIN LAYOUT ---
@@ -196,7 +196,7 @@ else:
         st.markdown(f'<h4 style="color: #fdffcc;">👨‍⚖️ Árbitro: {current_ref_name} <span style="font-size: 0.8rem; color: #888;">({ref_source})</span></h4>', unsafe_allow_html=True)
         
         with st.sidebar.expander("🛠️ INFO DE VERSIÓN"):
-            st.markdown(f"**App Version:** 6.25.9 (Hotfix Validation)")
+            st.markdown(f"**App Version:** 6.26.0 (Stable Release)")
             st.markdown("*Módulos de IA re-calibrados y estables.*")
 
         st.markdown('<p style="color: #fdffcc; font-size: 0.9rem;">🤖 El sistema accederá automáticamente a SportsGambler para alineaciones y fuentes oficiales para árbitros.</p>', unsafe_allow_html=True)
