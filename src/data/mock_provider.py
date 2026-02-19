@@ -34,6 +34,8 @@ class MockDataProvider(DataProvider):
         return [name for name, team in self.teams_db.items() if (team.league.strip().lower() == target or target in team.league.strip().lower())]
 
     def get_team_data(self, team_name: str) -> Team:
+        if not team_name:
+            team_name = "Equipo Desconocido"
         return self.teams_db.get(team_name, self._create_dummy_team(team_name))
 
     def get_match_conditions(self, match_id: str, location: str, date_time: str) -> Optional[dict]:
@@ -187,6 +189,9 @@ class MockDataProvider(DataProvider):
             
             # Add slight variance to individual players
             p_rating = base_rating + (random.uniform(-0.3, 0.4))
+            
+            # Ensure rating stays within Pydantic bounds (0-10)
+            p_rating = max(0.0, min(10.0, p_rating))
             
             players.append(Player(
                 id=f"{name}_{i}", 
