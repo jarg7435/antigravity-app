@@ -22,7 +22,7 @@ def render_header():
     st.markdown("""
         <div style="text-align: center; padding: 40px 0; background: linear-gradient(90deg, rgba(0,212,255,0.05) 0%, rgba(0,86,179,0.05) 100%); border-radius: 20px; margin-bottom: 30px; border: 1px solid rgba(255,255,255,0.05);">
             <h1 style="margin-bottom: 0; font-family: 'Outfit', sans-serif; font-weight: 900; letter-spacing: -1px; background: linear-gradient(90deg, #fff, #00d4ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">🛡️ LAGEMA JARG74</h1>
-            <p style="margin-top: 5px; color: #fdffcc; font-weight: 500; letter-spacing: 2px; text-transform: uppercase; font-size: 0.8rem;">Capa de Inteligencia Predictiva Avanzada • V6.45.0 (Real News Scanner)</p>
+            <p style="margin-top: 5px; color: #fdffcc; font-weight: 500; letter-spacing: 2px; text-transform: uppercase; font-size: 0.8rem;">Capa de Inteligencia Predictiva Avanzada • V6.50.0 (Combined Bets)</p>
         </div>
     """, unsafe_allow_html=True)
 
@@ -151,20 +151,33 @@ def render_prediction_cards(result: PredictionResult):
     st.markdown("#### 🎫 Registro Rápido de Apuesta")
     with st.expander("Abrir Cupón de Apuesta"):
         with st.form("quick_bet_form"):
-            market = st.selectbox("Mercado", ["Opción 1 (Local)", "Opción X (Empate)", "Opción 2 (Visitante)", "Opción 1X (Doble Oportunidad)", "Opción X2 (Doble Oportunidad)", "Opción 12 (Doble Oportunidad)", "Goles (Total)", "Córners", "Tarjetas", "Remates", "A Portería"])
+            markets = st.multiselect("Selecciones (Combinada/Simple)", 
+                                   ["Opción 1 (Local)", "Opción X (Empate)", "Opción 2 (Visitante)", 
+                                    "Opción 1X (Doble Oportunidad)", "Opción X2 (Doble Oportunidad)", 
+                                    "Opción 12 (Doble Oportunidad)", "Goles (Total)", "Córners", 
+                                    "Tarjetas", "Remates", "A Portería"],
+                                   default=["Opción 1 (Local)"])
+            
             c_odds, c_stake = st.columns(2)
-            odds = c_odds.number_input("Cuota", min_value=1.01, value=2.00, step=0.1)
-            stake = c_stake.number_input("Stake (€)", min_value=1.0, value=1.0, step=1.0)
+            odds = c_odds.number_input("Cuota Total", min_value=1.01, value=2.00, step=0.1)
+            stake = c_stake.number_input("Stake Total (€)", min_value=1.0, value=1.0, step=1.0)
             
             if st.form_submit_button("💾 Registrar Apuesta PENDIENTE"):
-                # Handle registration in main.py via session_state flag
-                st.session_state.pending_bet = {
-                    "match_id": result.match_id if hasattr(result, "match_id") else "manual_bet",
-                    "market": market,
-                    "odds": odds,
-                    "stake": stake
-                }
-                st.rerun()
+                if not markets:
+                    st.error("Selecciona al menos una opción.")
+                else:
+                    # Join markets for storage
+                    market_str = " + ".join(markets)
+                    if len(markets) > 1:
+                        market_str = f"📦 COMBINADA: {market_str}"
+                    
+                    st.session_state.pending_bet = {
+                        "match_id": result.match_id if hasattr(result, "match_id") else "manual_bet",
+                        "market": market_str,
+                        "odds": odds,
+                        "stake": stake
+                    }
+                    st.rerun()
 
     st.divider()
     # 5. External Analysis Summary
