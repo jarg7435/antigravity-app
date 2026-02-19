@@ -75,7 +75,7 @@ class Match(BaseModel):
     id: str
     home_team: Team
     away_team: Team
-    date: datetime
+    date: Any # Can be datetime or date, handles Pydantic v2 quirks
     kickoff_time: str = "21:00"
     competition: str
     conditions: Optional[MatchConditions] = None

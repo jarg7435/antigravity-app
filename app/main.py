@@ -8,7 +8,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import streamlit as st
 
-# LAGEMA JARG74 - VERSION 6.25.8 - FINAL STABILITY PUSH
+# LAGEMA JARG74 - VERSION 6.25.9 - HOTFIX VALIDATION
 SECRET_CODE = "1234"
 # Force rebuild comment: f"Resetting system at {os.environ.get('PORT', '0')}"
 
@@ -73,7 +73,7 @@ if os.path.exists(css_path):
 
 # Initialize Services
 @st.cache_resource
-def get_services(version: str = "6.25.8 (Definitive Build)"):
+def get_services(version: str = "6.25.9 (Hotfix Validation)"):
     # NUCLEAR RELOAD: Ensure Streamlit Cloud sees disk changes
     import importlib
     import src.models.base
@@ -111,7 +111,7 @@ def get_services(version: str = "6.25.8 (Definitive Build)"):
     return data_provider, db_manager, bpa_engine, predictor, validator, bankroll_manager, report_engine
 
 # --- SERVICE INITIALIZATION ---
-CURRENT_VERSION = "6.25.8"
+CURRENT_VERSION = "6.25.9"
 data_provider, db_manager, bpa_engine, predictor, validator, bankroll_manager, report_engine = get_services(CURRENT_VERSION)
 
 # --- MAIN LAYOUT ---
@@ -196,7 +196,7 @@ else:
         st.markdown(f'<h4 style="color: #fdffcc;">👨‍⚖️ Árbitro: {current_ref_name} <span style="font-size: 0.8rem; color: #888;">({ref_source})</span></h4>', unsafe_allow_html=True)
         
         with st.sidebar.expander("🛠️ INFO DE VERSIÓN"):
-            st.markdown(f"**App Version:** 6.25.8 (Definitive Build)")
+            st.markdown(f"**App Version:** 6.25.9 (Hotfix Validation)")
             st.markdown("*Módulos de IA re-calibrados y estables.*")
 
         st.markdown('<p style="color: #fdffcc; font-size: 0.9rem;">🤖 El sistema accederá automáticamente a SportsGambler para alineaciones y fuentes oficiales para árbitros.</p>', unsafe_allow_html=True)
@@ -210,9 +210,16 @@ else:
         else:
             selected_ref = Referee(name="Por Detectar", strictness=RefereeStrictness.MEDIUM)
         
+        from datetime import datetime
+        # Convert date and time to a full datetime object as Pydantic expects
+        try:
+            full_match_datetime = datetime.combine(selected_date, datetime.strptime(selected_time, "%H:%M").time())
+        except:
+            full_match_datetime = datetime.now()
+
         selected_match = Match(
             id=m_id, home_team=home_team, away_team=away_team, 
-            date=selected_date, kickoff_time=selected_time, competition=selected_league,
+            date=full_match_datetime, kickoff_time=selected_time, competition=selected_league,
             conditions=MatchConditions(temperature=15, rain_mm=0, wind_kmh=10, humidity_percent=60),
             referee=selected_ref,
             market_odds={"1": 2.10, "X": 3.40, "2": 4.50}
