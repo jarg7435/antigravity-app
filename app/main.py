@@ -8,7 +8,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import streamlit as st
 
-# LAGEMA JARG74 - VERSION 6.30.0 - LINEUP INTELLIGENCE BUMP
+# LAGEMA JARG74 - VERSION 6.35.0 - REFEREE INDEPENDENCE
 SECRET_CODE = "1234"
 # Force rebuild comment: f"Resetting system at {os.environ.get('PORT', '0')}"
 
@@ -73,7 +73,7 @@ if os.path.exists(css_path):
 
 # Initialize Services
 @st.cache_resource
-def get_services(version: str = "6.30.0 (Lineup Intelligence)"):
+def get_services(version: str = "6.35.0 (Referee Independence)"):
     # NUCLEAR RELOAD: Ensure Streamlit Cloud sees disk changes
     import importlib
     import src.models.base
@@ -111,7 +111,7 @@ def get_services(version: str = "6.30.0 (Lineup Intelligence)"):
     return data_provider, db_manager, bpa_engine, predictor, validator, bankroll_manager, report_engine
 
 # --- SERVICE INITIALIZATION ---
-CURRENT_VERSION = "6.30.0"
+CURRENT_VERSION = "6.35.0"
 data_provider, db_manager, bpa_engine, predictor, validator, bankroll_manager, report_engine = get_services(CURRENT_VERSION)
 
 # --- MAIN LAYOUT ---
@@ -193,13 +193,25 @@ else:
         current_ref_name = st.session_state.fetched_ref["name"] if st.session_state.fetched_ref else "Pendiente..."
         ref_source = st.session_state.fetched_ref.get("source", "Automático") if st.session_state.fetched_ref else "Automático"
         
-        st.markdown(f'<h4 style="color: #fdffcc;">👨‍⚖️ Árbitro: {current_ref_name} <span style="font-size: 0.8rem; color: #888;">({ref_source})</span></h4>', unsafe_allow_html=True)
-        
+        c_ref1, c_ref2 = st.columns([2, 1])
+        with c_ref1:
+            st.markdown(f'<h4 style="color: #fdffcc; margin-top: 5px;">👨‍⚖️ Árbitro: {current_ref_name} <span style="font-size: 0.8rem; color: #888;">({ref_source})</span></h4>', unsafe_allow_html=True)
+        with c_ref2:
+            if not st.session_state.fetched_ref:
+                if st.button("🔍 Buscar Árbitro Ahora", use_container_width=True):
+                    with st.spinner("Buscando designación..."):
+                        l_fetcher = LineupFetcher(data_provider)
+                        ref_data = l_fetcher.fetch_match_referee(
+                            home_team.name, away_team.name, selected_date, selected_league
+                        )
+                        st.session_state.fetched_ref = ref_data
+                        st.rerun()
+
         with st.sidebar.expander("🛠️ INFO DE VERSIÓN"):
-            st.markdown(f"**App Version:** 6.30.0 (Lineup Intelligence)")
+            st.markdown(f"**App Version:** 6.35.0 (Referee Independence)")
             st.markdown("*Módulos de IA re-calibrados y estables.*")
 
-        st.markdown('<p style="color: #fdffcc; font-size: 0.9rem;">🤖 El sistema accederá automáticamente a SportsGambler para alineaciones y fuentes oficiales para árbitros.</p>', unsafe_allow_html=True)
+        st.markdown('<p style="color: #fdffcc; font-size: 0.9rem;">🤖 El sistema accederá automáticamente a fuentes oficiales para árbitros (RFEF, Premier, etc.).</p>', unsafe_allow_html=True)
 
         # Build referee object with auto-fetched data
         if st.session_state.fetched_ref:
