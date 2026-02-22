@@ -11,8 +11,6 @@ class RefereeSourceMapper:
     Maps leagues to their official referee appointment sources.
     """
     
-    BIG_5 = ["La Liga", "Premier League", "Serie A", "Bundesliga", "Ligue 1"]
-    
     LEAGUE_SOURCES = {
         "La Liga": "https://www.rfef.es/noticias/arbitros/designaciones",
         "Premier League": "https://www.premierleague.com/referees/overview",
@@ -22,19 +20,53 @@ class RefereeSourceMapper:
     }
     
     @classmethod
+    def _normalize_league(cls, league: str) -> str:
+        """
+        Normalizes league name for robust matching.
+        """
+        if not league:
+            return ""
+        
+        # Lowercase, strip whitespace, remove common suffixes/prefixes
+        norm = league.lower().strip()
+        
+        # Remove parenthetical info: "La Liga (España)" -> "la liga"
+        if "(" in norm:
+            norm = norm.split("(")[0].strip()
+            
+        # Handle "EA Sports", "Santander", etc.
+        norm = norm.replace("ea sports", "").replace("santander", "").strip()
+        
+        # Map aliases to canonical names
+        if "la liga" in norm or "primera division" in norm or "espana" in norm:
+            return "La Liga"
+        if "premier" in norm or "england" in norm:
+            return "Premier League"
+        if "serie a" in norm or "italy" in norm:
+            return "Serie A"
+        if "bundesliga" in norm or "germany" in norm:
+            return "Bundesliga"
+        if "ligue 1" in norm or "france" in norm:
+            return "Ligue 1"
+            
+        return norm
+
+    @classmethod
     def get_scraper(cls, league: str):
         """
         Returns appropriate referee scraper for the league.
         """
-        if league == "La Liga":
+        norm_league = cls._normalize_league(league)
+        
+        if norm_league == "La Liga":
             return LaLigaRefereeScraper()
-        elif league == "Premier League":
+        elif norm_league == "Premier League":
             return PremierLeagueRefereeScraper()
-        elif league == "Serie A":
+        elif norm_league == "Serie A":
             return SerieARefereeScraper()
-        elif league == "Bundesliga":
+        elif norm_league == "Bundesliga":
             return BundesligaRefereeScraper()
-        elif league == "Ligue 1":
+        elif norm_league == "Ligue 1":
             return Ligue1RefereeScraper()
         else:
             # Generic international pool for all other matches (UEFA, Extra, Mixta)
