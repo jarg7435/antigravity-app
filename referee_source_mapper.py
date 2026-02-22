@@ -111,29 +111,99 @@ class BaseRefereeScraper:
             return RefereeStrictness.MEDIUM
 
 
+class FutbolFantasyRefereeScraper(BaseRefereeScraper):
+    """
+    Scraper for FutbolFantasy match pages which often list designated referees.
+    """
+    
+    def fetch_referee(self, home_team: str, away_team: str, match_date: datetime) -> Optional[Dict]:
+        """
+        Fetches referee by finding the match page on FutbolFantasy.
+        """
+        try:
+            # 1. Get the list of matches for the round
+            lineups_url = "https://www.futbolfantasy.com/laliga/posibles-alineaciones"
+            resp = requests.get(lineups_url, headers=self.headers, timeout=10)
+            resp.raise_for_status()
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            
+            # 2. Find the match URL
+            match_url = None
+            home_slug = home_team.lower().replace(" ", "-") # Basic normalization for URL search
+            away_slug = away_team.lower().replace(" ", "-")
+            
+            # Look for links containing both teams in the URL or text
+            for a in soup.find_all('a', href=True):
+                href = a['href']
+                if "/partidos/" in href:
+                    if (home_slug in href and away_slug in href) or \
+                       (home_team.lower() in a.get_text().lower() and away_team.lower() in a.get_text().lower()):
+                        match_url = href if href.startswith('http') else f"https://www.futbolfantasy.com{href}"
+                        break
+            
+            if not match_url:
+                print(f"  [!] Could not find match URL for {home_team} vs {away_team} on {lineups_url}")
+                return None
+                
+            # 3. Fetch the match page
+            print(f"  [>] Fetching referee from match page: {match_url}")
+            resp_match = requests.get(match_url, headers=self.headers, timeout=10)
+            resp_match.raise_for_status()
+            soup_match = BeautifulSoup(resp_match.text, 'html.parser')
+            
+            # 4. Extract referee
+            # Structure: <div class="arbitro">Árbitro: <span class="link">Jesús Gil Manzano</span></div>
+            arbitro_div = soup_match.find('div', class_='arbitro')
+            if arbitro_div:
+                ref_span = arbitro_div.find('span', class_='link')
+                if ref_span:
+                    referee_name = ref_span.get_text().strip()
+                    strictness = self._infer_strictness(referee_name)
+                    avg_cards = 5.0 if strictness == RefereeStrictness.HIGH else 3.8
+                    
+                    return {
+                        'name': referee_name,
+                        'strictness': strictness,
+                        'avg_cards': avg_cards,
+                        'source': 'FutbolFantasy',
+                        'verification_link': match_url
+                    }
+            
+            return None
+            
+        except Exception as e:
+            print(f"WARNING: FutbolFantasy scraping failed: {e}")
+            return None
+
+
 class LaLigaRefereeScraper(BaseRefereeScraper):
-    """Scraper for La Liga referees from RFEF."""
+    """Scraper for La Liga referees, prioritizing FutbolFantasy then RFEF."""
+    
+    def __init__(self):
+        super().__init__()
+        self.ff_scraper = FutbolFantasyRefereeScraper()
     
     def fetch_referee(self, home_team: str, away_team: str, match_date: datetime) -> Dict:
         """
-        Scrape RFEF website for La Liga referee appointments.
+        Scrape referee appointments for La Liga.
         """
+        # 1. Try FutbolFantasy (More reliable for specific match scraping)
+        result = self.ff_scraper.fetch_referee(home_team, away_team, match_date)
+        if result:
+            return result
+            
+        # 2. Try RFEF Official (Backup)
         try:
             url = "https://www.rfef.es/noticias/arbitros/designaciones"
             resp = requests.get(url, headers=self.headers, timeout=10)
             resp.raise_for_status()
             soup = BeautifulSoup(resp.text, 'html.parser')
             
-            # Look for match containing both team names
+            # Pattern matching for RFEF
             home_keywords = home_team.lower().split()
             away_keywords = away_team.lower().split()
             
-            # Search in text content
-            text = soup.get_text().lower()
-            
-            # Find referee name near team mentions
-            # Pattern: "Team A - Team B: Referee Name"
-            pattern = rf'({"|".join(home_keywords)}).*?({"|".join(away_keywords)}).*?:?\s*([A-Z][a-z]+(?:\s[A-Z][a-z]+)+)'
+            pattern = rf'({"|".join(home_keywords)}).*?({"|".join(away_keywords)}).*?:?\s*([A-Z][a-z\u00C0-\u017F]+(?:\s[A-Z][a-z\u00C0-\u017F]+)+)'
             match = re.search(pattern, soup.get_text(), re.IGNORECASE)
             
             if match:
@@ -149,12 +219,10 @@ class LaLigaRefereeScraper(BaseRefereeScraper):
                     'verification_link': url
                 }
             
-            # Fallback: return a common La Liga referee
-            return self._fallback_referee()
-            
         except Exception as e:
             print(f"⚠️ RFEF scraping failed: {e}")
-            return self._fallback_referee()
+            
+        return self._fallback_referee()
     
     def _fallback_referee(self) -> Dict:
         """Return a realistic La Liga referee as fallback."""
