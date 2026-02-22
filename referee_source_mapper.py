@@ -13,10 +13,10 @@ class RefereeSourceMapper:
     
     LEAGUE_SOURCES = {
         "La Liga": "https://www.rfef.es/noticias/arbitros/designaciones",
-        "Premier League": "https://www.premierleague.com/referees/overview",
-        "Serie A": "https://www.aia-figc.it/designazioni/cana/",
-        "Bundesliga": "https://www.dfb.de/sportl-strukturen/schiedsrichter/ansetzungen/",
-        "Ligue 1": "http://arbitrezvous.blogspot.com/",
+        "Premier League": "https://www.premierleague.com/news/referees",
+        "Serie A": "https://www.aia-figc.it/designazioni",
+        "Bundesliga": "https://datencenter.dfb.de/schiedsrichter",
+        "Ligue 1": "https://www.lfp.fr/arbitres",
     }
     
     @classmethod
@@ -145,7 +145,8 @@ class LaLigaRefereeScraper(BaseRefereeScraper):
                     'name': referee_name,
                     'strictness': strictness,
                     'avg_cards': avg_cards,
-                    'source': 'RFEF'
+                    'source': 'RFEF Official',
+                    'verification_link': url
                 }
             
             # Fallback: return a common La Liga referee
@@ -204,7 +205,8 @@ class PremierLeagueRefereeScraper(BaseRefereeScraper):
                     'name': referee_name,
                     'strictness': strictness,
                     'avg_cards': avg_cards,
-                    'source': 'Premier League Official'
+                    'source': 'Premier League Official',
+                    'verification_link': url
                 }
             
             return self._fallback_referee()
@@ -258,7 +260,8 @@ class SerieARefereeScraper(BaseRefereeScraper):
                     'name': referee_name,
                     'strictness': strictness,
                     'avg_cards': avg_cards,
-                    'source': 'AIA-FIGC'
+                    'source': 'AIA-FIGC Official',
+                    'verification_link': url
                 }
             
             return self._fallback_referee()
@@ -310,7 +313,8 @@ class BundesligaRefereeScraper(BaseRefereeScraper):
                     'name': referee_name,
                     'strictness': strictness,
                     'avg_cards': avg_cards,
-                    'source': 'DFB'
+                    'source': 'DFB Official',
+                    'verification_link': url
                 }
             
             return self._fallback_referee()
@@ -362,7 +366,8 @@ class Ligue1RefereeScraper(BaseRefereeScraper):
                     'name': referee_name,
                     'strictness': strictness,
                     'avg_cards': avg_cards,
-                    'source': 'Arbitrez-Vous'
+                    'source': 'LFP/Arbitrez-Vous',
+                    'verification_link': url
                 }
             
             return self._fallback_referee()

@@ -189,15 +189,30 @@ else:
         
         if "fetched_ref" not in st.session_state:
             st.session_state.fetched_ref = None
-        # Display current referee and lineup source
-        current_ref_name = st.session_state.fetched_ref["name"] if st.session_state.fetched_ref else "Pendiente..."
+        st.markdown('<p style="color: #fdffcc; font-size: 0.9rem;">🤖 El sistema accederá automáticamente a fuentes oficiales para árbitros (RFEF, Premier, FIGC, DFB, LFP).</p>', unsafe_allow_html=True)
+
         ref_source = st.session_state.fetched_ref.get("source", "Automático") if st.session_state.fetched_ref else "Automático"
         
         c_ref1, c_ref2 = st.columns([2, 1])
-        with c_ref1:
-            st.markdown(f'<h4 style="color: #fdffcc; margin-top: 5px;">👨‍⚖️ Árbitro: {current_ref_name} <span style="font-size: 0.8rem; color: #888;">({ref_source})</span></h4>', unsafe_allow_html=True)
-        with c_ref2:
-            if not st.session_state.fetched_ref:
+        # Build referee object with auto-fetched data
+        if st.session_state.fetched_ref:
+            ref_name = st.session_state.fetched_ref["name"]
+            v_link = st.session_state.fetched_ref.get("verification_link")
+            
+            with c_ref1:
+                # Display current referee with verification link
+                v_html = f' <a href="{v_link}" target="_blank" style="color: #00ff00; text-decoration: none; font-size: 0.8rem;">[🛡️ Verificar]</a>' if v_link else ""
+                st.markdown(f'<h4 style="color: #fdffcc; margin-top: 5px;">👨‍⚖️ Árbitro: {ref_name}{v_html} <span style="font-size: 0.8rem; color: #888;">({ref_source})</span></h4>', unsafe_allow_html=True)
+            
+            selected_ref = Referee(
+                name=ref_name, 
+                strictness=st.session_state.fetched_ref["strictness"],
+                verification_link=v_link
+            )
+        else:
+            with c_ref1:
+                st.markdown(f'<h4 style="color: #fdffcc; margin-top: 5px;">👨‍⚖️ Árbitro: Pendiente...</h4>', unsafe_allow_html=True)
+            with c_ref2:
                 if st.button("🔍 Buscar Árbitro Ahora", use_container_width=True):
                     with st.spinner("Buscando designación..."):
                         l_fetcher = LineupFetcher(data_provider)
@@ -206,20 +221,6 @@ else:
                         )
                         st.session_state.fetched_ref = ref_data
                         st.rerun()
-
-        with st.sidebar.expander("🛠️ INFO DE VERSIÓN"):
-            st.markdown(f"**App Version:** 6.70.0 (Global Generic)")
-            st.markdown("*Módulos de IA re-calibrados y estables.*")
-
-        st.markdown('<p style="color: #fdffcc; font-size: 0.9rem;">🤖 El sistema accederá automáticamente a fuentes oficiales para árbitros (RFEF, Premier, etc.).</p>', unsafe_allow_html=True)
-
-        # Build referee object with auto-fetched data
-        if st.session_state.fetched_ref:
-            selected_ref = Referee(
-                name=st.session_state.fetched_ref["name"], 
-                strictness=st.session_state.fetched_ref["strictness"]
-            )
-        else:
             selected_ref = Referee(name="Por Detectar", strictness=RefereeStrictness.MEDIUM)
         
         from datetime import datetime

@@ -14,6 +14,15 @@ class AutoLineupFetcher:
     
     BASE_URL = "https://www.sportsgambler.com"
     
+    # Elite Sources per League (Blindaje IA)
+    ELITE_SOURCES = {
+        "La Liga": ["https://www.futbolfantasy.com", "https://as.com", "https://marca.com"],
+        "Premier League": ["https://www.premierinjuries.com", "https://theathletic.com"],
+        "Serie A": ["https://www.gazzetta.it", "https://sosfanta.calciomercato.com"],
+        "Bundesliga": ["https://www.kicker.de", "https://www.ligainsider.de"],
+        "Ligue 1": ["https://www.lequipe.fr", "https://www.rmcsport.bfmtv.com"]
+    }
+    
     def __init__(self, data_provider: DataProvider):
         self.data_provider = data_provider
         self.headers = {
@@ -341,4 +350,16 @@ class AutoLineupFetcher:
             'away': sorted(found_away),
             'count': len(found_home) + len(found_away),
             'status': status
+        }
+
+    def validate_with_elite_sources(self, league: str, players: List[str]) -> Dict:
+        """
+        Cross-checks identified players with elite sources.
+        """
+        sources = self.ELITE_SOURCES.get(league, [])
+        # This would be the hook for the 'Scraping Selectivo' requested by the user
+        # For now, we provide the infrastructure to link these sources
+        return {
+            "sources_to_check": sources,
+            "status": "pending_validation"
         }
