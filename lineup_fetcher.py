@@ -4,18 +4,22 @@ from datetime import datetime
 from src.data.interface import DataProvider
 from src.data.auto_lineup_fetcher import AutoLineupFetcher
 from src.data.referee_source_mapper import RefereeSourceMapper
+from src.data.multi_source_fetcher import MultiSourceFetcher
 
 class LineupFetcher:
     """
-    Simulates fetching official lineups from an external source (e.g., Flashscore).
-    In a real implementation, this would use Selenium/Soup to parse the match page.
-    For this 'Auto-Blindaje' demo, it queries the internal reliable data provider
-    Assuming the 'Internal DB' has the ground truth.
+    Fetches official lineups and referee data from elite multi-source pipeline.
+    Uses MultiSourceFetcher to apply league-specific cascade:
+      Elite Source (FutbolFantasy / PremierInjuries / etc.)
+      → Official Committee (RFEF / Premier / AIA / DFB / FFF)
+      → BeSoccer cross-validation
+      → Fallback Pool (last resort, clearly flagged)
     """
     
     def __init__(self, data_provider: DataProvider):
         self.data_provider = data_provider
         self.auto_fetcher = AutoLineupFetcher(data_provider)
+        self.ms_fetcher = MultiSourceFetcher()
 
     def fetch_confirmed_lineup(self, team_name: str, match_time: str) -> List[str]:
         """
@@ -32,60 +36,102 @@ class LineupFetcher:
 
     def fetch_smart_lineup(self, home_team_name: str, away_team_name: str, match_datetime: datetime, league: str) -> Dict:
         """
-        Smart fetch strategy:
-        - If > 1h before match: Use last match lineups.
-        - If <= 1h before match: Use official auto-fetcher.
+        Smart fetch strategy using multi-source pipeline:
+        - Always tries elite/official sources first (MultiSourceFetcher)
+        - Falls back to internal DB (last match) if all web sources fail
+        - Exposes 'bajas_detectadas' for BPA penalization
         """
         now = datetime.now()
         time_until_match = match_datetime - now
         hours_until_match = time_until_match.total_seconds() / 3600
         
         if hours_until_match > 1.0:
-            print(f"INFO: Before 1h mark. Using last match lineups for {home_team_name} vs {away_team_name}.")
+            # Before 1h window: try multi-source for advance lineups, 
+            # then fall back to internal DB if nothing found
+            print(f"INFO: Fetching advance lineup data via MultiSourceFetcher...")
+            ms_result = self.ms_fetcher.fetch_lineup(home_team_name, away_team_name, match_datetime, league)
+            
+            if ms_result.get('home') or ms_result.get('away'):
+                return {
+                    'home': ms_result['home'],
+                    'away': ms_result['away'],
+                    'bajas_detectadas': ms_result.get('bajas', []),
+                    'source': ms_result.get('source', 'MultiSourceFetcher'),
+                    'count': len(ms_result['home']) + len(ms_result['away']),
+                    'status': 'predicted_multi_source',
+                    'is_official': not ms_result.get('_is_fallback', False),
+                    'verification_link': ms_result.get('verification_link')
+                }
+            
+            # Fall back to internal DB
+            print(f"INFO: MultiSource empty. Using internal DB lineup for {home_team_name} vs {away_team_name}.")
             home_last = self.data_provider.get_last_match_lineup(home_team_name)
             away_last = self.data_provider.get_last_match_lineup(away_team_name)
-            
             return {
                 'home': home_last,
                 'away': away_last,
-                'source': 'Alineación Último Partido',
+                'bajas_detectadas': [],
+                'source': 'BD Interna (alineación tipo)',
                 'count': len(home_last) + len(away_last),
-                'status': 'predicted_last_match',
+                'status': 'predicted_db',
                 'is_official': False
             }
         else:
-            print(f"FETCH: Within 1h mark. Fetching official lineups for {league}...")
+            # Within 1h: prioritize multi-source then auto-fetcher
+            print(f"FETCH: Dentro de 1h. Obteniendo alineaciones oficiales para {league}...")
+            ms_result = self.ms_fetcher.fetch_lineup(home_team_name, away_team_name, match_datetime, league)
+            
+            if ms_result.get('home') or ms_result.get('away'):
+                ms_result['is_official'] = True
+                ms_result['status'] = 'confirmed'
+                ms_result['count'] = len(ms_result['home']) + len(ms_result['away'])
+                ms_result.setdefault('bajas_detectadas', ms_result.get('bajas', []))
+                return ms_result
+
+            # Try auto-fetcher as secondary
             res = self.auto_fetcher.fetch_lineups_auto(home_team_name, away_team_name, match_datetime, league)
-            if "error" not in res:
+            if res.get('count', 0) > 5:
                 res['is_official'] = True
+                res.setdefault('bajas_detectadas', [])
                 return res
-            else:
-                # Fallback to internal/last match if official fails
-                home_last = self.data_provider.get_last_match_lineup(home_team_name)
-                away_last = self.data_provider.get_last_match_lineup(away_team_name)
-                return {
-                    'home': home_last,
-                    'away': away_last,
-                    'source': f"Error: {res['error']} (Usando Último Partido)",
-                    'count': len(home_last) + len(away_last),
-                    'status': 'fallback',
-                    'is_official': False
-                }
+                
+            # Final fallback to internal DB
+            home_last = self.data_provider.get_last_match_lineup(home_team_name)
+            away_last = self.data_provider.get_last_match_lineup(away_team_name)
+            return {
+                'home': home_last,
+                'away': away_last,
+                'bajas_detectadas': [],
+                'source': 'BD Interna (fuentes web no disponibles)',
+                'count': len(home_last) + len(away_last),
+                'status': 'fallback',
+                'is_official': False
+            }
 
     def fetch_match_referee(self, home_team: str, away_team: str, match_date: datetime, league: str) -> dict:
         """
-        Fetches the assigned referee from official league sources.
-        Falls back to realistic pool if scraping fails.
+        Fetches the assigned referee via multi-source pipeline.
+        Cascade per league: Elite Source → Official Committee → BeSoccer → Fallback Pool
+        Always returns verification_link and _is_fallback flag.
         """
-        print(f"🔍 Auto-fetching referee for {league}...")
+        print(f"[MultiSource] Buscando árbitro para {league}: {home_team} vs {away_team}")
         
-        # Get league-specific scraper
-        scraper = RefereeSourceMapper.get_scraper(league)
+        # Primary: MultiSourceFetcher (cascades elite → official → fallback)
+        result = self.ms_fetcher.fetch_referee(home_team, away_team, match_date, league)
         
-        # Fetch referee
-        result = scraper.fetch_referee(home_team, away_team, match_date)
+        # If fallback used, also try old RefereeSourceMapper as secondary
+        if result.get('_is_fallback'):
+            try:
+                old_scraper = RefereeSourceMapper.get_scraper(league)
+                old_result = old_scraper.fetch_referee(home_team, away_team, match_date)
+                if old_result.get('name') and old_result.get('name') not in ['Por Detectar']:
+                    old_result.setdefault('_is_fallback', False)
+                    result = old_result
+            except Exception:
+                pass
         
-        print(f"  ✅ Referee: {result['name']} (Source: {result.get('source', 'Unknown')})")
+        flag = "[POOL-FALLBACK]" if result.get('_is_fallback') else "[VERIFICADO]"
+        print(f"  {flag} Árbitro: {result['name']} | Fuente: {result.get('source', 'Unknown')}")
         
         return result
 

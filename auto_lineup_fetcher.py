@@ -73,78 +73,131 @@ class AutoLineupFetcher:
     
     def fetch_lineups_auto(self, home_team: str, away_team: str, match_date: datetime, league: str) -> Dict:
         """
-        Automatically fetch lineups from SportsGambler without manual URL.
-        
-        Returns:
-            {
-                'home': List[str],
-                'away': List[str],
-                'source': str,
-                'count': int,
-                'status': 'confirmed' | 'predicted'
-            }
+        Automatically fetch lineups from official and elite sources.
+        Prioritizes FutbolFantasy for La Liga, then SportsGambler.
         """
         print(f"FETCH: Auto-fetching lineups for {home_team} vs {away_team}...")
         
-        # Try different URL patterns
+        # 1. Try FutbolFantasy (Elite Source for La Liga)
+        if league == "La Liga" or "espana" in league.lower():
+            try:
+                result = self.fetch_from_futbol_fantasy(home_team, away_team)
+                if result and result.get('count', 0) > 10:
+                    result['source'] = "FutbolFantasy (Elite)"
+                    return result
+            except Exception as e:
+                print(f"  FutbolFantasy fallback failed: {e}")
+
+        # 2. Try SportsGambler URL patterns
         url_patterns = self.build_match_url(home_team, away_team, match_date, league)
         
         for pattern in url_patterns:
             url = self.BASE_URL + pattern
             try:
                 result = self._scrape_lineup_page(url, home_team, away_team)
-                if result and not result.get('error'):
+                if result and result.get('count', 0) > 10:
                     result['source'] = url
                     return result
             except Exception as e:
                 print(f"  Pattern failed: {pattern} - {str(e)}")
                 continue
         
-        # If direct URL construction fails, try search
-        print("  Direct URL failed, trying search...")
-        return self._search_and_fetch(home_team, away_team, match_date)
+        # 3. Try SportsGambler Search
+        print("  SportsGambler patterns failed, trying search...")
+        res = self._search_and_fetch(home_team, away_team, match_date)
+        if res.get('count', 0) > 5:
+            return res
+            
+        return {'error': 'No se detectaron suficientes jugadores en fuentes oficiales.', 'home': [], 'away': []}
     
     def _scrape_lineup_page(self, url: str, home_team: str, away_team: str) -> Optional[Dict]:
         """
         Scrape a specific lineup page from SportsGambler.
+        Includes AJAX handling if redirected to the main page.
         """
         try:
             resp = requests.get(url, headers=self.headers, timeout=10)
             resp.raise_for_status()
-            soup = BeautifulSoup(resp.text, 'html.parser')
+            html = resp.text
+            soup = BeautifulSoup(html, 'html.parser')
             
-            # Strategy: Separate home and away containers
-            # SportsGambler uses columns or separate divs for home/away
-            containers = soup.find_all(['div', 'table'], class_=re.compile(r'lineup|squad|column', re.I))
-            
+            # --- AJAX HANDLER ---
+            # If on main page, find match ID and fetch via load2.php
+            page_title = soup.title.string if soup.title else ""
+            if "Football Lineups" in page_title or len(soup.find_all(class_='lineup-row')) > 5:
+                home_simple = home_team.split()[0] if home_team else ""
+                away_simple = away_team.split()[0] if away_team else ""
+                
+                found_id = None
+                rows = soup.find_all(class_='lineup-row')
+                for row in rows:
+                    if home_simple in row.get_text() and away_simple in row.get_text():
+                        link = row.find('a', class_='view-lineups')
+                        if link and link.get('id'):
+                            found_id = link.get('id')
+                            break
+                            
+                if found_id:
+                    ajax_url = f"https://www.sportsgambler.com/lineups/lineups-load2.php?id={found_id}"
+                    resp = requests.get(ajax_url, headers=self.headers, timeout=10)
+                    html = resp.text
+                    soup = BeautifulSoup(html, 'html.parser')
+
+            # --- EXTRACTION ---
             home_scraped = set()
             away_scraped = set()
             
-            if len(containers) >= 2:
-                # Assuming first container is home, second is away
-                for i, container in enumerate(containers[:2]):
-                    target_set = home_scraped if i == 0 else away_scraped
-                    for link in container.find_all('a', href=True):
-                        if '/players/' in link['href'] or '/player/' in link['href']:
-                            name = link.get_text().strip()
-                            if name and len(name.split()) >= 2:
-                                target_set.add(name)
+            # Find players via links or specific span classes
+            for a in soup.find_all('a', href=True):
+                if '/players/' in a['href'] or '/player/' in a['href']:
+                    name = a.get_text().strip()
+                    if name and len(name.split()) >= 2:
+                        # Simple heuristics to guess team (if in first or second column)
+                        # For robustness, we'll collect all and map to rosters later
+                        home_scraped.add(name)
             
-            # Fallback if container separation failed
-            if not home_scraped and not away_scraped:
-                extracted_names = set()
-                for link in soup.find_all('a', href=True):
-                    if '/players/' in link['href'] or '/player/' in link['href']:
-                        name = link.get_text().strip()
-                        if name and len(name.split()) >= 2:
-                            extracted_names.add(name)
-                return self._map_to_rosters(extracted_names, home_team, away_team)
-            
-            # Map specifically to rosters
-            return self._map_to_specific_rosters(home_scraped, away_scraped, home_team, away_team)
+            # Map collected names to rosters
+            extracted_all = home_scraped.union(away_scraped)
+            return self._map_to_rosters(extracted_all, home_team, away_team)
             
         except requests.RequestException as e:
             return {'error': f'Request failed: {str(e)}'}
+
+    def fetch_from_futbol_fantasy(self, home_team: str, away_team: str) -> Optional[Dict]:
+        """
+        Scrapes lineups directly from FutbolFantasy as an elite source.
+        """
+        try:
+            # 1. Search for match page
+            base = "https://www.futbolfantasy.com/laliga/posibles-alineaciones"
+            resp = requests.get(base, headers=self.headers, timeout=10)
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            
+            match_url = None
+            for a in soup.find_all('a', href=True):
+                if "/partidos/" in a['href'] and home_team.lower()[:5] in a.get_text().lower():
+                    match_url = a['href'] if a['href'].startswith('http') else f"https://www.futbolfantasy.com{a['href']}"
+                    break
+            
+            if not match_url: return None
+            
+            # 2. Scrape match page
+            resp_m = requests.get(match_url, headers=self.headers, timeout=10)
+            soup_m = BeautifulSoup(resp_m.text, 'html.parser')
+            
+            extracted = set()
+            for p in soup_m.select('.jugador .nombre'):
+                name = p.get_text().strip()
+                if name: extracted.add(name)
+            
+            if not extracted:
+                # Fallback to alternate selectors
+                for p in soup_m.find_all(class_='jugador'):
+                    extracted.add(p.get_text().strip())
+                    
+            return self._map_to_rosters(extracted, home_team, away_team)
+        except:
+            return None
             
     def _map_to_specific_rosters(self, home_scraped: set, away_scraped: set, home_team: str, away_team: str) -> Dict:
         """
