@@ -4,7 +4,8 @@ Cascade: Kicker.de (JS) → DFB → Fallback Pool
 
 Sources:
 - Lineups:  https://www.kicker.de/bundesliga/aufstellungen
-- Referee:  https://www.dfb.de/sportl-strukturen/schiedsrichter/ansetzungen/
+- Referee:  https://www.dfb.de/schiedsrichter/ansetzungen/
+- Fallback: Resultados-Futbol, Kicker
 """
 import requests
 from bs4 import BeautifulSoup
@@ -65,25 +66,116 @@ def fetch_lineup_kicker(home: str, away: str) -> Dict:
 
 def fetch_referee_dfb(home: str, away: str) -> Optional[Dict]:
     """Fetches referee from DFB official page."""
+    urls = [
+        "https://www.dfb.de/schiedsrichter/ansetzungen/",
+        "https://datencenter.dfb.de/schiedsrichter-ansetzungen"
+    ]
+    for url in urls:
+        try:
+            resp = requests.get(url, headers=HEADERS, timeout=12)
+            resp.raise_for_status()
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            text = soup.get_text(separator=' ')
+            
+            # Improved keyword extraction: take the most significant name part
+            def get_kw(name):
+                parts = name.lower().replace("bayer ", "").replace("mainz ", "").replace("04", "").replace("05", "").split()
+                return parts[0] if parts else name.lower().split()[0]
+                
+            home_kw = get_kw(home)
+            away_kw = get_kw(away)
+            
+            pattern = rf'{home_kw}.{{0,100}}{away_kw}.{{0,300}}?([A-ZÁÉÍÓÚ][a-záéíóú]+(?:\s[A-ZÁÉÍÓÚ][a-záéíóú]+){{1,3}})'
+            m = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
+            if m:
+                return {'name': m.group(1).strip(), 'source': 'DFB Oficial', 'verification_link': url}
+        except Exception as e:
+            print(f"    [DFB] Error scraping {url}: {e}")
+    return None
+
+
+def fetch_referee_rf(home: str, away: str) -> Optional[Dict]:
+    """
+    Scrapes 'resultados-futbol.com' for Bundesliga referee assignments.
+    """
     try:
-        url = "https://www.dfb.de/sportl-strukturen/schiedsrichter/ansetzungen/"
+        url = "https://www.resultados-futbol.com/bundesliga"
         resp = requests.get(url, headers=HEADERS, timeout=12)
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, 'html.parser')
-        text = soup.get_text(separator=' ')
+
+        # Refined keyword matching
         home_kw = home.lower().split()[0]
         away_kw = away.lower().split()[0]
-        pattern = rf'{home_kw}.{{0,100}}{away_kw}.{{0,300}}?([A-ZÁÉÍÓÚ][a-záéíóú]+(?:\s[A-ZÁÉÍÓÚ][a-záéíóú]+){{1,3}})'
-        m = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
-        if m:
-            return {'name': m.group(1).strip(), 'source': 'DFB Oficial', 'verification_link': url}
+        if "leverkusen" in home.lower(): home_kw = "leverkusen"
+        if "mainz" in away.lower(): away_kw = "mainz"
+
+        match_link = None
+        for a in soup.find_all('a', href=True):
+            href = a['href'].lower()
+            if '/partido/' in href and home_kw in href and away_kw in href:
+                match_link = a['href']
+                break
+
+        if not match_link:
+            return None
+
+        m_url = match_link if match_link.startswith('http') else "https://www.resultados-futbol.com" + match_link
+        resp2 = requests.get(m_url, headers=HEADERS, timeout=12)
+        soup2 = BeautifulSoup(resp2.text, 'html.parser')
+
+        for rt in soup2.find_all(string=re.compile(r'(?i)arbitro|árbitro')):
+            text = rt.parent.parent.get_text(separator=' ', strip=True)
+            if 'principal' in text.lower():
+                name_part = text.split('principal')[-1].strip()
+                return {'name': name_part, 'source': 'Resultados-Futbol', 'verification_link': m_url}
     except Exception as e:
-        print(f"    [DFB] Error: {e}")
+        print(f"    [RF Bundesliga] Error: {e}")
+    return None
+
+
+def fetch_referee_kicker(home: str, away: str) -> Optional[Dict]:
+    """
+    Scrapes 'kicker.de' match pages for referee assignments.
+    """
+    try:
+        url = "https://www.kicker.de/bundesliga/aufstellungen"
+        resp = requests.get(url, headers=HEADERS, timeout=12)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, 'html.parser')
+
+        home_kw = home.lower().split()[0]
+        away_kw = away.lower().split()[0]
+        if "leverkusen" in home.lower(): home_kw = "leverkusen"
+
+        match_link = None
+        for a in soup.find_all('a', href=True):
+            href = a['href'].lower()
+            if ('analyse' in href or 'direkt' in href) and home_kw in href and away_kw in href:
+                match_link = a['href']
+                break
+
+        if not match_link:
+            return None
+
+        m_url = match_link if match_link.startswith('http') else "https://www.kicker.de" + match_link
+        resp2 = requests.get(m_url, headers=HEADERS, timeout=12)
+        soup2 = BeautifulSoup(resp2.text, 'html.parser')
+
+        for rt in soup2.find_all(string=re.compile(r'(?i)schiedsrichter')):
+            parent = rt.parent.parent
+            text = parent.get_text(separator=' ', strip=True)
+            # Example: "Schiedsrichter Tobias Stieler (Hamburg)"
+            name_match = re.search(r'Schiedsrichter\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)', text)
+            if name_match:
+                return {'name': name_match.group(1).strip(), 'source': 'Kicker.de', 'verification_link': m_url}
+    except Exception as e:
+        print(f"    [Kicker Referee] Error: {e}")
     return None
 
 
 class BundesligaDataScraper:
-    """Unified scraper for Bundesliga. Cascade: Kicker → DFB → Fallback Pool."""
+    """Unified scraper for Bundesliga. Cascade: DFB → RF → Kicker → Fallback Pool."""
 
     def fetch_lineup(self, home: str, away: str, match_date: datetime) -> Dict:
         print(f"  [Bundesliga] Fetching lineup: {home} vs {away}")
@@ -95,12 +187,23 @@ class BundesligaDataScraper:
     def fetch_referee(self, home: str, away: str, match_date: datetime) -> Dict:
         import random
         print(f"  [Bundesliga] Fetching referee: {home} vs {away}")
+        
+        # 1. DFB Official
         ref = fetch_referee_dfb(home, away)
-        if ref:
-            return self._enrich_referee(ref)
+        if ref: return self._enrich_referee(ref)
+        
+        # 2. Resultados-Futbol
+        ref = fetch_referee_rf(home, away)
+        if ref: return self._enrich_referee(ref)
+        
+        # 3. Kicker
+        ref = fetch_referee_kicker(home, away)
+        if ref: return self._enrich_referee(ref)
+        
+        # 4. Fallback Pool
         fallback = random.choice(BUNDESLIGA_REFEREE_POOL)
         return {'name': fallback['name'], 'avg_cards': fallback['avg_cards'],
-                'source': 'Pool Bundesliga', 'verification_link': 'https://www.dfb.de/sportl-strukturen/schiedsrichter/ansetzungen/', '_is_fallback': True}
+                'source': 'Pool Bundesliga', 'verification_link': 'https://www.dfb.de/schiedsrichter/ansetzungen/', '_is_fallback': True}
 
     def _enrich_referee(self, ref: Dict) -> Dict:
         from src.models.base import RefereeStrictness

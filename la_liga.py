@@ -230,6 +230,48 @@ def fetch_referee_futbolfantasy(home: str, away: str) -> Optional[Dict]:
     return None
 
 
+def fetch_referee_rf(home: str, away: str) -> Optional[Dict]:
+    """
+    Scrapes 'resultados-futbol.com' which often reliably overrides WAF blocks.
+    """
+    try:
+        url = "https://www.resultados-futbol.com/primera"
+        resp = requests.get(url, headers=HEADERS, timeout=12)
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        
+        home_kw = home.lower().split()[0]
+        away_kw = away.lower().split()[0]
+        if home_kw == 'athletic': home_kw = 'athletic'
+        
+        match_link = None
+        for a in soup.find_all('a', href=True):
+            href = a['href'].lower()
+            if '/partido/' in href and home_kw in href and away_kw in href:
+                match_link = a['href']
+                break
+                
+        if not match_link:
+            return None
+            
+        m_url = match_link if match_link.startswith('http') else "https://www.resultados-futbol.com" + match_link
+        resp2 = requests.get(m_url, headers=HEADERS, timeout=12)
+        soup2 = BeautifulSoup(resp2.text, 'html.parser')
+        
+        for rt in soup2.find_all(string=re.compile(r'(?i)arbitro|árbitro')):
+            text = rt.parent.parent.get_text(separator=' ', strip=True)
+            if 'principal' in text.lower():
+                # Extract name (e.g. "Árbitro principal García Verdura")
+                name_part = text.split('principal')[-1].strip()
+                return {
+                    "name": name_part,
+                    "source": "Resultados-Futbol",
+                    "verification_link": m_url
+                }
+                
+    except Exception as e:
+        print(f"    [RF] Error: {e}")
+    return None
+
 def fetch_referee_rfef(home: str, away: str) -> Optional[Dict]:
     """
     Fetches referee from RFEF official designaciones page.
@@ -316,12 +358,19 @@ class LaLigaDataScraper:
         print(f"  [LaLiga] Fetching referee: {home} vs {away}")
 
         # 1. FutbolFantasy (primary)
+        print(f"    [LaLiga] Buscando árbitro en FutbolFantasy...")
         ref = fetch_referee_futbolfantasy(home, away)
         if ref:
-            print(f"    -> FutbolFantasy: {ref['name']}")
+            return self._enrich_referee(ref)
+            
+        # 1.5. Resultados-Futbol (very robust WAF override)
+        print(f"    [LaLiga] Buscando árbitro en Resultados-Futbol...")
+        ref = fetch_referee_rf(home, away)
+        if ref:
             return self._enrich_referee(ref)
 
         # 2. RFEF Official
+        print(f"    [LaLiga] Buscando árbitro en Web RFEF...")
         ref = fetch_referee_rfef(home, away)
         if ref:
             print(f"    -> RFEF: {ref['name']}")
