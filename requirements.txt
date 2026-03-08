@@ -9,6 +9,4 @@ python-dotenv
 openmeteo-requests
 requests-cache
 retry_requests
-pytesseract
 Pillow
-# playwright eliminado: no compatible con Streamlit Cloud (requiere instalación de navegadores por separado)
