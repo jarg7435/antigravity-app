@@ -8,9 +8,15 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import streamlit as st
 
-# LAGEMA JARG74 - VERSION 6.70.0 - GLOBAL GENERIC RELEASE
-SECRET_CODE = "1234"
-# Force rebuild comment: f"Resetting system at {os.environ.get('PORT', '0')}"
+# LAGEMA JARG74 - VERSION 6.70.1 - GLOBAL GENERIC RELEASE
+# Código de acceso desde variable de entorno (seguro para GitHub/Streamlit Cloud)
+# En Streamlit Cloud: Settings → Secrets → ACCESS_CODE = "tu_codigo"
+# En local: crea un archivo .env con ACCESS_CODE=tu_codigo
+try:
+    SECRET_CODE = st.secrets["ACCESS_CODE"]
+except Exception:
+    SECRET_CODE = os.getenv("ACCESS_CODE", "1234")  # Fallback solo para desarrollo local
+# Force rebuild comment: f"Resetting system at 2026-03-06T11:32"
 
 # Load environment variables
 load_dotenv()
@@ -189,20 +195,24 @@ else:
         
         if "fetched_ref" not in st.session_state:
             st.session_state.fetched_ref = None
-        st.markdown('<p style="color: #fdffcc; font-size: 0.9rem;">🤖 El sistema accederá automáticamente a fuentes oficiales para árbitros (RFEF, Premier, FIGC, DFB, LFP).</p>', unsafe_allow_html=True)
+        st.markdown('<p style="color: #fdffcc; font-size: 0.9rem;">🤖 El sistema accederá automáticamente a fuentes oficiales para árbitros (RFEF, SofaScore, BeSoccer, FutbolFantasy).</p>', unsafe_allow_html=True)
 
         ref_source = st.session_state.fetched_ref.get("source", "Automático") if st.session_state.fetched_ref else "Automático"
+        is_fallback = st.session_state.fetched_ref.get("_is_fallback", False) if st.session_state.fetched_ref else False
         
         c_ref1, c_ref2 = st.columns([2, 1])
         # Build referee object with auto-fetched data
-        if st.session_state.fetched_ref:
+        if st.session_state.fetched_ref and not is_fallback:
             ref_name = st.session_state.fetched_ref["name"]
             v_link = st.session_state.fetched_ref.get("verification_link")
             
             with c_ref1:
-                # Display current referee with verification link
                 v_html = f' <a href="{v_link}" target="_blank" style="color: #00ff00; text-decoration: none; font-size: 0.8rem;">[🛡️ Verificar]</a>' if v_link else ""
-                st.markdown(f'<h4 style="color: #fdffcc; margin-top: 5px;">👨‍⚖️ Árbitro: {ref_name}{v_html} <span style="font-size: 0.8rem; color: #888;">({ref_source})</span></h4>', unsafe_allow_html=True)
+                st.markdown(f'<h4 style="color: #fdffcc; margin-top: 5px;">👨‍⚖️ Árbitro: {ref_name}{v_html} <span style="font-size: 0.8rem; color: #00ff00;">✅ ({ref_source})</span></h4>', unsafe_allow_html=True)
+            with c_ref2:
+                if st.button("🔄 Re-buscar", use_container_width=True, key="rebuscar_ref"):
+                    st.session_state.fetched_ref = None
+                    st.rerun()
             
             selected_ref = Referee(
                 name=ref_name, 
@@ -210,18 +220,51 @@ else:
                 verification_link=v_link
             )
         else:
+            # Auto-fetch failed or not yet searched — show manual input + search button
             with c_ref1:
-                st.markdown(f'<h4 style="color: #fdffcc; margin-top: 5px;">👨‍⚖️ Árbitro: Pendiente...</h4>', unsafe_allow_html=True)
+                if is_fallback:
+                    st.markdown(f'<p style="color: #ffaa00; font-size: 0.9rem;">⚠️ No se encontró el árbitro automáticamente. Introdúcelo manualmente si lo conoces:</p>', unsafe_allow_html=True)
+                else:
+                    st.markdown(f'<h4 style="color: #fdffcc; margin-top: 5px;">👨‍⚖️ Árbitro: Pendiente...</h4>', unsafe_allow_html=True)
+                
+                # 👇 NUEVO: campo de entrada manual
+                manual_ref = st.text_input(
+                    "✍️ Nombre del árbitro (manual)",
+                    placeholder="Ej: Jesús Gil Manzano",
+                    key="manual_ref_input"
+                )
+                if manual_ref and len(manual_ref.split()) >= 2:
+                    if st.button("✅ Confirmar Árbitro Manual", key="confirm_manual_ref"):
+                        st.session_state.fetched_ref = {
+                            "name": manual_ref.strip(),
+                            "strictness": RefereeStrictness.MEDIUM,
+                            "avg_cards": 4.3,
+                            "source": "Introducido manualmente",
+                            "_is_fallback": False,
+                            "verification_link": None
+                        }
+                        st.toast(f"👨‍⚖️ Árbitro confirmado: {manual_ref.strip()}", icon="⚖️")
+                        st.rerun()
+
             with c_ref2:
-                if st.button("🔍 Buscar Árbitro Ahora", use_container_width=True):
-                    with st.spinner("Buscando designación..."):
+                if st.button("🔍 Buscar Árbitro Auto", use_container_width=True):
+                    with st.spinner("Buscando en 5 fuentes..."):
                         l_fetcher = LineupFetcher(data_provider)
                         ref_data = l_fetcher.fetch_match_referee(
                             home_team.name, away_team.name, selected_date, selected_league
                         )
                         st.session_state.fetched_ref = ref_data
                         st.rerun()
-            selected_ref = Referee(name="Por Detectar", strictness=RefereeStrictness.MEDIUM)
+            
+            # Use fallback pool ref or manual if available
+            if is_fallback:
+                selected_ref = Referee(
+                    name=st.session_state.fetched_ref.get("name", "Por Confirmar"),
+                    strictness=st.session_state.fetched_ref.get("strictness", RefereeStrictness.MEDIUM)
+                )
+            else:
+                selected_ref = Referee(name="Por Detectar", strictness=RefereeStrictness.MEDIUM)
+
         
         from datetime import datetime
         # Convert date and time to a full datetime object as Pydantic expects
@@ -343,6 +386,9 @@ else:
                 pred = predictor.predict_match(selected_match)
                 st.session_state.last_pred = pred
                 st.session_state.last_val = (val_h, val_a)
+            # Indicador del estado del motor ML
+            if not predictor.ml.is_trained:
+                st.caption("ℹ️ Motor ML en modo base (sin historial entrenado aún). La predicción se apoya en Poisson + BPA con mayor peso.")
 
         if st.session_state.get("last_pred"):
             v_h, v_a = st.session_state.last_val
