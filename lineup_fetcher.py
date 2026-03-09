@@ -386,5 +386,3 @@ class LineupFetcher:
             "count": len(found_home) + len(found_away),
             "method": "OCR"
         }
-
-
