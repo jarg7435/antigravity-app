@@ -593,3 +593,4 @@ class LineupFetcher:
         """Procesamiento de imagen para extraer jugadores (requiere tesseract)."""
         return {'error': 'OCR no disponible en esta versión.', 'home': [], 'away': []}
 
+
