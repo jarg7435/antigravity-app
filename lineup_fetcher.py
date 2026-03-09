@@ -41,72 +41,84 @@ class LineupFetcher:
         - Falls back to internal DB (last match) if all web sources fail
         - Exposes 'bajas_detectadas' for BPA penalization
         """
-        now = datetime.now()
-        time_until_match = match_datetime - now
-        hours_until_match = time_until_match.total_seconds() / 3600
-        
-        if hours_until_match > 1.0:
-            # Before 1h window: try multi-source for advance lineups, 
-            # then fall back to internal DB if nothing found
-            print(f"INFO: Fetching advance lineup data via MultiSourceFetcher...")
-            ms_result = self.ms_fetcher.fetch_lineup(home_team_name, away_team_name, match_datetime, league)
-            
-            if ms_result.get('home') or ms_result.get('away'):
-                return {
-                    'home': ms_result['home'],
-                    'away': ms_result['away'],
-                    'bajas_detectadas': ms_result.get('bajas', []),
-                    'source': ms_result.get('source', 'MultiSourceFetcher'),
-                    'count': len(ms_result['home']) + len(ms_result['away']),
-                    'status': 'predicted_multi_source',
-                    'is_official': not ms_result.get('_is_fallback', False),
-                    'verification_link': ms_result.get('verification_link')
-                }
-            
-            # Fall back to internal DB
-            print(f"INFO: MultiSource empty. Using internal DB lineup for {home_team_name} vs {away_team_name}.")
-            home_last = self.data_provider.get_last_match_lineup(home_team_name)
-            away_last = self.data_provider.get_last_match_lineup(away_team_name)
+        def _safe_fallback(source_msg: str) -> Dict:
+            """Returns a safe fallback result using internal DB lineups."""
+            try:
+                home_last = self.data_provider.get_last_match_lineup(home_team_name)
+                away_last = self.data_provider.get_last_match_lineup(away_team_name)
+            except Exception:
+                home_last, away_last = [], []
             return {
                 'home': home_last,
                 'away': away_last,
                 'bajas_detectadas': [],
-                'source': 'BD Interna (alineación tipo)',
-                'count': len(home_last) + len(away_last),
-                'status': 'predicted_db',
-                'is_official': False
-            }
-        else:
-            # Within 1h: prioritize multi-source then auto-fetcher
-            print(f"FETCH: Dentro de 1h. Obteniendo alineaciones oficiales para {league}...")
-            ms_result = self.ms_fetcher.fetch_lineup(home_team_name, away_team_name, match_datetime, league)
-            
-            if ms_result.get('home') or ms_result.get('away'):
-                ms_result['is_official'] = True
-                ms_result['status'] = 'confirmed'
-                ms_result['count'] = len(ms_result['home']) + len(ms_result['away'])
-                ms_result.setdefault('bajas_detectadas', ms_result.get('bajas', []))
-                return ms_result
-
-            # Try auto-fetcher as secondary
-            res = self.auto_fetcher.fetch_lineups_auto(home_team_name, away_team_name, match_datetime, league)
-            if res.get('count', 0) > 5:
-                res['is_official'] = True
-                res.setdefault('bajas_detectadas', [])
-                return res
-                
-            # Final fallback to internal DB
-            home_last = self.data_provider.get_last_match_lineup(home_team_name)
-            away_last = self.data_provider.get_last_match_lineup(away_team_name)
-            return {
-                'home': home_last,
-                'away': away_last,
-                'bajas_detectadas': [],
-                'source': 'BD Interna (fuentes web no disponibles)',
+                'source': source_msg,
                 'count': len(home_last) + len(away_last),
                 'status': 'fallback',
                 'is_official': False
             }
+
+        try:
+            # Ensure match_datetime is a proper datetime object
+            if not hasattr(match_datetime, 'hour'):
+                from datetime import datetime as dt
+                match_datetime = dt.combine(match_datetime, dt.min.time())
+
+            now = datetime.now()
+            try:
+                time_until_match = match_datetime - now
+                hours_until_match = time_until_match.total_seconds() / 3600
+            except Exception:
+                hours_until_match = 20.0  # Assume far away if calc fails
+
+            if hours_until_match > 1.0:
+                print(f"INFO: Fetching advance lineup data via MultiSourceFetcher...")
+                try:
+                    ms_result = self.ms_fetcher.fetch_lineup(home_team_name, away_team_name, match_datetime, league)
+                    if ms_result.get('home') or ms_result.get('away'):
+                        return {
+                            'home': ms_result['home'],
+                            'away': ms_result['away'],
+                            'bajas_detectadas': ms_result.get('bajas', []),
+                            'source': ms_result.get('source', 'MultiSourceFetcher'),
+                            'count': len(ms_result['home']) + len(ms_result['away']),
+                            'status': 'predicted_multi_source',
+                            'is_official': not ms_result.get('_is_fallback', False),
+                            'verification_link': ms_result.get('verification_link')
+                        }
+                except Exception as e:
+                    print(f"INFO: MultiSourceFetcher falló: {e}")
+
+                print(f"INFO: Usando BD interna para {home_team_name} vs {away_team_name}.")
+                return _safe_fallback('BD Interna (alineación tipo)')
+
+            else:
+                print(f"FETCH: Dentro de 1h. Obteniendo alineaciones oficiales para {league}...")
+                try:
+                    ms_result = self.ms_fetcher.fetch_lineup(home_team_name, away_team_name, match_datetime, league)
+                    if ms_result.get('home') or ms_result.get('away'):
+                        ms_result['is_official'] = True
+                        ms_result['status'] = 'confirmed'
+                        ms_result['count'] = len(ms_result['home']) + len(ms_result['away'])
+                        ms_result.setdefault('bajas_detectadas', ms_result.get('bajas', []))
+                        return ms_result
+                except Exception as e:
+                    print(f"FETCH: MultiSource falló: {e}")
+
+                try:
+                    res = self.auto_fetcher.fetch_lineups_auto(home_team_name, away_team_name, match_datetime, league)
+                    if res.get('count', 0) > 5:
+                        res['is_official'] = True
+                        res.setdefault('bajas_detectadas', [])
+                        return res
+                except Exception as e:
+                    print(f"FETCH: AutoFetcher falló: {e}")
+
+                return _safe_fallback('BD Interna (fuentes web no disponibles)')
+
+        except Exception as e:
+            print(f"ERROR en fetch_smart_lineup: {e}")
+            return _safe_fallback(f'BD Interna (error recuperado: {str(e)[:50]})')
 
     def fetch_match_referee(self, home_team: str, away_team: str, match_date: datetime, league: str) -> dict:
         """
@@ -374,3 +386,5 @@ class LineupFetcher:
             "count": len(found_home) + len(found_away),
             "method": "OCR"
         }
+
+
