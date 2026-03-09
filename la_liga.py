@@ -844,3 +844,4 @@ class LaLigaDataScraper:
         ref['avg_cards'] = avg
         ref['_is_fallback'] = False
         return ref
+
