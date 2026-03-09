@@ -594,3 +594,5 @@ class LineupFetcher:
         return {'error': 'OCR no disponible en esta versión.', 'home': [], 'away': []}
 
 
+
+
