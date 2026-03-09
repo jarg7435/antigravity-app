@@ -702,38 +702,6 @@ def fetch_referee_sofascore(home: str, away: str) -> Optional[Dict]:
     return None
 
 
-    """
-    Cross-validates referee via BeSoccer match search.
-    """
-    try:
-        home_slug = home.lower().replace(' ', '-').replace('ñ', 'n')
-        away_slug = away.lower().replace(' ', '-').replace('ñ', 'n')
-        search_url = f"https://es.besoccer.com/partido/{home_slug}-{away_slug}"
-
-        resp = requests.get(search_url, headers=HEADERS, timeout=10)
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, 'html.parser')
-
-        # BeSoccer wraps referee in .referee-name or similar
-        for el in soup.find_all(class_=re.compile(r'referee|arbitro|juez', re.I)):
-            name = el.get_text().strip()
-            if 2 <= len(name.split()) <= 4:
-                return {'name': name, 'source': 'BeSoccer', 'verification_link': search_url}
-
-        # Text search fallback
-        text = soup.get_text(separator='\n')
-        for line in text.split('\n'):
-            if 'árbitro' in line.lower() or 'referee' in line.lower():
-                name = re.sub(r'[Áá]rbitro:?\s*|Referee:?\s*', '', line).strip()
-                if 2 <= len(name.split()) <= 4:
-                    return {'name': name, 'source': 'BeSoccer', 'verification_link': search_url}
-
-    except Exception as e:
-        print(f"    [BeSoccer] Error: {e}")
-
-    return None
-
-
 class LaLigaDataScraper:
     """
     Unified scraper for La Liga lineups and referee.
