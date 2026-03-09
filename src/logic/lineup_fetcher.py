@@ -1,288 +1,595 @@
-from typing import List, Dict
+"""
+LineupFetcher — Sistema de obtención de árbitros y alineaciones
+================================================================
+Usa la API pública de SofaScore (JSON, sin JS, funciona en Streamlit Cloud)
+como fuente principal, con BeSoccer y fallback manual como respaldo.
+
+Flujo para árbitro:
+  1. SofaScore API → busca el partido → extrae árbitro del JSON
+  2. BeSoccer → scraping simple requests
+  3. Fallback pool (determinista por equipos)
+
+Flujo para alineaciones:
+  1. SofaScore API → busca el partido → extrae alineaciones del JSON
+  2. BD interna (último partido conocido)
+"""
+
+from typing import List, Dict, Optional
 import time
-from datetime import datetime
+import requests
+import re
+from datetime import datetime, timedelta
 from src.data.interface import DataProvider
 from src.data.auto_lineup_fetcher import AutoLineupFetcher
 from src.data.referee_source_mapper import RefereeSourceMapper
+from src.data.multi_source_fetcher import MultiSourceFetcher
+
+HEADERS_SOFA = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'es-ES,es;q=0.9',
+    'Referer': 'https://www.sofascore.com/',
+    'Origin': 'https://www.sofascore.com',
+}
+
+HEADERS_WEB = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+}
+
+# Mapa de ligas a IDs de SofaScore
+LEAGUE_TO_SOFASCORE = {
+    'La Liga': {'id': 8, 'season': '58766'},
+    'la liga': {'id': 8, 'season': '58766'},
+    'Premier League': {'id': 17, 'season': '61627'},
+    'Serie A': {'id': 23, 'season': '58587'},
+    'Bundesliga': {'id': 35, 'season': '58558'},
+    'Ligue 1': {'id': 34, 'season': '57051'},
+    # Segunda División / Championship / etc
+    'Segunda División': {'id': 54, 'season': '58856'},
+    'Championship': {'id': 18, 'season': '61643'},
+}
+
+# Pools de árbitros por liga para fallback
+REFEREE_POOLS = {
+    'La Liga': [
+        {'name': 'Jesús Gil Manzano', 'avg_cards': 5.8},
+        {'name': 'Ricardo de Burgos Bengoechea', 'avg_cards': 4.1},
+        {'name': 'Sánchez Martínez', 'avg_cards': 4.5},
+        {'name': 'Hernández Hernández', 'avg_cards': 5.5},
+        {'name': 'Munuera Montero', 'avg_cards': 4.2},
+        {'name': 'Del Cerro Grande', 'avg_cards': 4.0},
+        {'name': 'Cuadra Fernández', 'avg_cards': 3.9},
+        {'name': 'Figueroa Vázquez', 'avg_cards': 4.3},
+        {'name': 'Mateu Lahoz', 'avg_cards': 6.1},
+        {'name': 'Trujillo Suárez', 'avg_cards': 4.1},
+    ],
+    'Premier League': [
+        {'name': 'Michael Oliver', 'avg_cards': 4.2},
+        {'name': 'Anthony Taylor', 'avg_cards': 4.8},
+        {'name': 'Stuart Attwell', 'avg_cards': 3.9},
+        {'name': 'Chris Kavanagh', 'avg_cards': 4.5},
+    ],
+    'Serie A': [
+        {'name': 'Daniele Orsato', 'avg_cards': 4.5},
+        {'name': 'Gianluca Rocchi', 'avg_cards': 3.8},
+        {'name': 'Marco Guida', 'avg_cards': 4.1},
+    ],
+    'Bundesliga': [
+        {'name': 'Felix Brych', 'avg_cards': 4.3},
+        {'name': 'Daniel Siebert', 'avg_cards': 4.6},
+        {'name': 'Tobias Welz', 'avg_cards': 3.9},
+    ],
+    'Ligue 1': [
+        {'name': 'Clément Turpin', 'avg_cards': 4.4},
+        {'name': 'François Letexier', 'avg_cards': 4.1},
+        {'name': 'Benoît Bastien', 'avg_cards': 4.8},
+    ],
+}
+
+
+def _normalize_team(name: str) -> str:
+    """Normaliza nombre de equipo para comparación."""
+    replacements = {
+        'fc barcelona': 'barcelona', 'fc': '', 'cf': '', 'cd': '',
+        'real madrid': 'real madrid', 'athletic bilbao': 'athletic club',
+        'atletico': 'atlético', 'espanol': 'espanyol', 'español': 'espanyol',
+    }
+    n = name.lower().strip()
+    for k, v in replacements.items():
+        n = n.replace(k, v)
+    return n.strip()
+
+
+def _teams_match(sofa_name: str, query_name: str) -> bool:
+    """Comprueba si dos nombres de equipos coinciden."""
+    s = _normalize_team(sofa_name)
+    q = _normalize_team(query_name)
+    # Exact or contained match
+    if s == q or q in s or s in q:
+        return True
+    # Word-level match: at least 1 significant word in common
+    s_words = set(w for w in s.split() if len(w) > 3)
+    q_words = set(w for w in q.split() if len(w) > 3)
+    return bool(s_words & q_words)
+
+
+def _get_sofascore_event_id(home: str, away: str, match_date: datetime, league: str) -> Optional[int]:
+    """
+    Busca el event_id de un partido en SofaScore usando la API pública.
+    Intenta varios métodos: búsqueda por fecha de liga y búsqueda directa.
+    """
+    # Normalizar nombre de liga
+    league_norm = league
+    for key in LEAGUE_TO_SOFASCORE:
+        if key.lower() in league.lower():
+            league_norm = key
+            break
+
+    league_info = LEAGUE_TO_SOFASCORE.get(league_norm)
+
+    # Método 1: Buscar partidos del día en la liga
+    date_str = match_date.strftime('%Y-%m-%d')
+    urls_to_try = []
+
+    if league_info:
+        urls_to_try.append(
+            f"https://api.sofascore.com/api/v1/sport/football/scheduled-events/{date_str}"
+        )
+        # También probar con la liga específica
+        urls_to_try.append(
+            f"https://api.sofascore.com/api/v1/unique-tournament/{league_info['id']}/season/{league_info['season']}/events/round/last"
+        )
+
+    # Método 2: Búsqueda directa por equipos
+    urls_to_try.append(
+        f"https://api.sofascore.com/api/v1/sport/football/scheduled-events/{date_str}"
+    )
+
+    for url in urls_to_try:
+        try:
+            resp = requests.get(url, headers=HEADERS_SOFA, timeout=10)
+            if resp.status_code != 200:
+                continue
+
+            data = resp.json()
+            events = data.get('events', [])
+
+            for event in events:
+                h_name = event.get('homeTeam', {}).get('name', '')
+                a_name = event.get('awayTeam', {}).get('name', '')
+                if _teams_match(h_name, home) and _teams_match(a_name, away):
+                    return event.get('id')
+                # También probar al revés (por si los equipos están invertidos)
+                if _teams_match(h_name, away) and _teams_match(a_name, home):
+                    return event.get('id')
+
+        except Exception as e:
+            print(f"    [SofaScore] Error buscando evento {url}: {e}")
+
+    # Método 3: Buscar en los próximos 3 días también
+    for delta in [-1, 1, 2]:
+        try:
+            alt_date = (match_date + timedelta(days=delta)).strftime('%Y-%m-%d')
+            url = f"https://api.sofascore.com/api/v1/sport/football/scheduled-events/{alt_date}"
+            resp = requests.get(url, headers=HEADERS_SOFA, timeout=10)
+            if resp.status_code != 200:
+                continue
+            data = resp.json()
+            for event in data.get('events', []):
+                h_name = event.get('homeTeam', {}).get('name', '')
+                a_name = event.get('awayTeam', {}).get('name', '')
+                if _teams_match(h_name, home) and _teams_match(a_name, away):
+                    return event.get('id')
+        except Exception:
+            pass
+
+    return None
+
+
+def fetch_referee_sofascore(home: str, away: str, match_date: datetime, league: str) -> Optional[Dict]:
+    """
+    Obtiene el árbitro de un partido vía API JSON de SofaScore.
+    No necesita JavaScript ni scraping — funciona en Streamlit Cloud.
+    """
+    print(f"    [SofaScore] Buscando árbitro: {home} vs {away}")
+
+    event_id = _get_sofascore_event_id(home, away, match_date, league)
+    if not event_id:
+        print(f"    [SofaScore] Partido no encontrado en la API")
+        return None
+
+    try:
+        url = f"https://api.sofascore.com/api/v1/event/{event_id}"
+        resp = requests.get(url, headers=HEADERS_SOFA, timeout=10)
+        if resp.status_code != 200:
+            return None
+
+        data = resp.json()
+        event = data.get('event', {})
+        referee = event.get('referee', {})
+        ref_name = referee.get('name', '').strip()
+
+        if ref_name and len(ref_name.split()) >= 2:
+            print(f"    [SofaScore] ✅ Árbitro encontrado: {ref_name}")
+            return {
+                'name': ref_name,
+                'source': 'SofaScore',
+                'verification_link': f"https://www.sofascore.com/es/partido/{event_id}",
+                '_is_fallback': False,
+                '_event_id': event_id
+            }
+    except Exception as e:
+        print(f"    [SofaScore] Error obteniendo detalles: {e}")
+
+    return None
+
+
+def fetch_lineups_sofascore(home: str, away: str, match_date: datetime, league: str, event_id: int = None) -> Optional[Dict]:
+    """
+    Obtiene las alineaciones confirmadas de un partido vía API JSON de SofaScore.
+    """
+    print(f"    [SofaScore] Buscando alineaciones: {home} vs {away}")
+
+    if not event_id:
+        event_id = _get_sofascore_event_id(home, away, match_date, league)
+    if not event_id:
+        print(f"    [SofaScore] Partido no encontrado para alineaciones")
+        return None
+
+    try:
+        url = f"https://api.sofascore.com/api/v1/event/{event_id}/lineups"
+        resp = requests.get(url, headers=HEADERS_SOFA, timeout=10)
+        if resp.status_code != 200:
+            print(f"    [SofaScore] Alineaciones no disponibles aún (HTTP {resp.status_code})")
+            return None
+
+        data = resp.json()
+        home_lineup = data.get('home', {})
+        away_lineup = data.get('away', {})
+
+        home_players = []
+        away_players = []
+        bajas = []
+
+        # Extraer titulares del equipo local
+        for player in home_lineup.get('players', []):
+            p = player.get('player', {})
+            name = p.get('name', '') or p.get('shortName', '')
+            position = player.get('position', '')
+            if player.get('substitute', False) is False and name:
+                home_players.append(name)
+            elif name and player.get('substitute', True):
+                pass  # suplente, ignorar por ahora
+
+        # Extraer titulares del equipo visitante
+        for player in away_lineup.get('players', []):
+            p = player.get('player', {})
+            name = p.get('name', '') or p.get('shortName', '')
+            if player.get('substitute', False) is False and name:
+                away_players.append(name)
+
+        # Si no hay datos de substitute flag, usar los primeros 11
+        if not home_players:
+            all_home = [
+                (pl.get('player', {}).get('name', '') or pl.get('player', {}).get('shortName', ''))
+                for pl in home_lineup.get('players', [])
+                if pl.get('player', {}).get('name', '')
+            ]
+            home_players = all_home[:11]
+
+        if not away_players:
+            all_away = [
+                (pl.get('player', {}).get('name', '') or pl.get('player', {}).get('shortName', ''))
+                for pl in away_lineup.get('players', [])
+                if pl.get('player', {}).get('name', '')
+            ]
+            away_players = all_away[:11]
+
+        if home_players or away_players:
+            print(f"    [SofaScore] ✅ Alineaciones: {len(home_players)} local + {len(away_players)} visitante")
+            return {
+                'home': home_players[:11],
+                'away': away_players[:11],
+                'bajas': bajas,
+                'source': f'SofaScore (confirmadas)',
+                'verification_link': f"https://www.sofascore.com/es/partido/{event_id}",
+                '_is_fallback': False
+            }
+    except Exception as e:
+        print(f"    [SofaScore] Error obteniendo alineaciones: {e}")
+
+    return None
+
+
+def fetch_referee_besoccer(home: str, away: str) -> Optional[Dict]:
+    """
+    Intenta obtener árbitro de BeSoccer via requests simples.
+    """
+    import unicodedata
+
+    def slugify(name):
+        name = unicodedata.normalize('NFD', name)
+        name = ''.join(c for c in name if unicodedata.category(c) != 'Mn')
+        return name.lower().replace(' ', '-').replace('.', '').replace("'", '').replace('ñ', 'n')
+
+    slugs_home = [slugify(home), slugify(home.split()[-1])]
+    slugs_away = [slugify(away), slugify(away.split()[-1])]
+
+    urls = []
+    for sh in slugs_home:
+        for sa in slugs_away:
+            urls.append(f"https://es.besoccer.com/partido/{sh}-{sa}")
+
+    from bs4 import BeautifulSoup
+
+    for url in urls[:3]:
+        try:
+            resp = requests.get(url, headers=HEADERS_WEB, timeout=10)
+            if resp.status_code != 200:
+                continue
+            soup = BeautifulSoup(resp.text, 'html.parser')
+
+            # Estrategia 1: clases específicas
+            for el in soup.find_all(class_=re.compile(r'referee|arbitro|juez|ref-name', re.I)):
+                name = el.get_text(separator=' ', strip=True)
+                name = re.sub(r'[Áá]rbitro[:\s]*', '', name).strip()
+                if 2 <= len(name.split()) <= 4 and not name[0].isdigit():
+                    return {'name': name, 'source': 'BeSoccer', 'verification_link': url, '_is_fallback': False}
+
+            # Estrategia 2: búsqueda en texto
+            for line in soup.get_text(separator='\n').split('\n'):
+                line = line.strip()
+                if ('árbitro' in line.lower() or 'arbitro' in line.lower()) and len(line) < 80:
+                    name = re.sub(r'[Áá]rbitro[:\s]*', '', line, flags=re.I).strip()
+                    if 2 <= len(name.split()) <= 4:
+                        return {'name': name, 'source': 'BeSoccer', 'verification_link': url, '_is_fallback': False}
+        except Exception as e:
+            print(f"    [BeSoccer] Error: {e}")
+
+    return None
+
+
+def _fallback_referee(home: str, away: str, match_date: datetime, league: str) -> Dict:
+    """Devuelve un árbitro del pool de referencia (determinista por partido)."""
+    import hashlib
+    from src.models.base import RefereeStrictness
+
+    # Normalizar liga
+    pool = REFEREE_POOLS.get('La Liga')  # default
+    for key in REFEREE_POOLS:
+        if key.lower() in league.lower():
+            pool = REFEREE_POOLS[key]
+            break
+
+    match_id = f"{home}-{away}-{match_date.strftime('%Y%m%d')}"
+    idx = int(hashlib.md5(match_id.encode()).hexdigest(), 16) % len(pool)
+    ref = pool[idx]
+
+    return {
+        'name': ref['name'],
+        'avg_cards': ref['avg_cards'],
+        'strictness': RefereeStrictness.MEDIUM,
+        'source': 'Pool de referencia (introduce árbitro manualmente si lo conoces)',
+        'verification_link': 'https://www.rfef.es/noticias/arbitros/designaciones',
+        '_is_fallback': True
+    }
+
+
+def _enrich_referee(ref: Dict) -> Dict:
+    """Añade strictness y avg_cards al dict de árbitro."""
+    from src.models.base import RefereeStrictness
+    name = ref.get('name', '').lower()
+
+    strict = ['gil manzano', 'hernández hernández', 'mateu lahoz', 'taylor', 'brych']
+    lenient = ['díaz de mera', 'munuera', 'del cerro', 'trujillo', 'oliver', 'turpin']
+
+    if any(s in name for s in strict):
+        ref['strictness'] = RefereeStrictness.HIGH
+        ref['avg_cards'] = ref.get('avg_cards', 5.5)
+    elif any(s in name for s in lenient):
+        ref['strictness'] = RefereeStrictness.LOW
+        ref['avg_cards'] = ref.get('avg_cards', 3.8)
+    else:
+        ref['strictness'] = RefereeStrictness.MEDIUM
+        ref['avg_cards'] = ref.get('avg_cards', 4.3)
+
+    ref.setdefault('_is_fallback', False)
+    return ref
+
 
 class LineupFetcher:
     """
-    Simulates fetching official lineups from an external source (e.g., Flashscore).
-    In a real implementation, this would use Selenium/Soup to parse the match page.
-    For this 'Auto-Blindaje' demo, it queries the internal reliable data provider
-    Assuming the 'Internal DB' has the ground truth.
+    Obtiene alineaciones y árbitros para partidos de fútbol.
+    Usa SofaScore API (JSON) como fuente principal — funciona en Streamlit Cloud.
     """
-    
+
     def __init__(self, data_provider: DataProvider):
         self.data_provider = data_provider
-        self.auto_fetcher = AutoLineupFetcher(data_provider)
+        try:
+            self.auto_fetcher = AutoLineupFetcher(data_provider)
+        except Exception:
+            self.auto_fetcher = None
+        try:
+            self.ms_fetcher = MultiSourceFetcher()
+        except Exception:
+            self.ms_fetcher = None
 
     def fetch_confirmed_lineup(self, team_name: str, match_time: str) -> List[str]:
-        """
-        Simulates network call to get confirmed lineup 1 hour before match_time.
-        Returns list of player names.
-        """
-        print(f"[*] Checking lineups 1 hour before {match_time}...")
-        # Simulate Network Latency
-        time.sleep(1.0) 
-        
-        # In this demo, we assume our internal DB has the ground truth for confirmed lineups
-        team = self.data_provider.get_team_data(team_name)
-        return [p.name for p in team.players]
+        """Devuelve lista de jugadores del último partido conocido."""
+        try:
+            team = self.data_provider.get_team_data(team_name)
+            return [p.name for p in team.players[:11]]
+        except Exception:
+            return []
 
-    def fetch_match_referee(self, home_team: str, away_team: str, match_date: datetime, league: str) -> dict:
+    def fetch_smart_lineup(self, home_team_name: str, away_team_name: str,
+                           match_datetime: datetime, league: str) -> Dict:
         """
-        Fetches the assigned referee from official league sources.
-        Falls back to realistic pool if scraping fails.
+        Obtiene alineaciones usando SofaScore API primero, luego BD interna.
+        Siempre devuelve un resultado válido — nunca lanza excepción.
         """
-        print(f"🔍 Auto-fetching referee for {league}...")
-        
-        # Get league-specific scraper
-        scraper = RefereeSourceMapper.get_scraper(league)
-        
-        # Fetch referee
-        result = scraper.fetch_referee(home_team, away_team, match_date)
-        
-        print(f"  ✅ Referee: {result['name']} (Source: {result.get('source', 'Unknown')})")
-        
-        return result
+        def safe_db_fallback(msg: str) -> Dict:
+            try:
+                home_last = self.data_provider.get_last_match_lineup(home_team_name)
+                away_last = self.data_provider.get_last_match_lineup(away_team_name)
+            except Exception:
+                home_last, away_last = [], []
+            return {
+                'home': home_last, 'away': away_last,
+                'bajas_detectadas': [],
+                'source': msg,
+                'count': len(home_last) + len(away_last),
+                'status': 'fallback',
+                'is_official': False
+            }
+
+        try:
+            # Asegurar que match_datetime es un objeto datetime válido
+            if not isinstance(match_datetime, datetime):
+                try:
+                    match_datetime = datetime.combine(match_datetime, datetime.min.time())
+                except Exception:
+                    match_datetime = datetime.now()
+
+            # 1. Intentar SofaScore API
+            print(f"[LineupFetcher] Buscando alineaciones en SofaScore: {home_team_name} vs {away_team_name}")
+            sofa_result = fetch_lineups_sofascore(home_team_name, away_team_name, match_datetime, league)
+
+            if sofa_result and (sofa_result.get('home') or sofa_result.get('away')):
+                return {
+                    'home': sofa_result['home'],
+                    'away': sofa_result['away'],
+                    'bajas_detectadas': sofa_result.get('bajas', []),
+                    'source': sofa_result.get('source', 'SofaScore'),
+                    'count': len(sofa_result['home']) + len(sofa_result['away']),
+                    'status': 'confirmed' if sofa_result['home'] else 'predicted',
+                    'is_official': True,
+                    'verification_link': sofa_result.get('verification_link')
+                }
+
+            # 2. Intentar MultiSourceFetcher si está disponible
+            if self.ms_fetcher:
+                try:
+                    ms_result = self.ms_fetcher.fetch_lineup(
+                        home_team_name, away_team_name, match_datetime, league
+                    )
+                    if ms_result.get('home') or ms_result.get('away'):
+                        return {
+                            'home': ms_result['home'],
+                            'away': ms_result['away'],
+                            'bajas_detectadas': ms_result.get('bajas', []),
+                            'source': ms_result.get('source', 'MultiSource'),
+                            'count': len(ms_result['home']) + len(ms_result['away']),
+                            'status': 'predicted_multi_source',
+                            'is_official': not ms_result.get('_is_fallback', True),
+                            'verification_link': ms_result.get('verification_link')
+                        }
+                except Exception as e:
+                    print(f"[LineupFetcher] MultiSource falló: {e}")
+
+            # 3. BD interna
+            print(f"[LineupFetcher] Usando BD interna para {home_team_name} vs {away_team_name}")
+            return safe_db_fallback('BD Interna (alineación tipo del último partido)')
+
+        except Exception as e:
+            print(f"[LineupFetcher] Error general en fetch_smart_lineup: {e}")
+            return safe_db_fallback(f'BD Interna (error recuperado)')
+
+    def fetch_match_referee(self, home_team: str, away_team: str,
+                            match_date: datetime, league: str) -> dict:
+        """
+        Obtiene el árbitro designado para el partido.
+        Cascada: SofaScore API → BeSoccer → Pool de referencia
+        Siempre devuelve un resultado válido.
+        """
+        if not isinstance(match_date, datetime):
+            try:
+                match_date = datetime.combine(match_date, datetime.min.time())
+            except Exception:
+                match_date = datetime.now()
+
+        print(f"[LineupFetcher] Buscando árbitro para {league}: {home_team} vs {away_team}")
+
+        # 1. SofaScore API
+        try:
+            ref = fetch_referee_sofascore(home_team, away_team, match_date, league)
+            if ref:
+                return _enrich_referee(ref)
+        except Exception as e:
+            print(f"[LineupFetcher] SofaScore referee falló: {e}")
+
+        # 2. BeSoccer
+        try:
+            ref = fetch_referee_besoccer(home_team, away_team)
+            if ref:
+                return _enrich_referee(ref)
+        except Exception as e:
+            print(f"[LineupFetcher] BeSoccer falló: {e}")
+
+        # 3. MultiSourceFetcher legacy
+        if self.ms_fetcher:
+            try:
+                result = self.ms_fetcher.fetch_referee(home_team, away_team, match_date, league)
+                if result and not result.get('_is_fallback'):
+                    return _enrich_referee(result)
+            except Exception as e:
+                print(f"[LineupFetcher] MultiSource referee falló: {e}")
+
+        # 4. Fallback pool
+        print(f"[LineupFetcher] Usando pool de referencia para {home_team} vs {away_team}")
+        return _fallback_referee(home_team, away_team, match_date, league)
 
     def fetch_injuries(self, league: str) -> Dict:
-        """Fetch injury report for a league."""
-        return self.auto_fetcher.fetch_injuries_auto(league)
+        """Obtiene informe de lesiones para una liga."""
+        try:
+            if self.auto_fetcher:
+                return self.auto_fetcher.fetch_injuries_auto(league)
+        except Exception:
+            pass
+        return {}
 
     def fetch_from_url(self, url: str, home_team_name: str, away_team_name: str) -> dict:
-        """
-        Scrapes a sports site for lineups using requests and BeautifulSoup.
-        """
-        import requests
-        from bs4 import BeautifulSoup
-        import re
-        
-        print(f"📡 Accessing: {url} ...")
-        
-        extracted_names = set()
-        
+        """Scraping manual de una URL específica para alineaciones."""
         try:
-            # 1. Fetch Content
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+            from bs4 import BeautifulSoup
+            headers = HEADERS_WEB
             resp = requests.get(url, headers=headers, timeout=10)
             resp.raise_for_status()
-            html = resp.text
-            soup = BeautifulSoup(html, 'html.parser')
-            
-            # --- FIX: Handle Redirect to Main Page / Multiple Matches ---
-            # If we are on the main lineups page, we need to find the specific match ID and fetch via AJAX
-            page_title = soup.title.string if soup.title else ""
-            if "Football Lineups" in page_title or len(soup.find_all(class_='lineup-row')) > 5:
-                print(f"  ⚠️ Redirected to main page. Searching for match: {home_team_name} vs {away_team_name}...")
-                
-                # Normalize names for search (simple check)
-                home_simple = home_team_name.split()[0] if home_team_name else ""
-                away_simple = away_team_name.split()[0] if away_team_name else ""
-                
-                # Find the match container
-                # We look for a container that has both team names
-                found_id = None
-                
-                # Regex search in HTML to be robust
-                # Look for home team, then away team (or vice-versa), then reply_click
-                # This is a bit expensive but robust
-                import re
-                
-                # Pattern: Team1 ... Team2 ... reply_click(ID) (or Team2 ... Team1)
-                # We limit the distance to avoid false positives from different matches
-                
-                # Try finding the row first
-                rows = soup.find_all(class_='lineup-row')
-                for row in rows:
-                    row_text = row.get_text()
-                    if home_simple in row_text and away_simple in row_text:
-                        # Found the row, now get the ID
-                        link = row.find('a', class_='view-lineups')
-                        if link and link.get('id'):
-                            found_id = link.get('id')
-                            print(f"  ✅ Found match ID: {found_id}")
-                            break
-                            
-                if found_id:
-                    ajax_url = f"https://www.sportsgambler.com/lineups/lineups-load2.php?id={found_id}"
-                    print(f"  🔄 Fetching AJAX content: {ajax_url}")
-                    resp_ajax = requests.get(ajax_url, headers=headers, timeout=10)
-                    if resp_ajax.status_code == 200:
-                        html = resp_ajax.text
-                        soup = BeautifulSoup(html, 'html.parser')
-                    else:
-                        print(f"  ❌ AJAX fetch failed: {resp_ajax.status_code}")
-                else:
-                    print("  ❌ Could not find match on main page.")
-            
-            # 2. Extract Names (Multiple Strategies)
-            
-            # Strategy A: Links containing 'jugadores/' or 'player/' (Updated for AJAX content)
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            extracted_names = set()
+
             for a in soup.find_all('a', href=True):
                 href = a['href'].lower()
                 if 'jugadores/' in href or 'player/' in href:
-                    # Try text first, then slug
                     name = a.get_text().strip()
                     if name and len(name.split()) > 1:
                         extracted_names.add(name)
-                    else:
-                        slug = href.split('/')[-1].replace("-", " ").title()
-                        if len(slug) > 3:
-                            extracted_names.add(slug)
 
-            # Strategy B: Images with alt tags (common in lineup grids)
             for img in soup.find_all('img', alt=True):
                 alt = img['alt'].strip()
                 if alt and len(alt.split()) > 1:
-                    # Filter out non-player info
-                    if not any(x in alt.lower() for x in ["escudo", "logo", "estadio", "entrenador"]):
+                    if not any(x in alt.lower() for x in ['escudo', 'logo', 'estadio']):
                         extracted_names.add(alt)
 
-            # Strategy C: Raw text with regex (Fallback)
-            # Find names like "Iago Aspas", "L. Messi"
-            # This is risky but can work if scraping fails
-            raw_regex = re.findall(r'>\s*([A-Z][a-z]+(?:\s[A-Z][a-z]+)+)\s*<', html)
-            for name in raw_regex:
-                extracted_names.add(name)
-
-            # Strategy D: Spans with class 'player-name' (Common in AJAX loaded lineups)
             for span in soup.find_all('span', class_='player-name'):
                 name = span.get_text().strip()
                 if name and len(name.split()) > 1:
                     extracted_names.add(name)
 
+            if not extracted_names:
+                return {'error': 'No se detectaron jugadores en el enlace.', 'home': [], 'away': []}
+
+            return {
+                'home': list(extracted_names)[:11],
+                'away': list(extracted_names)[11:22] if len(extracted_names) > 11 else [],
+                'source': url,
+                'count': len(extracted_names)
+            }
         except Exception as e:
-            return {"error": f"Scraping failed: {str(e)}", "home": [], "away": []}
-
-        # 3. Smart Sorting (Map found names to Rosters)
-        found_home = []
-        found_away = []
-        
-        team_home = self.data_provider.get_team_data(home_team_name)
-        team_away = self.data_provider.get_team_data(away_team_name)
-        
-        def fuzzy_match(scraped_name, roster):
-            # Token-based match with high precision
-            scraped_tokens = set(scraped_name.lower().split())
-            if not scraped_tokens: return None
-            
-            for p in roster:
-                p_tokens = set(p.name.lower().split())
-                # If all tokens of the roster name are in the scraped name, or vice versa
-                if p_tokens.issubset(scraped_tokens) or scraped_tokens.issubset(p_tokens):
-                    return p.name
-                # Partial match (e.g. "Aspas" match "Iago Aspas")
-                if len(scraped_tokens.intersection(p_tokens)) >= 1:
-                    # Extra check for common surnames
-                    return p.name
-            return None
-
-        # Process Home
-        if team_home:
-            for scraped in extracted_names:
-                match = fuzzy_match(scraped, team_home.players)
-                if match and match not in found_home:
-                    found_home.append(match)
-                    
-        # Process Away
-        if team_away:
-            for scraped in extracted_names:
-                match = fuzzy_match(scraped, team_away.players)
-                if match and match not in found_away:
-                    found_away.append(match)
-        
-        # 4. Result Verification
-        if not found_home and not found_away:
-
-             
-             return {"error": "No se detectaron jugadores conocidos en el enlace.", "home": [], "away": []}
-             
-        return {
-            "home": sorted(found_home),
-            "away": sorted(found_away),
-            "source": url,
-            "count": len(found_home) + len(found_away)
-        }
+            return {'error': f'Error al acceder al enlace: {str(e)}', 'home': [], 'away': []}
 
     def extract_from_image(self, image_bytes: bytes, home_team_name: str, away_team_name: str) -> dict:
-        """
-        Processes an image (bytes) to extract player names using OCR.
-        """
-        import pytesseract
-        from PIL import Image
-        import io
-        import re
-        
-        print(f"📸 Processing image for {home_team_name} vs {away_team_name}...")
-        
-        try:
-            # 1. Load Image
-            img = Image.open(io.BytesIO(image_bytes))
-            
-            # 2. OCR Extraction
-            text = pytesseract.image_to_string(img, lang='spa+eng')
-            
-            # 3. Text Cleaning & Name Extraction
-            lines = text.split('\n')
-            extracted_names = set()
-            
-            for line in lines:
-                clean = line.strip()
-                # Basic name filter: at least 2 words, no numbers/symbols
-                if len(clean.split()) >= 2 and re.match(r'^[A-Z][a-z\u00C0-\u017F]+(?:\s[A-Z][a-z\u00C0-\u017F]+)+$', clean):
-                    extracted_names.add(clean)
-                else:
-                    # Fallback: look for names within line
-                    matches = re.findall(r'([A-Z][a-z\u00C0-\u017F]+(?:\s[A-Z][a-z\u00C0-\u017F]+)+)', clean)
-                    for m in matches:
-                        extracted_names.add(m)
+        """Procesamiento de imagen para extraer jugadores (requiere tesseract)."""
+        return {'error': 'OCR no disponible en esta versión.', 'home': [], 'away': []}
 
-            if not extracted_names:
-                # Last resort: just get all words and try fuzzy matching later
-                words = re.findall(r'\b[A-Z][a-z\u00C0-\u017F]+\b', text)
-                extracted_names = set(words)
-
-        except Exception as e:
-            return {"error": f"OCR failed: {str(e)}. Asegúrate de que Tesseract está instalado.", "home": [], "away": []}
-
-        # 4. Sorting with Existing Logic
-        found_home = []
-        found_away = []
-        
-        team_home = self.data_provider.get_team_data(home_team_name)
-        team_away = self.data_provider.get_team_data(away_team_name)
-        
-        def fuzzy_match(scraped_name, roster):
-            scraped_tokens = set(scraped_name.lower().split())
-            if not scraped_tokens: return None
-            for p in roster:
-                p_tokens = set(p.name.lower().split())
-                if p_tokens.issubset(scraped_tokens) or scraped_tokens.issubset(p_tokens):
-                    return p.name
-                if len(scraped_tokens.intersection(p_tokens)) >= 1:
-                    return p.name
-            return None
-
-        if team_home:
-            for scraped in extracted_names:
-                match = fuzzy_match(scraped, team_home.players)
-                if match and match not in found_home:
-                    found_home.append(match)
-                    
-        if team_away:
-            for scraped in extracted_names:
-                match = fuzzy_match(scraped, team_away.players)
-                if match and match not in found_away:
-                    found_away.append(match)
-        
-        if not found_home and not found_away:
-             return {"error": "No se reconocieron nombres de jugadores conocidos en la imagen.", "home": [], "away": []}
-             
-        return {
-            "home": sorted(found_home),
-            "away": sorted(found_away),
-            "count": len(found_home) + len(found_away),
-            "method": "OCR"
-        }
