@@ -374,8 +374,41 @@ else:
 
         st.markdown('<h4 style="color: #fdffcc;">🔍 Ajuste de Piezas Críticas</h4>', unsafe_allow_html=True)
         v1, v2 = st.columns(2)
-        with v1: c_home = render_lineup_check_ui(home_team.name, home_team.players, side="home")
-        with v2: c_away = render_lineup_check_ui(away_team.name, away_team.players, side="away")
+
+        # Usar jugadores de SofaScore si están disponibles, si no usar BD interna
+        if st.session_state.lineups_confirmed and st.session_state.fetched_lineups:
+            from src.models.base import Player, PlayerPosition, PlayerStatus
+            fetched_h = st.session_state.fetched_lineups.get('home', [])
+            fetched_a = st.session_state.fetched_lineups.get('away', [])
+
+            def names_to_players(names, team_name):
+                players = []
+                for i, name in enumerate(names):
+                    players.append(Player(
+                        id=f"f_{i}_{name[:4]}",
+                        name=name,
+                        team_name=team_name,
+                        position=PlayerPosition.MIDFIELDER,
+                        status=PlayerStatus.TITULAR,
+                        rating_last_5=7.0
+                    ))
+                return players
+
+            if fetched_h:
+                home_players_ui = names_to_players(fetched_h, home_team.name)
+            else:
+                home_players_ui = home_team.players
+
+            if fetched_a:
+                away_players_ui = names_to_players(fetched_a, away_team.name)
+            else:
+                away_players_ui = away_team.players
+        else:
+            home_players_ui = home_team.players
+            away_players_ui = away_team.players
+
+        with v1: c_home = render_lineup_check_ui(home_team.name, home_players_ui, side="home")
+        with v2: c_away = render_lineup_check_ui(away_team.name, away_players_ui, side="away")
 
         # --- PREDICTION ---
         st.divider()
@@ -514,5 +547,3 @@ with st.sidebar:
 
 if st.session_state.get("sh"):
     render_historical_dashboard(bpa_engine.kb)
-
-
