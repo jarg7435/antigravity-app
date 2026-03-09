@@ -20,9 +20,22 @@ import requests
 import re
 from datetime import datetime, timedelta
 from src.data.interface import DataProvider
-from src.data.auto_lineup_fetcher import AutoLineupFetcher
-from src.data.referee_source_mapper import RefereeSourceMapper
-from src.data.multi_source_fetcher import MultiSourceFetcher
+
+# Importaciones opcionales — si no existen no rompen la app
+try:
+    from src.data.auto_lineup_fetcher import AutoLineupFetcher
+except ImportError:
+    AutoLineupFetcher = None
+
+try:
+    from src.data.referee_source_mapper import RefereeSourceMapper
+except ImportError:
+    RefereeSourceMapper = None
+
+try:
+    from src.data.multi_source_fetcher import MultiSourceFetcher
+except ImportError:
+    MultiSourceFetcher = None
 
 HEADERS_SOFA = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
@@ -592,7 +605,3 @@ class LineupFetcher:
     def extract_from_image(self, image_bytes: bytes, home_team_name: str, away_team_name: str) -> dict:
         """Procesamiento de imagen para extraer jugadores (requiere tesseract)."""
         return {'error': 'OCR no disponible en esta versión.', 'home': [], 'away': []}
-
-
-
-
