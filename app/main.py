@@ -514,3 +514,5 @@ with st.sidebar:
 
 if st.session_state.get("sh"):
     render_historical_dashboard(bpa_engine.kb)
+
+
