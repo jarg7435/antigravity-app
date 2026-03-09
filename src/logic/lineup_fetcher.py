@@ -240,7 +240,8 @@ def fetch_referee_sofascore(home: str, away: str, match_date: datetime, league: 
 
 def fetch_lineups_sofascore(home: str, away: str, match_date: datetime, league: str, event_id: int = None) -> Optional[Dict]:
     """
-    Obtiene las alineaciones confirmadas de un partido vía API JSON de SofaScore.
+    Obtiene las alineaciones de un partido vía API JSON de SofaScore.
+    Funciona tanto para alineaciones PROBABLES (antes del partido) como CONFIRMADAS (1h antes).
     """
     print(f"    [SofaScore] Buscando alineaciones: {home} vs {away}")
 
@@ -253,65 +254,115 @@ def fetch_lineups_sofascore(home: str, away: str, match_date: datetime, league: 
     try:
         url = f"https://api.sofascore.com/api/v1/event/{event_id}/lineups"
         resp = requests.get(url, headers=HEADERS_SOFA, timeout=10)
-        if resp.status_code != 200:
-            print(f"    [SofaScore] Alineaciones no disponibles aún (HTTP {resp.status_code})")
+        if resp.status_code == 404:
+            print(f"    [SofaScore] Alineaciones aún no publicadas (404)")
+            # Intentar con el endpoint de probable lineups
+            url2 = f"https://api.sofascore.com/api/v1/event/{event_id}/pregame-form"
+            resp2 = requests.get(url2, headers=HEADERS_SOFA, timeout=10)
+            if resp2.status_code != 200:
+                return None
+        elif resp.status_code != 200:
+            print(f"    [SofaScore] Error HTTP {resp.status_code}")
             return None
 
         data = resp.json()
+        confirmed = data.get('confirmed', False)
+
         home_lineup = data.get('home', {})
         away_lineup = data.get('away', {})
 
         home_players = []
         away_players = []
-        bajas = []
 
-        # Extraer titulares del equipo local
-        for player in home_lineup.get('players', []):
-            p = player.get('player', {})
-            name = p.get('name', '') or p.get('shortName', '')
-            position = player.get('position', '')
-            if player.get('substitute', False) is False and name:
-                home_players.append(name)
-            elif name and player.get('substitute', True):
-                pass  # suplente, ignorar por ahora
+        def extract_players(lineup_data):
+            players = []
+            for player_entry in lineup_data.get('players', []):
+                p = player_entry.get('player', {})
+                name = p.get('name', '') or p.get('shortName', '')
+                is_sub = player_entry.get('substitute', False)
+                if name and not is_sub:
+                    players.append(name)
+            # Si no hay flag substitute, tomar los primeros 11
+            if not players:
+                for player_entry in lineup_data.get('players', []):
+                    p = player_entry.get('player', {})
+                    name = p.get('name', '') or p.get('shortName', '')
+                    if name:
+                        players.append(name)
+                players = players[:11]
+            return players
 
-        # Extraer titulares del equipo visitante
-        for player in away_lineup.get('players', []):
-            p = player.get('player', {})
-            name = p.get('name', '') or p.get('shortName', '')
-            if player.get('substitute', False) is False and name:
-                away_players.append(name)
-
-        # Si no hay datos de substitute flag, usar los primeros 11
-        if not home_players:
-            all_home = [
-                (pl.get('player', {}).get('name', '') or pl.get('player', {}).get('shortName', ''))
-                for pl in home_lineup.get('players', [])
-                if pl.get('player', {}).get('name', '')
-            ]
-            home_players = all_home[:11]
-
-        if not away_players:
-            all_away = [
-                (pl.get('player', {}).get('name', '') or pl.get('player', {}).get('shortName', ''))
-                for pl in away_lineup.get('players', [])
-                if pl.get('player', {}).get('name', '')
-            ]
-            away_players = all_away[:11]
+        home_players = extract_players(home_lineup)
+        away_players = extract_players(away_lineup)
 
         if home_players or away_players:
-            print(f"    [SofaScore] ✅ Alineaciones: {len(home_players)} local + {len(away_players)} visitante")
+            status = 'confirmadas' if confirmed else 'probables'
+            print(f"    [SofaScore] ✅ Alineaciones {status}: {len(home_players)} local + {len(away_players)} visitante")
             return {
                 'home': home_players[:11],
                 'away': away_players[:11],
-                'bajas': bajas,
-                'source': f'SofaScore (confirmadas)',
+                'bajas': [],
+                'source': f'SofaScore ({status})',
                 'verification_link': f"https://www.sofascore.com/es/partido/{event_id}",
-                '_is_fallback': False
+                '_is_fallback': False,
+                'confirmed': confirmed
             }
     except Exception as e:
         print(f"    [SofaScore] Error obteniendo alineaciones: {e}")
 
+    return None
+
+
+def fetch_lineups_flashscore(home: str, away: str, match_date: datetime) -> Optional[Dict]:
+    """
+    Intenta obtener alineaciones probables de Flashscore.
+    Flashscore publica alineaciones probables con antelación.
+    """
+    try:
+        import unicodedata
+
+        def slugify(name):
+            name = unicodedata.normalize('NFD', name)
+            name = ''.join(c for c in name if unicodedata.category(c) != 'Mn')
+            return name.lower().replace(' ', '-').replace('.', '').replace("'", '')
+
+        home_slug = slugify(home)
+        away_slug = slugify(away)
+
+        # Flashscore URL de partido
+        search_url = f"https://www.flashscore.com/match/{home_slug}_{away_slug}/"
+        headers_flash = {
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
+            'Accept': 'text/html,application/xhtml+xml',
+            'Accept-Language': 'es-ES,es;q=0.9',
+            'Referer': 'https://www.flashscore.com/',
+        }
+
+        from bs4 import BeautifulSoup
+        resp = requests.get(search_url, headers=headers_flash, timeout=10)
+        if resp.status_code != 200:
+            return None
+
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        home_players = []
+        away_players = []
+
+        # Buscar alineaciones en la página
+        for el in soup.find_all(class_=re.compile(r'lineup|alineacion|team-player', re.I)):
+            name = el.get_text(separator=' ', strip=True)
+            if 2 <= len(name.split()) <= 4:
+                home_players.append(name)
+
+        if home_players:
+            mid = len(home_players) // 2
+            return {
+                'home': home_players[:mid][:11],
+                'away': home_players[mid:][:11],
+                'source': 'Flashscore (probables)',
+                '_is_fallback': False
+            }
+    except Exception as e:
+        print(f"    [Flashscore] Error: {e}")
     return None
 
 
@@ -465,7 +516,7 @@ class LineupFetcher:
                 except Exception:
                     match_datetime = datetime.now()
 
-            # 1. Intentar SofaScore API
+            # 1. SofaScore API (probables + confirmadas)
             print(f"[LineupFetcher] Buscando alineaciones en SofaScore: {home_team_name} vs {away_team_name}")
             sofa_result = fetch_lineups_sofascore(home_team_name, away_team_name, match_datetime, league)
 
@@ -476,9 +527,24 @@ class LineupFetcher:
                     'bajas_detectadas': sofa_result.get('bajas', []),
                     'source': sofa_result.get('source', 'SofaScore'),
                     'count': len(sofa_result['home']) + len(sofa_result['away']),
-                    'status': 'confirmed' if sofa_result['home'] else 'predicted',
+                    'status': 'confirmed' if sofa_result.get('confirmed') else 'probable',
                     'is_official': True,
                     'verification_link': sofa_result.get('verification_link')
+                }
+
+            # 2. Flashscore como alternativa
+            print(f"[LineupFetcher] Intentando Flashscore...")
+            flash_result = fetch_lineups_flashscore(home_team_name, away_team_name, match_datetime)
+            if flash_result and (flash_result.get('home') or flash_result.get('away')):
+                return {
+                    'home': flash_result['home'],
+                    'away': flash_result['away'],
+                    'bajas_detectadas': [],
+                    'source': flash_result.get('source', 'Flashscore'),
+                    'count': len(flash_result['home']) + len(flash_result['away']),
+                    'status': 'probable',
+                    'is_official': False,
+                    'verification_link': None
                 }
 
             # 2. Intentar MultiSourceFetcher si está disponible
