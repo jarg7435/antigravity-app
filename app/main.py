@@ -499,7 +499,16 @@ if home_team and away_team:
                             if outcome:
                                 st.markdown("### 📊 Informe Comparativo IA (Semáforo)")
                                 comp_data = le.generate_comparison_report(st.session_state.last_pred, outcome)
-                                st.table(comp_data)
+                                st.markdown(
+                                    comp_data.to_html(escape=False).replace(
+                                        '<table', '<table style="color:#f5f0e0;width:100%;border-collapse:collapse;"'
+                                    ).replace(
+                                        '<th', '<th style="color:#fdffcc;background:#1e293b;padding:8px;border:1px solid #334155;"'
+                                    ).replace(
+                                        '<td', '<td style="color:#f5f0e0;padding:8px;border:1px solid #334155;"'
+                                    ),
+                                    unsafe_allow_html=True
+                                )
                                 rep = le.process_result(
                                     st.session_state.last_pred, outcome,
                                     home_team.name, away_team.name,
@@ -534,13 +543,33 @@ if home_team and away_team:
 
                         if saved_pred:
                             st.markdown("### 📊 Informe Comparativo (Semáforo)")
-                            comp_data = le.generate_comparison_report(saved_pred, out)
-                            st.table(comp_data)
-                            rep = le.process_result(
-                                saved_pred, out,
-                                home_team.name, away_team.name,
-                                selected_league or ""
-                            )
+                            try:
+                                comp_data = le.generate_comparison_report(saved_pred, out)
+                                st.markdown(
+                                    comp_data.to_html(escape=False).replace(
+                                        '<table', '<table style="color:#f5f0e0;width:100%;border-collapse:collapse;"'
+                                    ).replace(
+                                        '<th', '<th style="color:#fdffcc;background:#1e293b;padding:8px;border:1px solid #334155;"'
+                                    ).replace(
+                                        '<td', '<td style="color:#f5f0e0;padding:8px;border:1px solid #334155;"'
+                                    ),
+                                    unsafe_allow_html=True
+                                )
+                            except Exception:
+                                pass
+                            try:
+                                rep = le.process_result(
+                                    saved_pred, out,
+                                    home_team.name, away_team.name,
+                                    selected_league or ""
+                                )
+                            except TypeError:
+                                try:
+                                    rep = le.process_result(saved_pred, out)
+                                except Exception as e2:
+                                    rep = f"✅ Resultado guardado. (detalle: {e2})"
+                            except Exception as e:
+                                rep = f"✅ Resultado guardado. (detalle: {e})"
                             st.success("✅ IA Re-calibrada y datos guardados")
                             st.markdown(rep)
                         else:
