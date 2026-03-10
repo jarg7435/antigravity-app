@@ -120,7 +120,12 @@ def render_prediction_cards(result: PredictionResult):
         sorted_matrix = sorted(result.poisson_matrix.items(), key=lambda x: x[1], reverse=True)[:5]
         cols = st.columns(len(sorted_matrix))
         for i, (score, prob) in enumerate(sorted_matrix):
-            cols[i].metric(score, f"{prob*100:.1f}%")
+            cols[i].markdown(f"""
+                <div style="text-align: center; background: rgba(15, 23, 42, 0.4); padding: 10px; border-radius: 10px; border: 1px solid rgba(0, 212, 255, 0.1);">
+                    <div style="color: #ffffff; font-size: 0.9rem; font-weight: 700; margin-bottom: 5px;">{score}</div>
+                    <div style="color: #fdffcc; font-size: 1.6rem; font-weight: 900; letter-spacing: -0.5px;">{prob*100:.1f}%</div>
+                </div>
+            """, unsafe_allow_html=True)
 
     # 3. Secondary Markets
     st.markdown("#### 📈 Mercados Secundarios")
@@ -322,41 +327,127 @@ def render_result_validation_form():
             }
     return None
 
-def render_historical_dashboard(kb):
-    st.markdown("### 📊 Tablero de Evolución y Análisis")
-    
-    stats = kb.get_stats()
-    factors = kb.get_factors()
-    
-    # Metrics
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Total Predicciones", stats["total"])
-    c2.metric("Aciertos (Hits)", stats["hits"])
-    c3.metric("Fallos (Misses)", stats["misses"])
-    
-    if stats["total"] > 0:
-        accuracy = (stats["hits"] / stats["total"]) * 100
-        st.progress(accuracy / 100, text=f"Precisión Global del Modelo: {accuracy:.1f}%")
-    else:
-        st.markdown('<p style="color: #fdffcc; font-size: 1rem; font-weight: bold;">⚠️ Sin datos históricos suficientes. Valida partidos para entrenar a la IA.</p>', unsafe_allow_html=True)
-        
+def render_historical_dashboard(db_manager=None, kb=None):
+    st.markdown("### 📊 Dashboard de Aprendizaje Profundo")
+
+    # Soporte tanto para db_manager nuevo como kb legacy
+    if db_manager is None and kb is not None:
+        # Fallback al sistema legacy
+        stats = kb.get_stats()
+        factors = kb.get_factors()
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Total Predicciones", stats.get("total", 0))
+        c2.metric("Aciertos", stats.get("hits", 0))
+        c3.metric("Fallos", stats.get("misses", 0))
+        if stats.get("total", 0) > 0:
+            acc = stats["hits"] / stats["total"] * 100
+            st.progress(acc / 100, text=f"Precisión Global: {acc:.1f}%")
+        return
+
+    # Dashboard completo con db_manager
+    try:
+        stats = db_manager.get_total_stats()
+        team_factors = db_manager.get_all_team_factors()
+        mercados = stats.get("mercados", {})
+        total = stats.get("total_partidos", 0)
+        modo = db_manager.modo
+    except Exception as e:
+        st.warning(f"Error cargando estadísticas: {e}")
+        return
+
+    # --- Modo de persistencia ---
+    st.caption(f"🗄️ Base de datos: **{modo}**")
+    if "SQLite" in modo:
+        st.warning("⚠️ Los datos se perderán al redesplegar la app. Configura **SUPABASE_URL** y **SUPABASE_KEY** en los Secrets de Streamlit para persistencia permanente.")
+
+    if total == 0:
+        st.info("💡 Aún no hay partidos validados. Usa la Zona de Aprendizaje tras cada partido para entrenar al sistema.")
+        return
+
+    # --- KPIs globales ---
+    st.markdown("#### 🎯 Precisión por Mercado")
+    cols = st.columns(4)
+    mercado_config = [
+        ("1X2",       "🏆 Ganador",    "#00d4ff"),
+        ("Córners",   "🚩 Córners",    "#ffd700"),
+        ("Tarjetas",  "🟨 Tarjetas",   "#ff6b6b"),
+        ("Remates",   "⚽ Remates",    "#51cf66"),
+    ]
+    for i, (key, label, color) in enumerate(mercado_config):
+        m = mercados.get(key, {})
+        prec = m.get("precision", 0)
+        tot = m.get("total", 0)
+        err = m.get("error_medio", 0)
+        with cols[i]:
+            st.markdown(f"""
+            <div style="background: rgba(255,255,255,0.05); border-radius: 10px;
+                        padding: 12px; text-align: center; border-left: 3px solid {color};">
+                <div style="color: {color}; font-size: 1.1rem; font-weight: bold;">{label}</div>
+                <div style="color: white; font-size: 2rem; font-weight: 900;">{prec}%</div>
+                <div style="color: #aaa; font-size: 0.75rem;">{tot} partidos | Error medio: {err}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
     st.divider()
-    
-    st.markdown("#### 🧠 Factores Aprendidos (Team Bias)")
-    st.markdown('<p style="color: #fdffcc; font-size: 0.8rem; font-weight: bold;">Ajustes permanentes que la IA aplica a equipos específicos basados en el rendimiento histórico.</p>', unsafe_allow_html=True)
-    
-    if factors:
-        # Convert nested dict to flat list for dataframe
-        flat_data = []
-        for team, biases in factors.items():
-            flat_data.append({
-                "Equipo": team, 
-                "Factor Local (+Bias)": biases.get("home_bias", 0),
-                "Factor Visitante (+Bias)": biases.get("away_bias", 0)
+
+    # --- Factores de equipo aprendidos ---
+    st.markdown("#### 🧠 Factores de Corrección Aprendidos por Equipo")
+    st.caption("El sistema ajusta automáticamente las probabilidades de cada equipo basándose en sus errores históricos.")
+
+    if team_factors:
+        table_data = []
+        for t in team_factors:
+            sl = float(t.get("sesgo_local", 0))
+            sv = float(t.get("sesgo_visitante", 0))
+            se = float(t.get("sesgo_empate", 0))
+            tp = int(t.get("total_partidos", 0))
+            if tp == 0:
+                continue
+            # Interpretación del sesgo
+            def interpret(val):
+                if val > 0.03: return f"+{val:.3f} ⬆️ subestimado históricamente"
+                if val < -0.03: return f"{val:.3f} ⬇️ sobreestimado históricamente"
+                return f"{val:+.3f} ✅ calibrado"
+
+            table_data.append({
+                "Equipo": t.get("equipo", ""),
+                "Partidos": tp,
+                "Factor Local": interpret(sl),
+                "Factor Visitante": interpret(sv),
+                "Factor Empate": f"{se:+.3f}",
             })
-        st.dataframe(pd.DataFrame(flat_data))
+
+        if table_data:
+            st.dataframe(
+                pd.DataFrame(table_data),
+                use_container_width=True,
+                hide_index=True
+            )
     else:
-        st.markdown('<p style="color: #fdffcc; font-size: 1rem; font-weight: bold;">💡 La IA aún no ha generado factores de corrección específicos. Valida más partidos para iniciar el aprendizaje profundo.</p>', unsafe_allow_html=True)
+        st.info("Valida más partidos para que el sistema genere factores de corrección específicos.")
+
+    st.divider()
+
+    # --- Alertas de sesgo sistemático ---
+    st.markdown("#### ⚠️ Alertas de Sesgo Sistemático")
+    alertas = [
+        t for t in team_factors
+        if abs(float(t.get("sesgo_local", 0))) > 0.06
+        or abs(float(t.get("sesgo_visitante", 0))) > 0.06
+    ]
+    if alertas:
+        for t in alertas[:5]:
+            sl = float(t.get("sesgo_local", 0))
+            sv = float(t.get("sesgo_visitante", 0))
+            equipo = t.get("equipo", "")
+            if abs(sl) > 0.06:
+                tipo = "subestimado" if sl > 0 else "sobreestimado"
+                st.error(f"🔴 **{equipo} (Local):** {tipo} sistemáticamente (sesgo: {sl:+.3f})")
+            if abs(sv) > 0.06:
+                tipo = "subestimado" if sv > 0 else "sobreestimado"
+                st.error(f"🔴 **{equipo} (Visitante):** {tipo} sistemáticamente (sesgo: {sv:+.3f})")
+    else:
+        st.success("✅ No se detectan sesgos sistemáticos graves. El modelo está bien calibrado.")
 
 def render_lineup_check_ui(team_name: str, players: list[Player], side: str = "home"):
     st.markdown(f'<h3 style="color: #ffffff; text-decoration: underline; text-decoration-color: #00d4ff;">Alineación: {team_name}</h3>', unsafe_allow_html=True)
@@ -377,3 +468,4 @@ def render_lineup_check_ui(team_name: str, players: list[Player], side: str = "h
                 confirmed_players.append(player.name)
     
     return confirmed_players
+
