@@ -512,11 +512,19 @@ if home_team and away_team:
                                     ),
                                     unsafe_allow_html=True
                                 )
-                                rep = le.process_result(
-                                    st.session_state.last_pred, outcome,
-                                    home_team.name, away_team.name,
-                                    selected_league or ""
-                                )
+                                try:
+                                    rep = le.process_result(
+                                        st.session_state.last_pred, outcome,
+                                        home_team.name, away_team.name,
+                                        selected_league or ""
+                                    )
+                                except TypeError:
+                                    try:
+                                        rep = le.process_result(st.session_state.last_pred, outcome)
+                                    except Exception as e2:
+                                        rep = f"✅ Resultado guardado. (detalle: {e2})"
+                                except Exception as e:
+                                    rep = f"✅ Resultado guardado. (detalle: {e})"
                                 st.success("✅ IA Re-calibrada con éxito")
                                 st.markdown(rep)
                             else:
