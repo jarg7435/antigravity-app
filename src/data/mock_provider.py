@@ -16,22 +16,53 @@ class MockDataProvider(DataProvider):
         # Legacy support, though UI is moving to builder
         return []
 
+    # Alias map: selector label → internal league name
+    LEAGUE_ALIASES = {
+        "süper lig":            "super lig",
+        "primera liga":         "la liga",
+        "premier league":       "premier league",
+        "bundesliga":           "bundesliga",
+        "serie a":              "serie a",
+        "ligue 1":              "ligue 1",
+        "eredivisie":           "eredivisie",
+        "primeira liga":        "primeira liga",
+        "scottish premiership": "scottish premiership",
+        "belgian pro league":   "belgian pro league",
+        "austrian bundesliga":  "austrian bundesliga",
+        "swiss super league":   "swiss super league",
+        "ekstraklasa":          "ekstraklasa",
+        "czech first league":   "czech first league",
+        "superliga":            "superliga",
+        "allsvenskan":          "allsvenskan",
+        "eliteserien":          "eliteserien",
+        "super league":         "super league",
+        "hnl":                  "hnl",
+        "superliga":            "superliga",
+        "ukrainian premier league": "ukrainian premier league",
+        "israeli premier league":   "israeli premier league",
+        "liga profesional":     "liga profesional",
+        "brasileirao":          "brasileirao",
+    }
+
     def get_teams_by_league(self, league: str) -> List[str]:
         if not league:
             return []
-            
-        # Handle Liga Mixta (Combinada) - Return all available teams
-        # We check for 'mixta' or 'combinada' to be very robust
+
         search_term = str(league).lower()
         if "mixta" in search_term or "combinada" in search_term:
             return sorted(list(self.teams_db.keys()))
-            
-        # Robust filtering: case-insensitive and stripped
+
+        # Normalize: strip parenthetical and apply alias
         target = league.strip().lower()
         if "(" in target:
             target = target.split("(")[0].strip()
-            
-        return [name for name, team in self.teams_db.items() if (team.league.strip().lower() == target or target in team.league.strip().lower())]
+        target = self.LEAGUE_ALIASES.get(target, target)
+
+        return sorted([
+            name for name, team in self.teams_db.items()
+            if self.LEAGUE_ALIASES.get(team.league.strip().lower(), team.league.strip().lower()) == target
+            or target in team.league.strip().lower()
+        ])
 
     def get_team_data(self, team_name: str) -> Team:
         if not team_name:
@@ -199,6 +230,65 @@ class MockDataProvider(DataProvider):
                 teams[name] = self._create_team(name, "Ligue 1", ["Chevalier", "Tiago Santos", "Diakité", "Alexsandro", "Gudmundsson", "André", "Angel Gomes", "Zhegrova", "Cabella", "Sahraoui", "David"], base_rating=7.8)
             else:
                 teams[name] = self._create_dummy_team(name, "Ligue 1", base_rating=7.0)
+
+        # --- SUPER LIG (Turquia) ---
+        super_lig_teams = [
+            "Galatasaray", "Fenerbahce", "Besiktas", "Trabzonspor",
+            "Basaksehir", "Sivasspor", "Konyaspor", "Kayserispor",
+            "Rizespor", "Antalyaspor", "Gaziantep", "Alanyaspor",
+            "Kasimpasa", "Samsunspor", "Adana Demirspor", "Hatayspor",
+        ]
+        for name in super_lig_teams:
+            if name == "Galatasaray":
+                teams[name] = self._create_team(name, "Super Lig", ["Muslera", "Boey", "Davinson Sanchez", "Bardakci", "Angelino", "Demirbay", "Torreira", "Zaha", "Mertens", "Icardi", "Ziyech"], base_rating=8.5, avg_xg=2.1, avg_xg_c=0.9)
+            elif name == "Fenerbahce":
+                teams[name] = self._create_team(name, "Super Lig", ["Livakovic", "Osayi-Samuel", "Djiku", "Oosterwolde", "Crespo", "Fred", "Ismail Yuksek", "Szymanski", "Tadic", "Dzeko", "Batshuayi"], base_rating=8.4, avg_xg=2.0, avg_xg_c=0.95)
+            elif name == "Besiktas":
+                teams[name] = self._create_team(name, "Super Lig", ["Mert Gunok", "Nkoudou", "Vida", "Hadziahmetovic", "Al-Musrati", "Rafa Silva", "Mitrovic", "Salih Ucan", "Gedson", "Immobile", "Rashica"], base_rating=7.9, avg_xg=1.8, avg_xg_c=1.1)
+            elif name == "Trabzonspor":
+                teams[name] = self._create_team(name, "Super Lig", ["Ugurcan Cakir", "Vitor Hugo", "Cornelius", "Peres", "Gervinho", "Bakasetas", "Hamsik", "Berat Ozdemir", "Nwakaeme", "Djaniny", "Denswil"], base_rating=7.6)
+            elif name == "Basaksehir":
+                teams[name] = self._create_team(name, "Super Lig", ["Gunok", "Rafael", "Ponck", "Epureanu", "Clichy", "Topal", "Visca", "Tekdemir", "Giuliano", "Crivelli", "Robinho"], base_rating=7.4)
+            else:
+                teams[name] = self._create_dummy_team(name, "Super Lig", base_rating=7.0)
+
+        # --- EREDIVISIE (Holanda) ---
+        eredivisie_teams = [
+            "Ajax", "PSV", "Feyenoord", "AZ Alkmaar", "Utrecht",
+            "Twente", "Vitesse", "Groningen", "Heerenveen", "Sparta Rotterdam",
+            "Go Ahead Eagles", "Almere City", "NEC Nijmegen", "Heracles",
+        ]
+        for name in eredivisie_teams:
+            if name == "Ajax":
+                teams[name] = self._create_team(name, "Eredivisie", ["Pasveer", "Rensch", "Timber", "Hato", "Gaaei", "Berghuis", "Henderson", "Taylor", "Bergwijn", "Brobbey", "Godts"], base_rating=8.2, avg_xg=2.0, avg_xg_c=1.0)
+            elif name == "PSV":
+                teams[name] = self._create_team(name, "Eredivisie", ["Benitez", "Karsdorp", "Flamingo", "Boscagli", "Dest", "Schouten", "Veerman", "Tillman", "Bakayoko", "De Jong", "Lang"], base_rating=8.6, avg_xg=2.3, avg_xg_c=0.8)
+            elif name == "Feyenoord":
+                teams[name] = self._create_team(name, "Eredivisie", ["Wellenreuther", "Geertruida", "Trauner", "Hancko", "Hartman", "Timber", "Zerrouki", "Stengs", "Paixao", "Gimenez", "Ivanusec"], base_rating=8.3, avg_xg=2.1, avg_xg_c=0.95)
+            elif name == "AZ Alkmaar":
+                teams[name] = self._create_team(name, "Eredivisie", ["Owusu", "Sugawara", "Penetra", "Martins Indi", "Mijnans", "De Wit", "Clasie", "Odgaard", "Evjen", "Pavlidis", "van Brederode"], base_rating=7.8)
+            elif name == "Twente":
+                teams[name] = self._create_team(name, "Eredivisie", ["Unnerstall", "Salah-Eddine", "Hilgers", "Vlap", "Oosterwolde", "Sadilek", "Bruns", "Steijn", "Rots", "Van Wolfswinkel", "Sem Steijn"], base_rating=7.7)
+            else:
+                teams[name] = self._create_dummy_team(name, "Eredivisie", base_rating=7.2)
+
+        # --- PRIMEIRA LIGA (Portugal) ---
+        primeira_liga_teams = [
+            "Benfica", "FC Porto", "Sporting CP", "Braga", "Vitoria SC",
+            "Boavista", "Gil Vicente", "Casa Pia", "Famalicao", "Rio Ave",
+            "Moreirense", "Arouca", "Vizela", "Portimonense", "Estoril",
+        ]
+        for name in primeira_liga_teams:
+            if name == "Benfica":
+                teams[name] = self._create_team(name, "Primeira Liga", ["Trubin", "Bah", "Otamendi", "Silva", "Carreras", "Florentino", "Kokcü", "Di Maria", "Aursnes", "Rafa Silva", "Arthur Cabral"], base_rating=8.7, avg_xg=2.2, avg_xg_c=0.8)
+            elif name == "FC Porto":
+                teams[name] = self._create_team(name, "Primeira Liga", ["Diogo Costa", "Joao Mario", "Pepe", "Cardoso", "Wendell", "Uribe", "Grujic", "Galeno", "Pepe", "Evanilson", "Toni Martinez"], base_rating=8.5, avg_xg=2.1, avg_xg_c=0.85)
+            elif name == "Sporting CP":
+                teams[name] = self._create_team(name, "Primeira Liga", ["Israel", "Fresneda", "Coates", "Goncalo Inacio", "Nuno Santos", "Hjulmand", "Morita", "Trincao", "Edwards", "Gyokeres", "Pedro Goncalves"], base_rating=8.6, avg_xg=2.2, avg_xg_c=0.85)
+            elif name == "Braga":
+                teams[name] = self._create_team(name, "Primeira Liga", ["Matheus", "Yan Couto", "Carmo", "Oliveira", "Grimaldo", "Al Musrati", "Gorby", "Zalazar", "Rodrigues", "Banza", "Horta"], base_rating=7.8)
+            else:
+                teams[name] = self._create_dummy_team(name, "Primeira Liga", base_rating=7.2)
 
         # =====================================================================
         # LIGAS EUROPEAS — cargadas desde european_teams.py
