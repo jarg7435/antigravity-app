@@ -164,11 +164,25 @@ class ExternalAnalyst:
     }
 
     def _get_context(self, team_name):
+        # 1. Buscar en equipos de las 5 grandes ligas
         if team_name in self.TEAM_CONTEXT:
             return self.TEAM_CONTEXT[team_name]
+        # 2. Buscar en equipos europeos y resto del mundo
+        try:
+            from src.logic.european_teams import EUROPEAN_TEAMS
+            if team_name in EUROPEAN_TEAMS:
+                return EUROPEAN_TEAMS[team_name]
+            # Búsqueda parcial en europeos
+            for key, val in EUROPEAN_TEAMS.items():
+                if key.lower() in team_name.lower() or team_name.lower() in key.lower():
+                    return val
+        except ImportError:
+            pass
+        # 3. Búsqueda parcial en 5 grandes ligas
         for key, val in self.TEAM_CONTEXT.items():
             if key.lower() in team_name.lower() or team_name.lower() in key.lower():
                 return val
+        # 4. Inferencia por nombre
         name_l = team_name.lower()
         if any(x in name_l for x in ["united", "city", "town", "hotspur", "villa"]):
             return {"city": "Reino Unido", "papers": ["BBC Sport", "Sky Sports"]}
@@ -178,7 +192,42 @@ class ExternalAnalyst:
             return {"city": "Italia", "papers": ["Gazzetta dello Sport", "Corriere"]}
         if any(x in name_l for x in ["paris", "marseille", "lyon", "monaco"]):
             return {"city": "Francia", "papers": ["L'Équipe", "France Football"]}
-        return {"city": f"Ciudad de {team_name}", "papers": [f"Prensa de {team_name}", "Marca"]}
+        if any(x in name_l for x in ["ajax", "psv", "feyenoord", "eredivisie"]):
+            return {"city": "Holanda", "papers": ["De Telegraaf", "AD Sportwereld"]}
+        if any(x in name_l for x in ["benfica", "porto", "sporting", "braga"]):
+            return {"city": "Portugal", "papers": ["Record", "A Bola"]}
+        if any(x in name_l for x in ["galatasaray", "fenerbahce", "besiktas"]):
+            return {"city": "Turquía", "papers": ["Fanatik", "Fotomaç"]}
+        if any(x in name_l for x in ["celtic", "rangers", "glasgow"]):
+            return {"city": "Escocia", "papers": ["Daily Record", "The Herald"]}
+        if any(x in name_l for x in ["dinamo", "zagreb", "hajduk", "split"]):
+            return {"city": "Croacia", "papers": ["Sportske novosti", "Večernji list"]}
+        if any(x in name_l for x in ["red star", "partizan", "belgrado"]):
+            return {"city": "Serbia", "papers": ["Sportski žurnal", "Večernje novosti"]}
+        if any(x in name_l for x in ["slavia", "sparta", "plzen", "praga"]):
+            return {"city": "República Checa", "papers": ["Sport.cz", "iSport.cz"]}
+        if any(x in name_l for x in ["salzburg", "rapid", "sturm", "lask"]):
+            return {"city": "Austria", "papers": ["Kronen Zeitung", "Der Standard"]}
+        if any(x in name_l for x in ["young boys", "basel", "zürich", "zurich"]):
+            return {"city": "Suiza", "papers": ["Blick", "Tages-Anzeiger"]}
+        if any(x in name_l for x in ["legia", "lech", "wisla", "rakow"]):
+            return {"city": "Polonia", "papers": ["Przegląd Sportowy", "Gazeta Wyborcza"]}
+        if any(x in name_l for x in ["olympiakos", "panathinaikos", "aek", "paok"]):
+            return {"city": "Grecia", "papers": ["Sport24", "Sportime"]}
+        if any(x in name_l for x in ["shakhtar", "dynamo kyiv", "dynamo kiev"]):
+            return {"city": "Ucrania", "papers": ["Football.ua", "Sportarena"]}
+        if any(x in name_l for x in ["copenhagen", "brondby", "midtjylland"]):
+            return {"city": "Dinamarca", "papers": ["BT Sport", "Ekstra Bladet"]}
+        if any(x in name_l for x in ["malmö", "malmo", "aik", "djurgarden", "hammarby"]):
+            return {"city": "Suecia", "papers": ["Aftonbladet", "Expressen"]}
+        if any(x in name_l for x in ["rosenborg", "molde", "bodo", "glimt"]):
+            return {"city": "Noruega", "papers": ["VG Sport", "Aftenposten"]}
+        if any(x in name_l for x in ["flamengo", "palmeiras", "corinthians", "fluminense"]):
+            return {"city": "Brasil", "papers": ["Lance!", "O Globo Esporte"]}
+        if any(x in name_l for x in ["river plate", "boca juniors", "racing", "independiente"]):
+            return {"city": "Argentina", "papers": ["Olé", "La Nación Deportes"]}
+        # Fallback genérico
+        return {"city": f"Ciudad de {team_name}", "papers": [f"Prensa de {team_name}", "SofaScore"]}
 
     # =========================================================================
     # CAPA 1: Claude API con búsqueda web
