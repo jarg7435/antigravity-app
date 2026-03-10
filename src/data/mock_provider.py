@@ -62,7 +62,8 @@ class MockDataProvider(DataProvider):
                 # ADDED: Ademola Lookman (Winter 2026)
                 teams[name] = self._create_team(name, "La Liga", ["Oblak", "Molina", "Le Normand", "Gimenez", "Reinildo", "Koke", "De Paul", "Gallagher", "Griezmann", "Julián Álvarez", "Ademola Lookman"], base_rating=8.8, avg_xg=1.9, avg_xg_c=0.85)
             elif name == "Villarreal":
-                teams[name] = self._create_team(name, "La Liga", ["Conde", "Femenía", "Albiol", "Bailly", "Sergi Cardona", "Parejo", "Comesaña", "Baena", "Yeremy", "Barry", "Ayoze"], base_rating=7.9)
+                # Alineación confirmada 22/02/2026 (sin Parejo ni Gerard Moreno - bajas)
+                teams[name] = self._create_team(name, "La Liga", ["Luiz Junior", "Femenía", "Albiol", "Bailly", "Sergi Cardona", "Comesaña", "Baena", "Yeremy", "Barry", "Mikautadze", "Ayoze"], base_rating=7.9)
             elif name == "Real Betis":
                 teams[name] = self._create_team(name, "La Liga", ["Rui Silva", "Sabaly", "Llorente", "Natan", "Perraud", "Marc Roca", "Johnny", "Fornals", "Lo Celso", "Abde", "Vitor Roque"], base_rating=7.7)
             elif name == "Espanyol":
@@ -74,7 +75,26 @@ class MockDataProvider(DataProvider):
             elif name == "Sevilla FC":
                 teams[name] = self._create_team(name, "La Liga", ["Nyland", "Carmona", "Badé", "Marcao", "Pedrosa", "Gudelj", "Agoumé", "Saúl", "Lukebakio", "Isaac Romero", "Ejuke"], base_rating=7.5)
             elif name == "Valencia":
-                teams[name] = self._create_team(name, "La Liga", ["Mamardashvili", "Foulquier", "Mosquera", "Tárrega", "Vázquez", "Pepelu", "Barrenechea", "Almeida", "Diego López", "Hugo Duro", "Rioja"], base_rating=7.3)
+                # Alineación confirmada 22/02/2026 (Dimitrievski titular, Beltrán como finalizador)
+                teams[name] = self._create_team(name, "La Liga", ["Dimitrievski", "Foulquier", "Mosquera", "Tárrega", "Vázquez", "Pepelu", "Barrenechea", "Almeida", "Diego López", "Hugo Duro", "Beltrán"], base_rating=7.3)
+            elif name == "Getafe":
+                teams[name] = self._create_team(name, "La Liga", ["David Soria", "Iglesias", "Djené", "Alderete", "Diego Rico", "Milla", "Arambarri", "Uche", "Carles Pérez", "Mayoral", "Álex Sola"], base_rating=7.4)
+            elif name == "Girona":
+                teams[name] = self._create_team(name, "La Liga", ["Gazzaniga", "Arnau", "David López", "Blind", "Miguel", "Herrera", "Iván Martín", "Asprilla", "Bryan Gil", "Abel Ruiz", "Danjuma"], base_rating=8.2, avg_xg=1.8, avg_xg_c=1.1)
+            elif name == "Osasuna":
+                teams[name] = self._create_team(name, "La Liga", ["Sergio Herrera", "Areso", "Catena", "Boyomo", "Abel Bretones", "Torró", "Moncayola", "Aimar Oroz", "Rubén García", "Budimir", "Bryan Zaragoza"], base_rating=7.6)
+            elif name == "Alavés":
+                teams[name] = self._create_team(name, "La Liga", ["Sivera", "Tenaglia", "Abqar", "Sedlar", "Manu Sánchez", "Blanco", "Guevara", "Guridi", "Carlos Vicente", "Kike García", "Conechny"], base_rating=7.3)
+            elif name == "Levante":
+                teams[name] = self._create_team(name, "La Liga", ["Andrés Fernández", "Andrés García", "Elgezabal", "Cabello", "Marcos Navarro", "Oriol Rey", "Kochorashvili", "Pablo Martínez", "Carlos Álvarez", "Brugué", "Morales"], base_rating=7.1)
+            elif name == "Celta de Vigo":
+                teams[name] = self._create_team(name, "La Liga", ["Guaita", "Mingueza", "Starfelt", "Marcos Alonso", "Hugo Álvarez", "Beltrán", "Hugo Sotelo", "Bamba", "Swedberg", "Iago Aspas", "Borja Iglesias"], base_rating=7.6)
+            elif name == "Rayo Vallecano":
+                teams[name] = self._create_team(name, "La Liga", ["Batalla", "Ratiu", "Lejeune", "Mumin", "Chavarría", "Valentín", "Unai López", "Isi Palazón", "De Frutos", "Álvaro García", "Camello"], base_rating=7.4)
+            elif name == "Mallorca":
+                teams[name] = self._create_team(name, "La Liga", ["Greif", "Maffeo", "Valjent", "Raíllo", "Mojica", "Samu Costa", "Morlanes", "Robert Navarro", "Dani Rodríguez", "Larin", "Muriqi"], base_rating=7.6)
+            elif name == "Real Oviedo":
+                teams[name] = self._create_team(name, "La Liga", ["Escandell", "Luengo", "Dani Calvo", "David Costas", "Rahim", "Sibo", "Colombatto", "Cazorla", "Ilyas Chaira", "Sebas Moyano", "Alemao"], base_rating=7.0)
             else:
                 teams[name] = self._create_dummy_team(name, "La Liga", base_rating=6.9)
 
@@ -142,8 +162,8 @@ class MockDataProvider(DataProvider):
         bundesliga_teams = [
             "Bayern Munich", "Bayer Leverkusen", "RB Leipzig", "Dortmund", "Stuttgart",
             "Frankfurt", "Hoffenheim", "Freiburg", "Heidenheim", "Augsburg",
-            "Werder Bremen", "Wolfsburg", "Gladbach", "Union Berlin", "Bochum",
-            "Mainz", "Koln", "Darmstadt" # 18 teams usually
+            "Werder Bremen", "Wolfsburg", "Gladbach", "Union Berlin", "Mainz 05",
+            "Hamburgo", "St. Pauli", "Holstein Kiel", "Bochum", "Koln", "Darmstadt"
         ]
         for name in bundesliga_teams:
             if name == "Bayern Munich":
@@ -154,6 +174,10 @@ class MockDataProvider(DataProvider):
                 teams[name] = self._create_team(name, "Bundesliga", ["Kobel", "Ryerson", "Anton", "Schlotterbeck", "Couto", "Can", "Gross", "Sabitzer", "Brandt", "Guirassy", "Gittens"], base_rating=8.4)
             elif name == "RB Leipzig":
                 teams[name] = self._create_team(name, "Bundesliga", ["Gulácsi", "Geertruida", "Orbán", "Lukeba", "Raum", "Haidara", "Seiwald", "Simons", "Sesko", "Openda", "Nusa"], base_rating=8.3)
+            elif name == "Mainz 05":
+                teams[name] = self._create_team(name, "Bundesliga", ["Zentner", "Kohr", "Jenz", "Leitsch", "Caci", "Sano", "Amiri", "Mwene", "Hong", "Lee", "Burkardt"], base_rating=7.4)
+            elif name == "Hamburgo":
+                teams[name] = self._create_team(name, "Bundesliga", ["Heuer Fernandes", "Hadzikadunic", "Schonlau", "Muheim", "Reis", "Meffert", "Elfadli", "Dompe", "Richter", "Glatzel", "Selke"], base_rating=7.2)
             else:
                 teams[name] = self._create_dummy_team(name, "Bundesliga", base_rating=7.0)
 
@@ -176,24 +200,82 @@ class MockDataProvider(DataProvider):
             else:
                 teams[name] = self._create_dummy_team(name, "Ligue 1", base_rating=7.0)
 
+        # =====================================================================
+        # LIGAS EUROPEAS — cargadas desde european_teams.py
+        # =====================================================================
+        try:
+            from src.logic.european_teams import EUROPEAN_TEAMS
+            country_league = {
+                "Netherlands":    "Eredivisie",
+                "Portugal":       "Primeira Liga",
+                "Turkey":         "Süper Lig",
+                "Scotland":       "Scottish Premiership",
+                "Belgium":        "Belgian Pro League",
+                "Austria":        "Austrian Bundesliga",
+                "Switzerland":    "Swiss Super League",
+                "Poland":         "Ekstraklasa",
+                "Czech Republic": "Czech First League",
+                "Denmark":        "Superliga",
+                "Sweden":         "Allsvenskan",
+                "Norway":         "Eliteserien",
+                "Greece":         "Super League",
+                "Croatia":        "HNL",
+                "Serbia":         "SuperLiga",
+                "Ukraine":        "Ukrainian Premier League",
+                "Israel":         "Israeli Premier League",
+                "N.Ireland":      "Irish League",
+                "Argentina":      "Liga Profesional",
+                "Brazil":         "Brasileirao",
+            }
+            for team_name, ctx in EUROPEAN_TEAMS.items():
+                if team_name not in teams:
+                    league_name = country_league.get(ctx.get("country", ""), "Europa")
+                    teams[team_name] = self._create_dummy_team(team_name, league_name, base_rating=7.5)
+        except ImportError:
+            pass
+
         return teams
 
     def _create_team(self, name, league, key_players, base_rating=8.0, avg_xg=0.0, avg_xg_c=0.0):
-        # Create dummy players based on names
-        import random
+        # Create players with DETERMINISTIC ratings (reproducible, sin random puro)
+        import hashlib
         players = []
-        roles = [NodeRole.FINALIZER, NodeRole.CREATOR, NodeRole.DEFENSIVE, NodeRole.KEEPER, NodeRole.TACTICAL]
-        positions = [PlayerPosition.FORWARD, PlayerPosition.MIDFIELDER, PlayerPosition.DEFENDER, PlayerPosition.GOALKEEPER, PlayerPosition.MIDFIELDER]
+        # Standard 4-3-3 mapping template for rosters [GK, 4xDEF, 3xMID, 3xFWD]
+        positions = [
+            PlayerPosition.GOALKEEPER,
+            PlayerPosition.DEFENDER, PlayerPosition.DEFENDER,
+            PlayerPosition.DEFENDER, PlayerPosition.DEFENDER,
+            PlayerPosition.MIDFIELDER, PlayerPosition.MIDFIELDER,
+            PlayerPosition.MIDFIELDER,
+            PlayerPosition.FORWARD, PlayerPosition.FORWARD,
+            PlayerPosition.FORWARD
+        ]
+        roles = [
+            NodeRole.KEEPER,
+            NodeRole.DEFENSIVE, NodeRole.DEFENSIVE,
+            NodeRole.DEFENSIVE, NodeRole.DEFENSIVE,
+            NodeRole.CREATOR, NodeRole.CREATOR,
+            NodeRole.CREATOR,
+            NodeRole.FINALIZER, NodeRole.FINALIZER,
+            NodeRole.FINALIZER
+        ]
         
-        for i, p_name in enumerate(key_players):
+        for i, p_name in enumerate(key_players[:11]):
             role = roles[i] if i < len(roles) else NodeRole.NONE
             pos = positions[i] if i < len(positions) else PlayerPosition.MIDFIELDER
             
-            # Add slight variance to individual players
-            p_rating = base_rating + (random.uniform(-0.3, 0.4))
+            # Seed determinista basado en nombre del jugador → siempre el mismo resultado
+            seed_val = int(hashlib.md5(p_name.encode()).hexdigest()[:8], 16)
+            variance = ((seed_val % 100) / 100.0) * 0.7 - 0.3  # Rango fijo: -0.3 a +0.4
+            p_rating = max(0.0, min(10.0, round(base_rating + variance, 2)))
             
-            # Ensure rating stays within Pydantic bounds (0-10)
-            p_rating = max(0.0, min(10.0, p_rating))
+            # Métricas derivadas también deterministas
+            xg_val    = round(0.1 + ((seed_val % 50) / 100.0) * 0.5, 2)
+            xa_val    = round(0.05 + ((seed_val % 25) / 100.0) * 0.25, 2)
+            ppda_val  = round(8.0 + ((seed_val % 60) / 10.0), 2)
+            aerial    = round(0.4 + ((seed_val % 30) / 100.0), 2)
+            prog_pass = 5 + (seed_val % 15)
+            km_avg    = round(9.5 + ((seed_val % 25) / 10.0), 2)
             
             players.append(Player(
                 id=f"{name}_{i}", 
@@ -201,13 +283,13 @@ class MockDataProvider(DataProvider):
                 team_name=name, 
                 position=pos, 
                 node_role=role,
-                rating_last_5=round(p_rating, 2), 
-                xg_last_5=round(random.uniform(0.1, 0.6), 2),
-                xa_last_5=round(random.uniform(0.05, 0.3), 2),
-                ppda=round(random.uniform(8.0, 14.0), 2),
-                aerial_duels_won_pct=round(random.uniform(0.4, 0.7), 2),
-                progressive_passes=random.randint(5, 20),
-                tracking_km_avg=round(random.uniform(9.5, 12.0), 2)
+                rating_last_5=p_rating, 
+                xg_last_5=xg_val,
+                xa_last_5=xa_val,
+                ppda=ppda_val,
+                aerial_duels_won_pct=aerial,
+                progressive_passes=prog_pass,
+                tracking_km_avg=km_avg
             ))
             
         return Team(
@@ -215,8 +297,8 @@ class MockDataProvider(DataProvider):
             league=league, 
             players=players, 
             motivation_level=1.0,
-            avg_xg_season=avg_xg if avg_xg > 0 else (base_rating - 6.0) * 0.5, # Fallback estimate
-            avg_xg_conceded_season=avg_xg_c if avg_xg_c > 0 else max(0.5, 2.0 - (base_rating - 6.0) * 0.4) # Fallback estimate
+            avg_xg_season=avg_xg if avg_xg > 0 else round((base_rating - 6.0) * 0.5, 2),
+            avg_xg_conceded_season=avg_xg_c if avg_xg_c > 0 else round(max(0.5, 2.0 - (base_rating - 6.0) * 0.4), 2)
         )
     
     def _create_dummy_team(self, name, league="Unknown", base_rating=7.0):
@@ -239,7 +321,7 @@ class MockDataProvider(DataProvider):
         if not team or not team.players:
             return []
         
-        # Return all players as "last match lineup"
+        # Return first 11 players as "last match lineup"
         # In production, this would filter to only the 11 starters from last match
-        return [p.name for p in team.players[:11] if p.status == PlayerStatus.TITULAR]
+        return [p.name for p in team.players[:11]]
 
