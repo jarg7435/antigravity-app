@@ -499,6 +499,9 @@ if home_team and away_team:
                             if outcome:
                                 st.markdown("### 📊 Informe Comparativo IA (Semáforo)")
                                 comp_data = le.generate_comparison_report(st.session_state.last_pred, outcome)
+                                import pandas as pd
+                                if not isinstance(comp_data, pd.DataFrame):
+                                    comp_data = pd.DataFrame(comp_data)
                                 st.markdown(
                                     comp_data.to_html(escape=False).replace(
                                         '<table', '<table style="color:#f5f0e0;width:100%;border-collapse:collapse;"'
@@ -545,6 +548,9 @@ if home_team and away_team:
                             st.markdown("### 📊 Informe Comparativo (Semáforo)")
                             try:
                                 comp_data = le.generate_comparison_report(saved_pred, out)
+                                import pandas as pd
+                                if not isinstance(comp_data, pd.DataFrame):
+                                    comp_data = pd.DataFrame(comp_data)
                                 st.markdown(
                                     comp_data.to_html(escape=False).replace(
                                         '<table', '<table style="color:#f5f0e0;width:100%;border-collapse:collapse;"'
