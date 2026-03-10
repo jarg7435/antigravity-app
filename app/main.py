@@ -89,7 +89,8 @@ def get_services(version: str = "6.70.0 (Global Generic)"):
     import src.logic.external_analyst
     import src.data.mock_provider
     import src.data.bankroll_manager
-    
+    import src.data.db_manager
+
     importlib.reload(src.models.base)
     importlib.reload(src.logic.poisson_engine)
     importlib.reload(src.logic.bpa_engine)
@@ -97,6 +98,7 @@ def get_services(version: str = "6.70.0 (Global Generic)"):
     importlib.reload(src.logic.predictors)
     importlib.reload(src.data.mock_provider)
     importlib.reload(src.data.bankroll_manager)
+    importlib.reload(src.data.db_manager)
 
     from src.data.mock_provider import MockDataProvider
     from src.data.db_manager import DataManager
