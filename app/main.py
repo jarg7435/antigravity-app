@@ -473,48 +473,64 @@ else:
                 from src.logic.learning_engine import LearningEngine
                 from src.models.base import MatchOutcome
                 from src.data.web_fetcher import WebResultFetcher
-                
-                le = LearningEngine(bpa_engine)
+
+                le = LearningEngine(bpa_engine, db_manager)
                 wf = WebResultFetcher()
                 act = render_result_validation_form()
-                
+
                 if act:
                     if act.get("action") == "auto_fetch":
                         with st.spinner("IA Accediendo a la red (FlashScore)..."):
                             outcome = wf.fetch_real_result(selected_match.id, home_team.name, away_team.name)
                             if outcome:
-                                # Show visual comparison report
                                 st.markdown("### 📊 Informe Comparativo IA (Semáforo)")
                                 comp_data = le.generate_comparison_report(st.session_state.last_pred, outcome)
                                 st.table(comp_data)
-                                
-                                # Process learning
-                                rep = le.process_result(st.session_state.last_pred, outcome, home_team.name, away_team.name)
-                                st.success("IA Re-calibrada con éxito (Acceso Real)")
-                                st.info(rep)
+                                rep = le.process_result(
+                                    st.session_state.last_pred, outcome,
+                                    home_team.name, away_team.name,
+                                    selected_match.competition or ""
+                                )
+                                st.success("✅ IA Re-calibrada con éxito")
+                                st.markdown(rep)
                             else:
                                 st.error("No se pudo obtener el resultado real de la red.")
-                    
+
                     elif act.get("action") == "manual_save":
+                        hc = act['corners'] // 2
+                        ac = act['corners'] - hc
+                        hk = act['cards'] // 2
+                        ak = act['cards'] - hk
+                        hs = act['shots'] // 2
+                        as_ = act['shots'] - hs
+                        hst = act['shots_on_target'] // 2
+                        ast_ = act['shots_on_target'] - hst
                         out = MatchOutcome(
-                            match_id=selected_match.id, home_score=act['home_score'], away_score=act['away_score'],
-                            home_corners=act['corners']//2, away_corners=act['corners']//2,
-                            home_cards=act['cards']//2, away_cards=act['cards']//2,
-                            home_shots=act['shots']//2, away_shots=act['shots']//2,
-                            home_shots_on_target=act['shots_on_target']//2, away_shots_on_target=act['shots_on_target']//2,
+                            match_id=selected_match.id,
+                            home_score=act['home_score'], away_score=act['away_score'],
+                            home_corners=hc, away_corners=ac,
+                            home_cards=hk, away_cards=ak,
+                            home_shots=hs, away_shots=as_,
+                            home_shots_on_target=hst, away_shots_on_target=ast_,
                             actual_winner=act['winner']
                         )
-                        
-                        # Robust prediction retrieval (Session or DB)
                         saved_pred = st.session_state.get("last_pred")
                         if not saved_pred or saved_pred.match_id != out.match_id:
                             saved_pred = db_manager.get_prediction(out.match_id)
-                        
+
                         if saved_pred:
-                            rep = le.process_result(saved_pred, out, home_team.name, away_team.name)
-                            st.success("IA Re-calibrada con éxito")
-                            st.info(rep)
+                            st.markdown("### 📊 Informe Comparativo (Semáforo)")
+                            comp_data = le.generate_comparison_report(saved_pred, out)
+                            st.table(comp_data)
+                            rep = le.process_result(
+                                saved_pred, out,
+                                home_team.name, away_team.name,
+                                selected_match.competition or ""
+                            )
+                            st.success("✅ IA Re-calibrada y datos guardados")
+                            st.markdown(rep)
                         else:
+                            st.error("No se encontró la predicción. Genera el análisis primero.")
                             st.warning("🔍 No se encontró un estudio previo guardado para este partido. Por favor, asegúrate de CONFIRMAR EL ESTUDIO después de calcular la predicción para alimentar la memoria de la IA.")
 
             # Bankroll Dashboard
@@ -546,4 +562,4 @@ with st.sidebar:
         st.session_state.sh = not st.session_state.get("sh", False)
 
 if st.session_state.get("sh"):
-    render_historical_dashboard(bpa_engine.kb)
+    render_historical_dashboard(db_manager=db_manager)
