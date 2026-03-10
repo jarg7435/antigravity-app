@@ -466,11 +466,11 @@ if home_team and away_team:
             st.markdown('<h4 style="color: #fdffcc;">📥 Exportar Análisis Profesional</h4>', unsafe_allow_html=True)
             # Safe report generation
             try:
-                report_md = report_engine.generate_markdown_report(selected_match, st.session_state.last_pred)
+                report_md = report_engine.generate_markdown_report(selected_match if "selected_match" in dir() else None, st.session_state.last_pred)
                 st.download_button(
                     label="📄 Descargar Reporte Técnico (.md)",
                     data=report_md,
-                    file_name=f"report_{selected_match.id}.md",
+                    file_name=f"report_{home_team.name[:3]}_{away_team.name[:3]}.md",
                     mime="text/markdown",
                     use_container_width=True
                 )
@@ -495,7 +495,7 @@ if home_team and away_team:
                 if act:
                     if act.get("action") == "auto_fetch":
                         with st.spinner("IA Accediendo a la red (FlashScore)..."):
-                            outcome = wf.fetch_real_result(selected_match.id, home_team.name, away_team.name)
+                            outcome = wf.fetch_real_result(m_id, home_team.name, away_team.name)
                             if outcome:
                                 st.markdown("### 📊 Informe Comparativo IA (Semáforo)")
                                 comp_data = le.generate_comparison_report(st.session_state.last_pred, outcome)
@@ -503,7 +503,7 @@ if home_team and away_team:
                                 rep = le.process_result(
                                     st.session_state.last_pred, outcome,
                                     home_team.name, away_team.name,
-                                    selected_match.competition or ""
+                                    selected_league or ""
                                 )
                                 st.success("✅ IA Re-calibrada con éxito")
                                 st.markdown(rep)
@@ -520,7 +520,7 @@ if home_team and away_team:
                         hst = act['shots_on_target'] // 2
                         ast_ = act['shots_on_target'] - hst
                         out = MatchOutcome(
-                            match_id=selected_match.id,
+                            match_id=m_id,
                             home_score=act['home_score'], away_score=act['away_score'],
                             home_corners=hc, away_corners=ac,
                             home_cards=hk, away_cards=ak,
@@ -539,7 +539,7 @@ if home_team and away_team:
                             rep = le.process_result(
                                 saved_pred, out,
                                 home_team.name, away_team.name,
-                                selected_match.competition or ""
+                                selected_league or ""
                             )
                             st.success("✅ IA Re-calibrada y datos guardados")
                             st.markdown(rep)
