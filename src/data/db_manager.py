@@ -327,3 +327,71 @@ class DataManager:
     @property
     def modo(self):
         return "☁️ Supabase" if self.use_supabase else "💾 SQLite Local"
+
+    # =========================================================================
+    # API PÚBLICA — Panel de Estudios Guardados
+    # =========================================================================
+
+    def get_all_studies(self, limit: int = 50) -> List[dict]:
+        """
+        Devuelve todos los estudios guardados con su estado:
+        - PENDIENTE: predicción guardada pero sin resultado real
+        - COMPLETADO: predicción + resultado real introducido
+        """
+        studies = []
+
+        if self.use_supabase:
+            # Obtener predicciones
+            preds = self._sb_get("predictions",
+                "select=match_id,created_at&order=created_at.desc&limit=50")
+            # Obtener resultados ya validados
+            res_ids = set()
+            resultados = self._sb_get("resultados", "select=match_id")
+            for r in resultados:
+                res_ids.add(r["match_id"])
+            # Obtener datos del partido
+            for p in preds:
+                mid = p["match_id"]
+                match_data = self._sb_get("matches",
+                    f"id=eq.{mid}&select=home_team,away_team,date,competition")
+                if match_data:
+                    m = match_data[0]
+                    studies.append({
+                        "match_id": mid,
+                        "home_team": m.get("home_team", "?"),
+                        "away_team": m.get("away_team", "?"),
+                        "date": m.get("date", "")[:10],
+                        "competition": m.get("competition", ""),
+                        "status": "✅ COMPLETADO" if mid in res_ids else "🟡 PENDIENTE",
+                        "created_at": p.get("created_at", "")[:16]
+                    })
+        else:
+            try:
+                conn = sqlite3.connect(self.db_path)
+                # Predicciones
+                rows = conn.execute('''
+                    SELECT p.match_id, p.created_at,
+                           m.home_team, m.away_team, m.date, m.competition
+                    FROM predictions p
+                    LEFT JOIN matches m ON p.match_id = m.id
+                    ORDER BY p.created_at DESC LIMIT ?
+                ''', (limit,)).fetchall()
+                # IDs ya validados
+                res_rows = conn.execute('SELECT match_id FROM resultados').fetchall()
+                res_ids = {r[0] for r in res_rows}
+                conn.close()
+                for row in rows:
+                    mid, created, home, away, date, comp = row
+                    studies.append({
+                        "match_id": mid,
+                        "home_team": home or "?",
+                        "away_team": away or "?",
+                        "date": (date or "")[:10],
+                        "competition": comp or "",
+                        "status": "✅ COMPLETADO" if mid in res_ids else "🟡 PENDIENTE",
+                        "created_at": (created or "")[:16]
+                    })
+            except Exception as e:
+                print(f"[DB] Error get_all_studies: {e}")
+
+        return studies
