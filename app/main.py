@@ -609,15 +609,24 @@ with st.sidebar:
     # =====================================================================
     # 📋 PANEL DE ESTUDIOS GUARDADOS
     # =====================================================================
-    st.markdown('<h3 style="color: #fdffcc;">📋 Mis Estudios</h3>', unsafe_allow_html=True)
-    
+    col_title, col_refresh = st.columns([3,1])
+    with col_title:
+        st.markdown('<h3 style="color: #fdffcc;">📋 Mis Estudios</h3>', unsafe_allow_html=True)
+    with col_refresh:
+        if st.button("🔄", key="refresh_studies", help="Actualizar lista"):
+            st.cache_data.clear()
+            st.rerun()
+
     try:
         studies = db_manager.get_all_studies(limit=30)
-    except Exception:
+        db_modo = getattr(db_manager, "modo", "?")
+        st.markdown(f'<p style="color:#555;font-size:0.7rem;">BD: {db_modo}</p>', unsafe_allow_html=True)
+    except Exception as e:
+        st.markdown(f'<p style="color:#f87171;font-size:0.75rem;">Error: {e}</p>', unsafe_allow_html=True)
         studies = []
 
     if not studies:
-        st.markdown('<p style="color:#888;font-size:0.8rem;">No hay estudios guardados aún.</p>', unsafe_allow_html=True)
+        st.markdown('<p style="color:#888;font-size:0.8rem;">No hay estudios. Guarda un estudio pulsando ✅ CONFIRMAR ESTUDIO tras calcular la predicción.</p>', unsafe_allow_html=True)
     else:
         from datetime import datetime as dt_now
         pendientes = [s for s in studies if "PENDIENTE" in s["status"]]
