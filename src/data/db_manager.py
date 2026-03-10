@@ -341,30 +341,53 @@ class DataManager:
         studies = []
 
         if self.use_supabase:
-            # Obtener predicciones
-            preds = self._sb_get("predictions",
-                "select=match_id,created_at&order=created_at.desc&limit=50")
-            # Obtener resultados ya validados
-            res_ids = set()
-            resultados = self._sb_get("resultados", "select=match_id")
-            for r in resultados:
-                res_ids.add(r["match_id"])
-            # Obtener datos del partido
-            for p in preds:
-                mid = p["match_id"]
-                match_data = self._sb_get("matches",
-                    f"id=eq.{mid}&select=home_team,away_team,date,competition")
-                if match_data:
-                    m = match_data[0]
+            try:
+                # Obtener predicciones ordenadas
+                preds = self._sb_get("predictions",
+                    "select=match_id,created_at&order=created_at.desc&limit=50")
+                if not preds:
+                    preds = []
+
+                # Obtener resultados ya validados
+                res_ids = set()
+                try:
+                    resultados = self._sb_get("resultados", "select=match_id")
+                    res_ids = {r["match_id"] for r in (resultados or [])}
+                except Exception:
+                    pass
+
+                # Obtener todos los matches de una vez para evitar N+1 queries
+                all_matches_raw = self._sb_get("matches",
+                    "select=id,home_team,away_team,date,competition&order=date.desc&limit=100")
+                matches_map = {m["id"]: m for m in (all_matches_raw or [])}
+
+                for p in preds:
+                    mid = p.get("match_id", "")
+                    if not mid:
+                        continue
+                    m = matches_map.get(mid)
+                    if m:
+                        home = m.get("home_team", "?")
+                        away = m.get("away_team", "?")
+                        date = (m.get("date") or "")[:10]
+                        comp = m.get("competition", "")
+                    else:
+                        # Sin datos de partido, mostrar igual con match_id
+                        home = mid[:12]
+                        away = "?"
+                        date = (p.get("created_at") or "")[:10]
+                        comp = ""
                     studies.append({
                         "match_id": mid,
-                        "home_team": m.get("home_team", "?"),
-                        "away_team": m.get("away_team", "?"),
-                        "date": m.get("date", "")[:10],
-                        "competition": m.get("competition", ""),
+                        "home_team": home,
+                        "away_team": away,
+                        "date": date,
+                        "competition": comp,
                         "status": "✅ COMPLETADO" if mid in res_ids else "🟡 PENDIENTE",
-                        "created_at": p.get("created_at", "")[:16]
+                        "created_at": (p.get("created_at") or "")[:16]
                     })
+            except Exception as e:
+                print(f"[DB] Error get_all_studies Supabase: {e}")
         else:
             try:
                 conn = sqlite3.connect(self.db_path)
