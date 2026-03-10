@@ -605,7 +605,137 @@ if home_team and away_team:
 
 with st.sidebar:
     st.markdown('<h2 style="color: #ffffff;">⚙️ PANEL DE CONTROL</h2>', unsafe_allow_html=True)
+
+    # =====================================================================
+    # 📋 PANEL DE ESTUDIOS GUARDADOS
+    # =====================================================================
+    st.markdown('<h3 style="color: #fdffcc;">📋 Mis Estudios</h3>', unsafe_allow_html=True)
     
+    try:
+        studies = db_manager.get_all_studies(limit=30)
+    except Exception:
+        studies = []
+
+    if not studies:
+        st.markdown('<p style="color:#888;font-size:0.8rem;">No hay estudios guardados aún.</p>', unsafe_allow_html=True)
+    else:
+        pendientes = [s for s in studies if "PENDIENTE" in s["status"]]
+        completados = [s for s in studies if "COMPLETADO" in s["status"]]
+        st.markdown(f'<p style="color:#fdffcc;font-size:0.85rem;">🟡 <b>{len(pendientes)}</b> pendientes &nbsp;|&nbsp; ✅ <b>{len(completados)}</b> completados</p>', unsafe_allow_html=True)
+
+        # Mostrar primero los pendientes
+        show_completed = st.toggle("Ver completados también", value=False, key="show_completed")
+        display_studies = studies if show_completed else pendientes
+
+        for s in display_studies[:20]:
+            status_color = "#facc15" if "PENDIENTE" in s["status"] else "#4ade80"
+            partido = f"{s['home_team']} vs {s['away_team']}"
+            fecha = s.get("date", "")
+            comp = s.get("competition", "")[:15]
+
+            st.markdown(f"""
+                <div style="background:#1e293b;border-radius:8px;padding:8px 10px;margin-bottom:6px;
+                            border-left:3px solid {status_color};">
+                    <div style="color:#f5f0e0;font-size:0.8rem;font-weight:bold;">{partido}</div>
+                    <div style="color:#94a3b8;font-size:0.72rem;">{fecha} · {comp}</div>
+                    <div style="color:{status_color};font-size:0.72rem;">{s['status']}</div>
+                </div>
+            """, unsafe_allow_html=True)
+
+            if "PENDIENTE" in s["status"]:
+                if st.button(f"📥 Meter resultado", key=f"load_{s['match_id']}",
+                             use_container_width=True):
+                    # Cargar estudio en session_state para zona de aprendizaje directa
+                    pred = db_manager.get_prediction(s["match_id"])
+                    match_obj = db_manager.get_match(s["match_id"])
+                    if pred and match_obj:
+                        st.session_state["direct_study"] = {
+                            "match_id": s["match_id"],
+                            "home_team": s["home_team"],
+                            "away_team": s["away_team"],
+                            "prediction": pred,
+                            "match": match_obj,
+                        }
+                        st.session_state["last_pred"] = pred
+                        st.toast(f"✅ Cargado: {partido}", icon="📥")
+                        st.rerun()
+
+    st.divider()
+
+    # =====================================================================
+    # Zona de aprendizaje directa (desde panel)
+    # =====================================================================
+    if "direct_study" in st.session_state and st.session_state.direct_study:
+        ds = st.session_state.direct_study
+        st.markdown(f'<h3 style="color:#fdffcc;">🔧 Validar Resultado</h3>', unsafe_allow_html=True)
+        st.markdown(f'<p style="color:#f5f0e0;font-size:0.85rem;"><b>{ds["home_team"]}</b> vs <b>{ds["away_team"]}</b></p>', unsafe_allow_html=True)
+
+        col_h, col_a = st.columns(2)
+        with col_h:
+            g_home = st.number_input("Goles Local", 0, 20, 0, key="ds_gh")
+        with col_a:
+            g_away = st.number_input("Goles Visit.", 0, 20, 0, key="ds_ga")
+        corners_t = st.number_input("Córners totales", 0, 30, 9, key="ds_c")
+        cards_t   = st.number_input("Tarjetas totales", 0, 20, 3, key="ds_k")
+        shots_t   = st.number_input("Remates totales", 0, 50, 20, key="ds_s")
+        sot_t     = st.number_input("Remates a portería", 0, 30, 6, key="ds_sot")
+
+        if st.button("✅ GUARDAR Y RECALIBRAR IA", use_container_width=True, key="ds_save"):
+            from src.models.base import MatchOutcome
+            from src.logic.learning_engine import LearningEngine
+            winner = "LOCAL" if g_home > g_away else ("VISITANTE" if g_away > g_home else "EMPATE")
+            out = MatchOutcome(
+                match_id=ds["match_id"],
+                home_score=g_home, away_score=g_away,
+                home_corners=corners_t//2, away_corners=corners_t-corners_t//2,
+                home_cards=cards_t//2, away_cards=cards_t-cards_t//2,
+                home_shots=shots_t//2, away_shots=shots_t-shots_t//2,
+                home_shots_on_target=sot_t//2, away_shots_on_target=sot_t-sot_t//2,
+                actual_winner=winner
+            )
+            try:
+                le = LearningEngine(bpa_engine, db_manager)
+            except TypeError:
+                le = LearningEngine(bpa_engine)
+            try:
+                import pandas as pd
+                comp_data = le.generate_comparison_report(ds["prediction"], out)
+                if not isinstance(comp_data, pd.DataFrame):
+                    comp_data = pd.DataFrame(comp_data)
+                st.markdown(
+                    comp_data.to_html(escape=False).replace(
+                        '<table', '<table style="color:#f5f0e0;width:100%;border-collapse:collapse;"'
+                    ).replace(
+                        '<th', '<th style="color:#fdffcc;background:#1e293b;padding:6px;border:1px solid #334155;"'
+                    ).replace(
+                        '<td', '<td style="color:#f5f0e0;padding:6px;border:1px solid #334155;"'
+                    ),
+                    unsafe_allow_html=True
+                )
+            except Exception:
+                pass
+            try:
+                rep = le.process_result(
+                    ds["prediction"], out,
+                    ds["home_team"], ds["away_team"], ""
+                )
+                st.success("✅ IA Recalibrada")
+                st.markdown(rep)
+            except TypeError:
+                db_manager.save_resultado(ds["match_id"], {
+                    "home_score": g_home, "away_score": g_away,
+                    "winner": winner, "corners": corners_t, "cards": cards_t,
+                    "shots": shots_t, "shots_on_target": sot_t,
+                })
+                st.success("✅ Resultado guardado")
+            # Limpiar estudio activo
+            del st.session_state["direct_study"]
+            st.rerun()
+
+        if st.button("❌ Cancelar", key="ds_cancel", use_container_width=True):
+            del st.session_state["direct_study"]
+            st.rerun()
+
     st.markdown('<h3 style="color: #ff4b4b;">☢️ ZONA DE EMERGENCIA</h3>', unsafe_allow_html=True)
     if st.button("🚨 RESETEO NUCLEAR (Limpiar Todo)", type="secondary", use_container_width=True):
         st.session_state.clear()
