@@ -619,11 +619,11 @@ with st.sidebar:
     if not studies:
         st.markdown('<p style="color:#888;font-size:0.8rem;">No hay estudios guardados aún.</p>', unsafe_allow_html=True)
     else:
+        from datetime import datetime as dt_now
         pendientes = [s for s in studies if "PENDIENTE" in s["status"]]
         completados = [s for s in studies if "COMPLETADO" in s["status"]]
         st.markdown(f'<p style="color:#fdffcc;font-size:0.85rem;">🟡 <b>{len(pendientes)}</b> pendientes &nbsp;|&nbsp; ✅ <b>{len(completados)}</b> completados</p>', unsafe_allow_html=True)
 
-        # Mostrar primero los pendientes
         show_completed = st.toggle("Ver completados también", value=False, key="show_completed")
         display_studies = studies if show_completed else pendientes
 
@@ -633,19 +633,128 @@ with st.sidebar:
             fecha = s.get("date", "")
             comp = s.get("competition", "")[:15]
 
+            # Detectar si partido está próximo para botón reanalizar
+            match_obj_check = db_manager.get_match(s["match_id"])
+            hours_to_match = 999
+            match_time_str = ""
+            can_reanalyze = False
+            if match_obj_check and match_obj_check.date:
+                try:
+                    diff = match_obj_check.date - dt_now.now()
+                    hours_to_match = diff.total_seconds() / 3600
+                    match_time_str = match_obj_check.date.strftime("%H:%M")
+                    can_reanalyze = -1 < hours_to_match < 2.0
+                except Exception:
+                    pass
+
+            # Badge de alerta
+            alert_badge = ""
+            if 0 < hours_to_match < 2.0:
+                alert_badge = f'⚡ {hours_to_match:.1f}h ALINEACIÓN OFICIAL'
+            elif -1 < hours_to_match <= 0:
+                alert_badge = '🔴 EN JUEGO'
+
+            border_color = "#f59e0b" if can_reanalyze else status_color
             st.markdown(f"""
-                <div style="background:#1e293b;border-radius:8px;padding:8px 10px;margin-bottom:6px;
-                            border-left:3px solid {status_color};">
+                <div style="background:#1e293b;border-radius:8px;padding:8px 10px;margin-bottom:4px;border-left:3px solid {border_color};">
                     <div style="color:#f5f0e0;font-size:0.8rem;font-weight:bold;">{partido}</div>
-                    <div style="color:#94a3b8;font-size:0.72rem;">{fecha} · {comp}</div>
-                    <div style="color:{status_color};font-size:0.72rem;">{s['status']}</div>
+                    <div style="color:#94a3b8;font-size:0.72rem;">{fecha} {match_time_str} · {comp}</div>
+                    <div style="color:{border_color};font-size:0.72rem;">{s['status']} {alert_badge}</div>
                 </div>
             """, unsafe_allow_html=True)
 
             if "PENDIENTE" in s["status"]:
-                if st.button(f"📥 Meter resultado", key=f"load_{s['match_id']}",
-                             use_container_width=True):
-                    # Cargar estudio en session_state para zona de aprendizaje directa
+                if can_reanalyze:
+                    col_r, col_m = st.columns(2)
+                    with col_r:
+                        if st.button("🔄 Reanalizar", key=f"reanalyze_{s['match_id']}", use_container_width=True, type="primary"):
+                            with st.spinner("Buscando alineación oficial..."):
+                                match_obj_r = db_manager.get_match(s["match_id"])
+                                if match_obj_r:
+                                    try:
+                                        from src.logic.lineup_fetcher import LineupFetcher
+                                        lf = LineupFetcher(data_provider)
+                                        new_lineup = lf.fetch_smart_lineup(
+                                            s["home_team"], s["away_team"],
+                                            match_obj_r.date,
+                                            match_obj_r.competition or ""
+                                        )
+                                        if new_lineup.get("home") or new_lineup.get("away"):
+                                            from src.models.base import Player, PlayerPosition, PlayerStatus, NodeRole
+                                            roles = [NodeRole.PORTERO, NodeRole.DEFENSA, NodeRole.DEFENSA,
+                                                     NodeRole.DEFENSA, NodeRole.DEFENSA, NodeRole.MEDIOCAMPISTA,
+                                                     NodeRole.MEDIOCAMPISTA, NodeRole.MEDIOCAMPISTA,
+                                                     NodeRole.DELANTERO, NodeRole.DELANTERO, NodeRole.DELANTERO]
+                                            def _to_players(names, tname):
+                                                return [Player(
+                                                    id=f"{tname}_{i}", name=n, team_name=tname,
+                                                    position=PlayerPosition.MIDFIELDER,
+                                                    node_role=roles[i] if i < len(roles) else NodeRole.MEDIOCAMPISTA,
+                                                    status=PlayerStatus.TITULAR, rating_last_5=7.5
+                                                ) for i, n in enumerate(names[:11])]
+                                            upd_home = data_provider.get_team_data(s["home_team"])
+                                            upd_away = data_provider.get_team_data(s["away_team"])
+                                            if new_lineup.get("home"):
+                                                upd_home.players = _to_players(new_lineup["home"], s["home_team"])
+                                            if new_lineup.get("away"):
+                                                upd_away.players = _to_players(new_lineup["away"], s["away_team"])
+                                            match_obj_r.home_team = upd_home
+                                            match_obj_r.away_team = upd_away
+                                            new_pred = predictor.predict(match_obj_r)
+                                            new_pred.match_id = s["match_id"]
+                                            db_manager.save_prediction(new_pred)
+                                            db_manager.save_match(match_obj_r)
+                                            st.session_state["last_pred"] = new_pred
+                                            tag = "✅ Oficial" if new_lineup.get("is_official") else "📊 Probable actualizada"
+                                            st.toast(f"🔄 Reanálisis completado · {tag}", icon="✅")
+                                            st.rerun()
+                                        else:
+                                            st.warning("Alineación oficial no disponible aún.")
+                                    except Exception as e:
+                                        st.error(f"Error reanalizando: {e}")
+                    with col_m:
+                        load_btn = st.button("📥 Resultado", key=f"load_{s['match_id']}", use_container_width=True)
+                    # Botón prensa (fila separada, solo cuando hay partido próximo)
+                    if st.button("📰 Actualizar Prensa", key=f"press_{s['match_id']}", use_container_width=True):
+                        match_obj_p = db_manager.get_match(s["match_id"])
+                        if match_obj_p:
+                            with st.spinner("📰 Buscando noticias actualizadas..."):
+                                try:
+                                    from src.logic.external_analyst import ExternalAnalyst
+                                    analyst = ExternalAnalyst()
+                                    intel = analyst.get_detailed_intelligence(match_obj_p)
+                                    # Guardar impacto de prensa en session_state
+                                    st.session_state[f"press_intel_{s['match_id']}"] = intel
+                                    # Recalcular predicción con nuevo impacto de prensa
+                                    pred_p = db_manager.get_prediction(s["match_id"])
+                                    if pred_p:
+                                        from src.logic.bpa_engine import BPAEngine
+                                        bpa_r = bpa_engine.calculate_match_bpa(
+                                            match_obj_p,
+                                            press_modifiers=intel["impact"]
+                                        )
+                                        pred_p.win_prob_home = round(bpa_r["home_bpa"] / (bpa_r["home_bpa"] + bpa_r["away_bpa"] + 0.3), 3)
+                                        pred_p.win_prob_away = round(bpa_r["away_bpa"] / (bpa_r["home_bpa"] + bpa_r["away_bpa"] + 0.3), 3)
+                                        pred_p.draw_prob = round(1 - pred_p.win_prob_home - pred_p.win_prob_away, 3)
+                                        db_manager.save_prediction(pred_p)
+                                        via = "🤖 Claude API" if os.environ.get("ANTHROPIC_API_KEY") else "📡 Google News RSS"
+                                        st.toast(f"📰 Prensa actualizada · {via}", icon="✅")
+                                        # Mostrar resumen de impacto
+                                        h_moral = intel["impact"].get("home", 0)
+                                        a_moral = intel["impact"].get("away", 0)
+                                        st.markdown(f"""
+                                            <div style="background:#1e293b;border-radius:6px;padding:8px;margin-top:4px;">
+                                                <div style="color:#fdffcc;font-size:0.78rem;font-weight:bold;">📰 Impacto Prensa Actualizado</div>
+                                                <div style="color:#f5f0e0;font-size:0.75rem;">🏠 Local: <b style="color:{'#4ade80' if h_moral >= 0 else '#f87171'};">{h_moral:+.3f}</b></div>
+                                                <div style="color:#f5f0e0;font-size:0.75rem;">✈️ Visit.: <b style="color:{'#4ade80' if a_moral >= 0 else '#f87171'};">{a_moral:+.3f}</b></div>
+                                            </div>
+                                        """, unsafe_allow_html=True)
+                                except Exception as e:
+                                    st.error(f"Error prensa: {e}")
+                else:
+                    load_btn = st.button("📥 Meter resultado", key=f"load_{s['match_id']}", use_container_width=True)
+
+                if load_btn:
                     pred = db_manager.get_prediction(s["match_id"])
                     match_obj = db_manager.get_match(s["match_id"])
                     if pred and match_obj:
