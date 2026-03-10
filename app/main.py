@@ -129,57 +129,68 @@ st.markdown('<h3 style="color: #ffffff;">🛠️ Configuración Estratégica</h3
 with st.container():
     col1, col2 = st.columns(2)
     with col1:
-        selected_league = render_league_selector()
         selected_date = render_date_selector()
     with col2:
         selected_time = render_time_selector()
         st.markdown('<p style="color: #fdffcc; font-size: 0.9rem;">🕒 La confirmación oficial de alineaciones se habilita 1h antes del inicio.</p>', unsafe_allow_html=True)
 
-# Get Teams
-available_teams = []
-league_key = selected_league.split(" (")[0]
-available_teams = data_provider.get_teams_by_league(league_key)
+ALL_LEAGUES = [
+    "La Liga (España)", "Premier League (Inglaterra)", "Bundesliga (Alemania)",
+    "Serie A (Italia)", "Ligue 1 (Francia)",
+    "Eredivisie (Holanda)", "Primeira Liga (Portugal)", "Süper Lig (Turquía)",
+    "Scottish Premiership (Escocia)", "Belgian Pro League (Bélgica)",
+    "Austrian Bundesliga (Austria)", "Swiss Super League (Suiza)",
+    "Ekstraklasa (Polonia)", "Czech First League (Rep. Checa)",
+    "Superliga (Dinamarca)", "Allsvenskan (Suecia)", "Eliteserien (Noruega)",
+    "Super League (Grecia)", "HNL (Croacia)", "SuperLiga (Serbia)",
+    "Ukrainian Premier League (Ucrania)", "Israeli Premier League (Israel)",
+    "Liga Profesional (Argentina)", "Brasileirao (Brasil)",
+]
 
-if not available_teams and selected_league != "Liga Extra (Manual)":
-    st.warning(f"No hay equipos disponibles para {selected_league}.")
-    # Deep Debug Info
-    with st.expander("🔍 Debug de Datos (Solo Emergencia)"):
-        st.write(f"League Key: '{league_key}'")
-        st.write(f"Provider: {type(data_provider).__name__}")
-        if hasattr(data_provider, 'teams_db'):
-            st.write(f"Teams in DB: {len(data_provider.teams_db)}")
-            st.write(f"Sample Teams: {list(data_provider.teams_db.keys())[:3]}")
-        st.write(f"Test call 'mixta': {len(data_provider.get_teams_by_league('mixta'))}")
-else:
-    # --- TEAM SELECTION ---
-    with st.container():
-        c1, c2 = st.columns(2)
-        
-        with c1:
-            st.markdown('<h3 style="color: #ffffff;">🏠 Local</h3>', unsafe_allow_html=True)
-            mode_h = st.radio("Modo", ["Búsqueda BD", "Manual"], horizontal=True, key="mh")
-            if mode_h == "Búsqueda BD":
-                h_name = render_team_selector("Seleccionar Equipo", available_teams, key="hts")
-                home_team = data_provider.get_team_data(h_name)
-            else:
-                h_name = st.text_input("Nombre", "Equipo Local FC", key="hnm")
-                from src.models.base import Team, Player, PlayerPosition, PlayerStatus
-                p_list = [Player(id=f"h{i}", name=f"Jugador {i}", team_name=h_name, position=PlayerPosition.MIDFIELDER, status=PlayerStatus.TITULAR, rating_last_5=7.0) for i in range(11)]
-                home_team = Team(name=h_name, league="Manual", players=p_list, tactical_style="Equilibrado")
+def get_teams_for_league(league_label):
+    key = league_label.split(" (")[0]
+    return data_provider.get_teams_by_league(key)
 
-        with c2:
-            st.markdown('<h3 style="color: #ffffff;">✈️ Visitante</h3>', unsafe_allow_html=True)
-            mode_a = st.radio("Modo", ["Búsqueda BD", "Manual"], horizontal=True, key="ma")
-            if mode_a == "Búsqueda BD":
-                a_name = render_team_selector("Seleccionar Equipo", available_teams, key="ats")
-                away_team = data_provider.get_team_data(a_name)
-            else:
-                a_name = st.text_input("Nombre", "Rival FC", key="anm")
-                from src.models.base import Team, Player, PlayerPosition, PlayerStatus
-                p_list = [Player(id=f"a{i}", name=f"Jugador {i}", team_name=a_name, position=PlayerPosition.MIDFIELDER, status=PlayerStatus.TITULAR, rating_last_5=7.0) for i in range(11)]
-                away_team = Team(name=a_name, league="Manual", players=p_list, tactical_style="Contragolpe")
+# --- TEAM SELECTION ---
+with st.container():
+    c1, c2 = st.columns(2)
 
-    if home_team and away_team:
+    with c1:
+        st.markdown('<h3 style="color: #ffffff;">🏠 Local</h3>', unsafe_allow_html=True)
+        home_league = st.selectbox("Liga Local", ALL_LEAGUES, key="home_league_sel")
+        home_teams = get_teams_for_league(home_league)
+        if home_teams:
+            h_name = st.selectbox("Seleccionar Equipo", home_teams, key="hts")
+            home_team = data_provider.get_team_data(h_name)
+        else:
+            h_name = st.text_input("Nombre del equipo local", "Equipo Local FC", key="hnm")
+            from src.models.base import Team, Player, PlayerPosition, PlayerStatus
+            p_list = [Player(id=f"h{i}", name=f"Jugador {i}", team_name=h_name, position=PlayerPosition.MIDFIELDER, status=PlayerStatus.TITULAR, rating_last_5=7.0) for i in range(11)]
+            home_team = Team(name=h_name, league=home_league, players=p_list, tactical_style="Equilibrado")
+
+    with c2:
+        st.markdown('<h3 style="color: #ffffff;">✈️ Visitante</h3>', unsafe_allow_html=True)
+        away_league = st.selectbox("Liga Visitante", ALL_LEAGUES, key="away_league_sel")
+        away_teams = get_teams_for_league(away_league)
+        if away_teams:
+            a_name = st.selectbox("Seleccionar Equipo", away_teams, key="ats")
+            away_team = data_provider.get_team_data(a_name)
+        else:
+            a_name = st.text_input("Nombre del equipo visitante", "Equipo Visitante FC", key="anm")
+            from src.models.base import Team, Player, PlayerPosition, PlayerStatus
+            p_list = [Player(id=f"a{i}", name=f"Jugador {i}", team_name=a_name, position=PlayerPosition.MIDFIELDER, status=PlayerStatus.TITULAR, rating_last_5=7.0) for i in range(11)]
+            away_team = Team(name=a_name, league=away_league, players=p_list, tactical_style="Contragolpe")
+
+# Competición del partido
+selected_league = st.selectbox(
+    "🏆 Competición del partido",
+    ["La Liga (España)", "Premier League (Inglaterra)", "Bundesliga (Alemania)",
+     "Serie A (Italia)", "Ligue 1 (Francia)", "Champions League",
+     "Europa League", "Conference League", "Otra competición"],
+    key="match_competition"
+)
+
+if home_team and away_team:
         # Match ID
         m_id = f"{home_team.name[:3]}_{away_team.name[:3]}_{selected_date.strftime('%Y%m%d')}"
         
