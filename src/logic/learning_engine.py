@@ -358,4 +358,3 @@ class LearningEngine:
             "equipos_problematicos": problematicos[:5],
             "modo_bd": self.db.modo
         }
-
