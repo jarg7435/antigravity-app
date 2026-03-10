@@ -474,7 +474,10 @@ else:
                 from src.models.base import MatchOutcome
                 from src.data.web_fetcher import WebResultFetcher
 
-                le = LearningEngine(bpa_engine, db_manager)
+                try:
+                    le = LearningEngine(bpa_engine, db_manager)
+                except TypeError:
+                    le = LearningEngine(bpa_engine)
                 wf = WebResultFetcher()
                 act = render_result_validation_form()
 
