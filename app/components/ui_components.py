@@ -45,8 +45,19 @@ def render_player_selector(label: str, team_players: list, default_name: str = N
 
 def render_league_selector():
     leagues = [
+        # 5 Grandes Ligas
         "La Liga (España)", "Premier League (Inglaterra)", "Bundesliga (Alemania)", 
-        "Serie A (Italia)", "Ligue 1 (Francia)", 
+        "Serie A (Italia)", "Ligue 1 (Francia)",
+        # Ligas Europeas
+        "Eredivisie (Holanda)", "Primeira Liga (Portugal)", "Süper Lig (Turquía)",
+        "Scottish Premiership (Escocia)", "Belgian Pro League (Bélgica)",
+        "Austrian Bundesliga (Austria)", "Swiss Super League (Suiza)",
+        "Ekstraklasa (Polonia)", "Czech First League (Rep. Checa)",
+        "Superliga (Dinamarca)", "Allsvenskan (Suecia)", "Eliteserien (Noruega)",
+        "Super League (Grecia)", "HNL (Croacia)", "SuperLiga (Serbia)",
+        # Otras competiciones
+        "Champions League", "Europa League", "Conference League",
+        # Modo combinado y manual
         "Liga Mixta (Combinada)", "Liga Extra (Manual)"
     ]
     return st.selectbox("Seleccionar Competición:", options=leagues)
@@ -468,4 +479,3 @@ def render_lineup_check_ui(team_name: str, players: list[Player], side: str = "h
                 confirmed_players.append(player.name)
     
     return confirmed_players
-
