@@ -791,8 +791,30 @@ with st.sidebar:
         completados = [s for s in studies if "COMPLETADO" in s["status"]]
         st.markdown(f'<p style="color:#fdffcc;font-size:0.85rem;">🟡 <b>{len(pendientes)}</b> pendientes &nbsp;|&nbsp; ✅ <b>{len(completados)}</b> completados</p>', unsafe_allow_html=True)
 
-        show_completed = st.toggle("Ver completados también", value=False, key="show_completed")
-        display_studies = studies if show_completed else pendientes
+        # Solo mostrar pendientes en la lista principal
+        # Los completados se archivan en Supabase pero no se muestran (ya aprendió la IA)
+        display_studies = pendientes
+
+        if completados:
+            st.markdown(f'<p style="color:#4ade80;font-size:0.75rem;">✅ {len(completados)} estudio(s) completado(s) archivado(s)</p>', unsafe_allow_html=True)
+
+        # Confirmar borrado
+        if st.session_state.get("confirm_delete"):
+            mid_del = st.session_state.confirm_delete
+            s_del = next((x for x in studies if x["match_id"] == mid_del), None)
+            nombre_del = f"{s_del['home_team']} vs {s_del['away_team']}" if s_del else mid_del
+            st.markdown(f'<p style="color:#f87171;font-size:0.8rem;">⚠️ ¿Eliminar <b>{nombre_del}</b>?</p>', unsafe_allow_html=True)
+            col_yes, col_no = st.columns(2)
+            with col_yes:
+                if st.button("✅ Sí, eliminar", key="del_yes", use_container_width=True):
+                    db_manager.delete_study(mid_del)
+                    del st.session_state["confirm_delete"]
+                    st.toast("🗑️ Estudio eliminado", icon="🗑️")
+                    st.rerun()
+            with col_no:
+                if st.button("❌ Cancelar", key="del_no", use_container_width=True):
+                    del st.session_state["confirm_delete"]
+                    st.rerun()
 
         for s in display_studies[:20]:
             status_color = "#facc15" if "PENDIENTE" in s["status"] else "#4ade80"
@@ -940,6 +962,12 @@ with st.sidebar:
                         st.rerun()
                     else:
                         st.error("No se pudo cargar el estudio.")
+
+                # Botón eliminar (siempre visible, pide confirmación)
+                if st.button("🗑️ Eliminar estudio", key=f"del_{s['match_id']}",
+                             use_container_width=True):
+                    st.session_state["confirm_delete"] = s["match_id"]
+                    st.rerun()
 
     st.divider()
 
