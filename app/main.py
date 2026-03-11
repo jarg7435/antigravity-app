@@ -437,7 +437,10 @@ if home_team and away_team:
                 st.caption("ℹ️ Motor ML en modo base (sin historial entrenado aún). La predicción se apoya en Poisson + BPA con mayor peso.")
 
         if st.session_state.get("last_pred"):
-            v_h, v_a = st.session_state.last_val
+            last_val = st.session_state.get("last_val")
+            if not last_val:
+                last_val = ({"alerts": []}, {"alerts": []})
+            v_h, v_a = last_val
             if v_h['alerts']: st.warning(f"⚠️ {home_team.name}: {v_h['alerts']}")
             if v_a['alerts']: st.warning(f"⚠️ {away_team.name}: {v_a['alerts']}")
             
