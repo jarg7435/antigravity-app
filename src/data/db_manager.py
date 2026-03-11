@@ -444,3 +444,53 @@ class DataManager:
         except Exception as e:
             print(f"[DB] Error delete_study: {e}")
             return False
+
+    def get_semaforo_history(self, limit: int = 100) -> List[dict]:
+        """
+        Devuelve historial completo de semáforos por partido.
+        Agrupa los registros de aprendizaje por match_id.
+        """
+        results = []
+        try:
+            if self.use_supabase:
+                rows = self._sb_get("aprendizaje",
+                    f"select=match_id,mercado,predicho,real,acierto,home_team,away_team,competition,created_at"
+                    f"&order=created_at.desc&limit={limit*4}")
+            else:
+                conn = sqlite3.connect(self.db_path)
+                rows = conn.execute('''
+                    SELECT match_id, mercado, predicho, real, acierto,
+                           home_team, away_team, competition, created_at
+                    FROM aprendizaje ORDER BY created_at DESC LIMIT ?
+                ''', (limit * 4,)).fetchall()
+                conn.close()
+                rows = [{"match_id": r[0], "mercado": r[1], "predicho": r[2],
+                         "real": r[3], "acierto": r[4], "home_team": r[5],
+                         "away_team": r[6], "competition": r[7], "created_at": r[8]}
+                        for r in rows]
+
+            # Agrupar por match_id
+            from collections import OrderedDict
+            partidos = OrderedDict()
+            for row in rows:
+                mid = row.get("match_id", "")
+                if mid not in partidos:
+                    partidos[mid] = {
+                        "match_id": mid,
+                        "home_team": row.get("home_team", "?"),
+                        "away_team": row.get("away_team", "?"),
+                        "competition": row.get("competition", ""),
+                        "created_at": (row.get("created_at") or "")[:10],
+                        "mercados": {}
+                    }
+                mercado = row.get("mercado", "")
+                partidos[mid]["mercados"][mercado] = {
+                    "predicho": row.get("predicho", ""),
+                    "real": row.get("real", ""),
+                    "acierto": bool(row.get("acierto", 0))
+                }
+
+            results = list(partidos.values())[:limit]
+        except Exception as e:
+            print(f"[DB] Error get_semaforo_history: {e}")
+        return results
