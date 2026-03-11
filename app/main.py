@@ -54,7 +54,7 @@ from app.components.ui_components import (
     render_lineup_check_ui, render_league_selector, render_date_selector, 
     render_team_selector, render_player_selector, render_time_selector,
     render_result_validation_form, render_historical_dashboard,
-    render_bankroll_ui, render_value_analysis_chart
+    render_bankroll_ui, render_value_analysis_chart, render_semaforo_history
 )
 from src.data.bankroll_manager import BankrollManager
 from src.logic.report_engine import ReportEngine
@@ -1056,6 +1056,13 @@ with st.sidebar:
     st.divider()
     if st.button("📈 Ver Dashboard Histórico", use_container_width=True):
         st.session_state.sh = not st.session_state.get("sh", False)
+        st.session_state.semaforos = False
+    if st.button("🚦 Ver Semáforos e Historial", use_container_width=True):
+        st.session_state.semaforos = not st.session_state.get("semaforos", False)
+        st.session_state.sh = False
 
 if st.session_state.get("sh"):
     render_historical_dashboard(db_manager=db_manager)
+
+if st.session_state.get("semaforos"):
+    render_semaforo_history(db_manager)
