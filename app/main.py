@@ -1140,18 +1140,17 @@ if st.session_state.get("run_retrolearn"):
                     st.warning(f"Sin predicción para {mid} — omitido")
                     continue
 
-                if match_obj and isinstance(match_obj, dict):
-                    home_name = match_obj.get("home_team", mid[:8])
-                    away_name = match_obj.get("away_team", "?")
-                    comp      = match_obj.get("competition", "")
-                elif match_obj:
-                    home_name = getattr(getattr(match_obj, "home_team", None), "name", str(match_obj.home_team)) if hasattr(match_obj, "home_team") else mid[:8]
-                    away_name = getattr(getattr(match_obj, "away_team", None), "name", "?") if hasattr(match_obj, "away_team") else "?"
-                    comp      = getattr(match_obj, "competition", "")
-                else:
-                    home_name = mid[:8]
-                    away_name = "?"
-                    comp      = ""
+                # Extraer nombres robustamente del objeto Match
+                home_name, away_name, comp = mid[:8], "?", ""
+                if match_obj:
+                    try:
+                        ht = getattr(match_obj, "home_team", None)
+                        at = getattr(match_obj, "away_team", None)
+                        home_name = ht.name if ht and hasattr(ht, "name") else str(ht or mid[:8])
+                        away_name = at.name if at and hasattr(at, "name") else str(at or "?")
+                        comp = getattr(match_obj, "competition", "")
+                    except Exception:
+                        pass
 
                 out = MatchOutcome(
                     match_id=mid,
@@ -1169,9 +1168,14 @@ if st.session_state.get("run_retrolearn"):
                 )
 
                 try:
-                    rep = le.process_result(pred, out, home_name, away_name, comp)
+                    try:
+                        # Versión nueva con competition
+                        rep = le.process_result(pred, out, home_name, away_name, comp)
+                    except TypeError:
+                        # Versión antigua sin competition
+                        rep = le.process_result(pred, out, home_name, away_name)
                     with st.expander(f"✅ {home_name} vs {away_name}", expanded=False):
-                        st.markdown(rep)
+                        st.markdown(rep if isinstance(rep, str) else str(rep))
                     total_ok += 1
                 except Exception as e:
                     st.warning(f"Error procesando {home_name} vs {away_name}: {e}")
