@@ -1146,9 +1146,10 @@ if st.session_state.get("run_retrolearn"):
                     try:
                         ht = getattr(match_obj, "home_team", None)
                         at = getattr(match_obj, "away_team", None)
-                        home_name = ht.name if ht and hasattr(ht, "name") else str(ht or mid[:8])
-                        away_name = at.name if at and hasattr(at, "name") else str(at or "?")
-                        comp = getattr(match_obj, "competition", "")
+                        home_name = ht.name if (ht and hasattr(ht, "name") and isinstance(ht.name, str)) else mid[:8]
+                        away_name = at.name if (at and hasattr(at, "name") and isinstance(at.name, str)) else "?"
+                        comp_raw = getattr(match_obj, "competition", "")
+                        comp = comp_raw if isinstance(comp_raw, str) else ""
                     except Exception:
                         pass
 
@@ -1169,13 +1170,40 @@ if st.session_state.get("run_retrolearn"):
 
                 try:
                     try:
-                        # Versión nueva con competition
                         rep = le.process_result(pred, out, home_name, away_name, comp)
                     except TypeError:
-                        # Versión antigua sin competition
                         rep = le.process_result(pred, out, home_name, away_name)
-                    with st.expander(f"✅ {home_name} vs {away_name}", expanded=False):
-                        st.markdown(rep if isinstance(rep, str) else str(rep))
+
+                    # Construir resumen limpio parseando el informe
+                    lines = rep.split("\n") if isinstance(rep, str) else []
+                    mercados_info = []
+                    ajustes_info = []
+                    resumen_line = ""
+                    for ln in lines:
+                        ln = ln.strip()
+                        if not ln: continue
+                        if "**1X2:**" in ln or "**Córners**" in ln or "**Tarjetas**" in ln or "**Remates**" in ln:
+                            mercados_info.append(ln)
+                        elif "Aprendizaje:" in ln or "Aprendizaje Empate:" in ln or "Factor" in ln:
+                            ajustes_info.append(ln)
+                        elif "Resumen:" in ln or "mercados acertados" in ln:
+                            resumen_line = ln
+
+                    label_color = "🟢" if "4/4" in resumen_line else ("🟡" if any(x in resumen_line for x in ["3/4","2/4"]) else "🔴")
+                    with st.expander(f"{label_color} {home_name} vs {away_name}", expanded=False):
+                        if resumen_line:
+                            st.markdown(f"**{resumen_line.replace('**','').strip()}**")
+                        st.markdown("**Mercados:**")
+                        for m in mercados_info:
+                            clean = m.replace("**","").replace("→","→")
+                            st.markdown(f"- {clean}")
+                        if ajustes_info:
+                            st.markdown("**Ajustes aplicados a la IA:**")
+                            for a in ajustes_info:
+                                clean = a.replace("📈","📈").replace("📉","📉").replace("**","")
+                                st.markdown(f"- {clean}")
+                        else:
+                            st.caption("Sin ajustes adicionales necesarios.")
                     total_ok += 1
                 except Exception as e:
                     st.warning(f"Error procesando {home_name} vs {away_name}: {e}")
