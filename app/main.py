@@ -1140,24 +1140,29 @@ if st.session_state.get("run_retrolearn"):
                     st.warning(f"Sin predicción para {mid} — omitido")
                     continue
 
-                # Extraer nombres del objeto Match
+                # Extraer nombres del objeto Match (Pydantic model)
                 home_name, away_name, comp = "?", "?", ""
                 if match_obj:
                     try:
-                        ht = getattr(match_obj, "home_team", None)
-                        at = getattr(match_obj, "away_team", None)
-                        # Team puede ser objeto con .name o string directamente
-                        if ht:
-                            home_name = ht.name if hasattr(ht, "name") else str(ht)
-                        if at:
-                            away_name = at.name if hasattr(at, "name") else str(at)
-                        # Limitar a 30 chars por si acaso
-                        home_name = home_name[:30] if len(home_name) > 30 else home_name
-                        away_name = away_name[:30] if len(away_name) > 30 else away_name
+                        def _extract_name(obj):
+                            if obj is None: return "?"
+                            # Pydantic model con campo .name
+                            if hasattr(obj, "name") and isinstance(obj.name, str):
+                                return obj.name
+                            # dict
+                            if isinstance(obj, dict):
+                                return str(obj.get("name", "?"))
+                            # Fallback: str pero solo si es corto y limpio
+                            s = str(obj)
+                            if len(s) < 40 and "{" not in s:
+                                return s
+                            return "?"
+                        home_name = _extract_name(getattr(match_obj, "home_team", None))
+                        away_name = _extract_name(getattr(match_obj, "away_team", None))
                         comp_raw = getattr(match_obj, "competition", "")
                         comp = comp_raw if isinstance(comp_raw, str) else ""
-                    except Exception as _ne:
-                        home_name = mid[:10]
+                    except Exception:
+                        pass
 
                 # Usar totales directamente — las columnas split pueden ser 0
                 _corn_total = int(res.get("corners") or 0)
@@ -1196,14 +1201,22 @@ if st.session_state.get("run_retrolearn"):
                     except TypeError:
                         le.process_result(pred, out, home_name, away_name)
 
-                    # Calcular resumen directamente desde pred + out (independiente del engine)
+                    # Calcular resumen directamente desde pred + out (mismo parseo que semáforos)
                     import re as _re
+
                     def _check_range(pred_str, real_val):
-                        nums = [int(n) for n in _re.findall(r"\d+", str(pred_str or ""))]
-                        if len(nums) >= 4: lo, hi = nums[0]+nums[2], nums[1]+nums[3]
-                        elif len(nums) == 2: lo, hi = nums[0], nums[1]
-                        elif len(nums) == 1: lo = hi = nums[0]
-                        else: return None, None, None
+                        """Parsea rangos: '🏠 4-6 | ✈️ 3-5' suma home+away. '5-8' directo."""
+                        s = str(pred_str or "")
+                        nums = [int(n) for n in _re.findall(r"\d+", s)]
+                        if not nums: return None, None, None
+                        # Si hay 4 números → formato home/away separado, sumar
+                        if len(nums) >= 4:
+                            lo = nums[0] + nums[2]
+                            hi = nums[1] + nums[3]
+                        elif len(nums) == 2:
+                            lo, hi = nums[0], nums[1]
+                        else:
+                            lo = hi = nums[0]
                         return lo, hi, lo <= real_val <= hi
 
                     pred_w = "EMPATE"
@@ -1212,7 +1225,7 @@ if st.session_state.get("run_retrolearn"):
                     real_w = out.actual_winner
                     hit_1x2 = pred_w == real_w
 
-                    # Usar los totales originales del res, no los split del MatchOutcome
+                    # Totales desde resultados (fuente única de verdad)
                     total_corn = int(res.get("corners") or 0) or (out.home_corners + out.away_corners)
                     total_card = int(res.get("cards") or 0) or (out.home_cards + out.away_cards)
                     total_shot = int(res.get("shots") or 0) or (out.home_shots + out.away_shots)
@@ -1229,17 +1242,23 @@ if st.session_state.get("run_retrolearn"):
                     hits_n = sum(1 for _,_,h in mercados if h)
                     total_n = len([m for m in mercados if m[2] is not None])
 
-                    # Ajustes aplicados
+                    # Ajustes aplicados — usar solo strings limpios
+                    _hn = home_name if isinstance(home_name,str) and len(home_name)<35 else "Local"
+                    _an = away_name if isinstance(away_name,str) and len(away_name)<35 else "Visitante"
                     ajustes = []
                     if not hit_1x2:
                         if real_w == "LOCAL":
-                            ajustes.append(f"📈 {home_name} (Local) subestimado → factor +0.02")
+                            ajustes.append(f"📈 {_hn} (Local) subestimado → factor +0.02")
                         elif real_w == "VISITANTE":
-                            ajustes.append(f"📈 {away_name} (Visitante) subestimado → factor +0.02")
+                            ajustes.append(f"📈 {_an} (Visitante) subestimado → factor +0.02")
                         elif real_w == "EMPATE":
-                            ajustes.append(f"📉 Equipo sobreestimado → sesgo empate +0.01")
+                            ajustes.append(f"📉 {_hn}/{_an} sobreestimados → sesgo empate +0.01")
                     else:
-                        ajustes.append(f"✅ Predicción correcta → refuerzo positivo suave (+0.005)")
+                        ajustes.append(f"✅ Predicción 1X2 correcta → refuerzo suave (+0.005)")
+                    if hit_c is False:
+                        ajustes.append(f"📊 Córners: ajuste rango ({lo_c}-{hi_c} vs real {total_corn})")
+                    if hit_k is False:
+                        ajustes.append(f"📊 Tarjetas: ajuste rango ({lo_k}-{hi_k} vs real {total_card})")
 
                     icon = "🟢" if hits_n == total_n else ("🟡" if hits_n >= total_n/2 else "🔴")
                     with st.expander(f"{icon} {home_name} vs {away_name}  —  {hits_n}/{total_n} aciertos", expanded=False):
