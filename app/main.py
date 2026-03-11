@@ -1140,9 +1140,18 @@ if st.session_state.get("run_retrolearn"):
                     st.warning(f"Sin predicción para {mid} — omitido")
                     continue
 
-                home_name = match_obj.home_team.name if match_obj else mid[:8]
-                away_name = match_obj.away_team.name if match_obj else "?"
-                comp = match_obj.competition if match_obj else ""
+                if match_obj and isinstance(match_obj, dict):
+                    home_name = match_obj.get("home_team", mid[:8])
+                    away_name = match_obj.get("away_team", "?")
+                    comp      = match_obj.get("competition", "")
+                elif match_obj:
+                    home_name = getattr(getattr(match_obj, "home_team", None), "name", str(match_obj.home_team)) if hasattr(match_obj, "home_team") else mid[:8]
+                    away_name = getattr(getattr(match_obj, "away_team", None), "name", "?") if hasattr(match_obj, "away_team") else "?"
+                    comp      = getattr(match_obj, "competition", "")
+                else:
+                    home_name = mid[:8]
+                    away_name = "?"
+                    comp      = ""
 
                 out = MatchOutcome(
                     match_id=mid,
