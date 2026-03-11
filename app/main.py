@@ -1170,40 +1170,81 @@ if st.session_state.get("run_retrolearn"):
 
                 try:
                     try:
-                        rep = le.process_result(pred, out, home_name, away_name, comp)
+                        le.process_result(pred, out, home_name, away_name, comp)
                     except TypeError:
-                        rep = le.process_result(pred, out, home_name, away_name)
+                        le.process_result(pred, out, home_name, away_name)
 
-                    # Construir resumen limpio parseando el informe
-                    lines = rep.split("\n") if isinstance(rep, str) else []
-                    mercados_info = []
-                    ajustes_info = []
-                    resumen_line = ""
-                    for ln in lines:
-                        ln = ln.strip()
-                        if not ln: continue
-                        if "**1X2:**" in ln or "**Córners**" in ln or "**Tarjetas**" in ln or "**Remates**" in ln:
-                            mercados_info.append(ln)
-                        elif "Aprendizaje:" in ln or "Aprendizaje Empate:" in ln or "Factor" in ln:
-                            ajustes_info.append(ln)
-                        elif "Resumen:" in ln or "mercados acertados" in ln:
-                            resumen_line = ln
+                    # Calcular resumen directamente desde pred + out (independiente del engine)
+                    import re as _re
+                    def _check_range(pred_str, real_val):
+                        nums = [int(n) for n in _re.findall(r"\d+", str(pred_str or ""))]
+                        if len(nums) >= 4: lo, hi = nums[0]+nums[2], nums[1]+nums[3]
+                        elif len(nums) == 2: lo, hi = nums[0], nums[1]
+                        elif len(nums) == 1: lo = hi = nums[0]
+                        else: return None, None, None
+                        return lo, hi, lo <= real_val <= hi
 
-                    label_color = "🟢" if "4/4" in resumen_line else ("🟡" if any(x in resumen_line for x in ["3/4","2/4"]) else "🔴")
-                    with st.expander(f"{label_color} {home_name} vs {away_name}", expanded=False):
-                        if resumen_line:
-                            st.markdown(f"**{resumen_line.replace('**','').strip()}**")
-                        st.markdown("**Mercados:**")
-                        for m in mercados_info:
-                            clean = m.replace("**","").replace("→","→")
-                            st.markdown(f"- {clean}")
-                        if ajustes_info:
-                            st.markdown("**Ajustes aplicados a la IA:**")
-                            for a in ajustes_info:
-                                clean = a.replace("📈","📈").replace("📉","📉").replace("**","")
-                                st.markdown(f"- {clean}")
-                        else:
-                            st.caption("Sin ajustes adicionales necesarios.")
+                    pred_w = "EMPATE"
+                    if getattr(pred,"win_prob_home",0) > 0.45: pred_w = "LOCAL"
+                    elif getattr(pred,"win_prob_away",0) > 0.45: pred_w = "VISITANTE"
+                    real_w = out.actual_winner
+                    hit_1x2 = pred_w == real_w
+
+                    total_corn = out.home_corners + out.away_corners
+                    total_card = out.home_cards + out.away_cards
+                    total_shot = out.home_shots + out.away_shots
+                    lo_c,hi_c,hit_c = _check_range(getattr(pred,"predicted_corners",""), total_corn)
+                    lo_k,hi_k,hit_k = _check_range(getattr(pred,"predicted_cards",""), total_card)
+                    lo_s,hi_s,hit_s = _check_range(getattr(pred,"predicted_shots",""), total_shot)
+
+                    mercados = [
+                        ("1X2",     f"Pred: {pred_w} → Real: {real_w}", hit_1x2),
+                        ("Córners",  f"Pred: {lo_c}-{hi_c} → Real: {total_corn}", hit_c),
+                        ("Tarjetas", f"Pred: {lo_k}-{hi_k} → Real: {total_card}", hit_k),
+                        ("Remates",  f"Pred: {lo_s}-{hi_s} → Real: {total_shot}", hit_s),
+                    ]
+                    hits_n = sum(1 for _,_,h in mercados if h)
+                    total_n = len([m for m in mercados if m[2] is not None])
+
+                    # Ajustes aplicados
+                    ajustes = []
+                    if not hit_1x2:
+                        if real_w == "LOCAL":
+                            ajustes.append(f"📈 {home_name} (Local) subestimado → factor +0.02")
+                        elif real_w == "VISITANTE":
+                            ajustes.append(f"📈 {away_name} (Visitante) subestimado → factor +0.02")
+                        elif real_w == "EMPATE":
+                            ajustes.append(f"📉 Equipo sobreestimado → sesgo empate +0.01")
+                    else:
+                        ajustes.append(f"✅ Predicción correcta → refuerzo positivo suave (+0.005)")
+
+                    icon = "🟢" if hits_n == total_n else ("🟡" if hits_n >= total_n/2 else "🔴")
+                    with st.expander(f"{icon} {home_name} vs {away_name}  —  {hits_n}/{total_n} aciertos", expanded=False):
+                        # Tabla de mercados
+                        rows_html = ""
+                        for nombre, detalle, hit in mercados:
+                            if hit is None: continue
+                            color = "#4ade80" if hit else "#f87171"
+                            badge = "✅ HIT" if hit else "❌ MISS"
+                            rows_html += (
+                                f'<tr><td style="color:#f5f0e0;padding:4px 10px;">{nombre}</td>'
+                                f'<td style="color:#94a3b8;padding:4px 10px;">{detalle}</td>'
+                                f'<td style="color:{color};font-weight:bold;padding:4px 10px;">{badge}</td></tr>'
+                            )
+                        st.markdown(
+                            f'<table style="width:100%;border-collapse:collapse;margin-bottom:8px;">{rows_html}</table>',
+                            unsafe_allow_html=True
+                        )
+                        st.markdown(
+                            '<p style="color:#fdffcc;font-size:0.82rem;font-weight:bold;margin:6px 0 2px;">'
+                            '🧠 Ajustes aplicados a la IA:</p>',
+                            unsafe_allow_html=True
+                        )
+                        for a in ajustes:
+                            st.markdown(
+                                f'<p style="color:#e2e8f0;font-size:0.8rem;margin:2px 0 2px 10px;">• {a}</p>',
+                                unsafe_allow_html=True
+                            )
                     total_ok += 1
                 except Exception as e:
                     st.warning(f"Error procesando {home_name} vs {away_name}: {e}")
