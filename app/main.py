@@ -125,6 +125,159 @@ data_provider, db_manager, bpa_engine, predictor, validator, bankroll_manager, r
 # --- MAIN LAYOUT ---
 render_header()
 
+# =====================================================================
+# MODO REVISIÓN — se activa al cargar estudio desde "Mis Estudios"
+# =====================================================================
+if st.session_state.get("review_study"):
+    rs = st.session_state.review_study
+    pred_rs = rs.get("prediction")
+    match_rs = rs.get("match")
+    home_name_rs = rs.get("home_team", "?")
+    away_name_rs = rs.get("away_team", "?")
+
+    st.markdown(f'''
+        <div style="background:#1e293b;border-radius:10px;padding:14px 18px;margin-bottom:16px;
+                    border-left:4px solid #f59e0b;">
+            <div style="color:#fdffcc;font-size:1.1rem;font-weight:bold;">
+                📋 REVISANDO ESTUDIO: {home_name_rs} vs {away_name_rs}
+            </div>
+            <div style="color:#94a3b8;font-size:0.8rem;">
+                {rs.get("date","")} · {rs.get("competition","")} &nbsp;|&nbsp;
+                <span style="color:#f59e0b;">Modo solo lectura — usa los botones para refrescar</span>
+            </div>
+        </div>
+    ''', unsafe_allow_html=True)
+
+    # Mostrar predicción guardada
+    if pred_rs:
+        render_bpa_display(pred_rs)
+        render_prediction_cards(pred_rs)
+
+    # Botones de refresco
+    from datetime import datetime as _dt
+    hours_to_rs = 999
+    can_reanalyze_rs = False
+    if match_rs and match_rs.date:
+        try:
+            diff_rs = match_rs.date - _dt.now()
+            hours_to_rs = diff_rs.total_seconds() / 3600
+            can_reanalyze_rs = -1 < hours_to_rs < 2.0
+        except Exception:
+            pass
+
+    st.markdown("---")
+    st.markdown('<p style="color:#fdffcc;font-weight:bold;">🔧 Acciones de Refresco</p>', unsafe_allow_html=True)
+
+    col_a, col_b, col_c, col_d = st.columns(4)
+
+    # Botón reanalizar alineación (solo si partido próximo)
+    with col_a:
+        if can_reanalyze_rs:
+            if st.button("🔄 Alineación Oficial", use_container_width=True, type="primary", key="rv_lineup"):
+                with st.spinner("Buscando alineación oficial..."):
+                    try:
+                        from src.logic.lineup_fetcher import LineupFetcher
+                        from src.models.base import Player, PlayerPosition, PlayerStatus, NodeRole
+                        lf = LineupFetcher(data_provider)
+                        new_lu = lf.fetch_smart_lineup(
+                            home_name_rs, away_name_rs,
+                            match_rs.date, match_rs.competition or ""
+                        )
+                        if new_lu.get("home") or new_lu.get("away"):
+                            roles = [NodeRole.PORTERO,NodeRole.DEFENSA,NodeRole.DEFENSA,NodeRole.DEFENSA,
+                                     NodeRole.DEFENSA,NodeRole.MEDIOCAMPISTA,NodeRole.MEDIOCAMPISTA,
+                                     NodeRole.MEDIOCAMPISTA,NodeRole.DELANTERO,NodeRole.DELANTERO,NodeRole.DELANTERO]
+                            def _tp(names, tname):
+                                return [Player(id=f"{tname}_{i}",name=n,team_name=tname,
+                                    position=PlayerPosition.MIDFIELDER,
+                                    node_role=roles[i] if i<len(roles) else NodeRole.MEDIOCAMPISTA,
+                                    status=PlayerStatus.TITULAR,rating_last_5=7.5)
+                                    for i,n in enumerate(names[:11])]
+                            upd_h = data_provider.get_team_data(home_name_rs)
+                            upd_a = data_provider.get_team_data(away_name_rs)
+                            if new_lu.get("home"): upd_h.players = _tp(new_lu["home"], home_name_rs)
+                            if new_lu.get("away"): upd_a.players = _tp(new_lu["away"], away_name_rs)
+                            match_rs.home_team = upd_h
+                            match_rs.away_team = upd_a
+                            new_pred_rs = predictor.predict(match_rs)
+                            new_pred_rs.match_id = rs["match_id"]
+                            db_manager.save_prediction(new_pred_rs)
+                            db_manager.save_match(match_rs)
+                            rs["prediction"] = new_pred_rs
+                            st.session_state.review_study = rs
+                            tag_rs = "✅ Oficial" if new_lu.get("is_official") else "📊 Probable"
+                            st.toast(f"🔄 Alineación actualizada · {tag_rs}", icon="✅")
+                            st.rerun()
+                        else:
+                            st.warning("Alineación oficial no disponible aún.")
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+        else:
+            st.button("🔄 Alineación", use_container_width=True, disabled=True,
+                      help="Disponible 2h antes del partido", key="rv_lineup_dis")
+
+    # Botón actualizar prensa
+    with col_b:
+        if st.button("📰 Actualizar Prensa", use_container_width=True, key="rv_press"):
+            with st.spinner("Buscando noticias..."):
+                try:
+                    from src.logic.external_analyst import ExternalAnalyst
+                    analyst = ExternalAnalyst()
+                    intel = analyst.get_detailed_intelligence(match_rs)
+                    h_moral = intel["impact"].get("home", 0)
+                    a_moral = intel["impact"].get("away", 0)
+                    # Actualizar predicción con nuevo impacto de prensa
+                    if pred_rs:
+                        pred_rs.win_prob_home = min(0.95, max(0.05, pred_rs.win_prob_home * (1 + h_moral)))
+                        pred_rs.win_prob_away = min(0.95, max(0.05, pred_rs.win_prob_away * (1 + a_moral)))
+                        pred_rs.draw_prob = round(max(0.05, 1 - pred_rs.win_prob_home - pred_rs.win_prob_away), 3)
+                        db_manager.save_prediction(pred_rs)
+                        rs["prediction"] = pred_rs
+                        st.session_state.review_study = rs
+                    via = "🤖 Claude API" if os.environ.get("ANTHROPIC_API_KEY") else "📡 RSS"
+                    st.toast(f"📰 Prensa actualizada · {via}", icon="✅")
+                    col_press1, col_press2 = st.columns(2)
+                    col_press1.metric("🏠 Moral Local", f"{h_moral:+.3f}")
+                    col_press2.metric("✈️ Moral Visitante", f"{a_moral:+.3f}")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error prensa: {e}")
+
+    # Botón re-buscar árbitro
+    with col_c:
+        if st.button("👨‍⚖️ Re-buscar Árbitro", use_container_width=True, key="rv_ref"):
+            with st.spinner("Buscando árbitro..."):
+                try:
+                    from src.logic.la_liga import fetch_referee
+                    ref_data = fetch_referee(home_name_rs, away_name_rs, match_rs.date if match_rs else None)
+                    if ref_data and not ref_data.get("_is_fallback"):
+                        st.success(f"👨‍⚖️ Árbitro: **{ref_data['name']}** ({ref_data.get('source','?')})")
+                        st.session_state[f"ref_rs_{rs['match_id']}"] = ref_data
+                    else:
+                        st.warning("No se encontró árbitro automáticamente.")
+                except Exception as e:
+                    st.info(f"Árbitro no disponible: {e}")
+
+    # Botón meter resultado y cerrar revisión
+    with col_d:
+        if st.button("📥 Meter Resultado", use_container_width=True, key="rv_result"):
+            st.session_state["direct_study"] = {
+                "match_id": rs["match_id"],
+                "home_team": home_name_rs,
+                "away_team": away_name_rs,
+                "prediction": pred_rs,
+                "match": match_rs,
+            }
+            st.session_state["last_pred"] = pred_rs
+            del st.session_state["review_study"]
+            st.rerun()
+
+    if st.button("✖️ Cerrar revisión y volver al análisis nuevo", key="rv_close"):
+        del st.session_state["review_study"]
+        st.rerun()
+
+    st.stop()  # No mostrar el formulario de nuevo análisis mientras revisamos
+
 # 1. Match Configuration
 st.markdown('<h3 style="color: #ffffff;">🛠️ Configuración Estratégica</h3>', unsafe_allow_html=True)
 
@@ -772,16 +925,21 @@ with st.sidebar:
                     pred = db_manager.get_prediction(s["match_id"])
                     match_obj = db_manager.get_match(s["match_id"])
                     if pred and match_obj:
-                        st.session_state["direct_study"] = {
+                        # Abrir Modo Revisión en área principal
+                        st.session_state["review_study"] = {
                             "match_id": s["match_id"],
                             "home_team": s["home_team"],
                             "away_team": s["away_team"],
+                            "date": s.get("date", ""),
+                            "competition": s.get("competition", ""),
                             "prediction": pred,
                             "match": match_obj,
                         }
                         st.session_state["last_pred"] = pred
-                        st.toast(f"✅ Cargado: {partido}", icon="📥")
+                        st.toast(f"📋 Abriendo estudio: {partido}", icon="📋")
                         st.rerun()
+                    else:
+                        st.error("No se pudo cargar el estudio.")
 
     st.divider()
 
