@@ -1140,32 +1140,54 @@ if st.session_state.get("run_retrolearn"):
                     st.warning(f"Sin predicción para {mid} — omitido")
                     continue
 
-                # Extraer nombres robustamente del objeto Match
-                home_name, away_name, comp = mid[:8], "?", ""
+                # Extraer nombres del objeto Match
+                home_name, away_name, comp = "?", "?", ""
                 if match_obj:
                     try:
                         ht = getattr(match_obj, "home_team", None)
                         at = getattr(match_obj, "away_team", None)
-                        home_name = ht.name if (ht and hasattr(ht, "name") and isinstance(ht.name, str)) else mid[:8]
-                        away_name = at.name if (at and hasattr(at, "name") and isinstance(at.name, str)) else "?"
+                        # Team puede ser objeto con .name o string directamente
+                        if ht:
+                            home_name = ht.name if hasattr(ht, "name") else str(ht)
+                        if at:
+                            away_name = at.name if hasattr(at, "name") else str(at)
+                        # Limitar a 30 chars por si acaso
+                        home_name = home_name[:30] if len(home_name) > 30 else home_name
+                        away_name = away_name[:30] if len(away_name) > 30 else away_name
                         comp_raw = getattr(match_obj, "competition", "")
                         comp = comp_raw if isinstance(comp_raw, str) else ""
-                    except Exception:
-                        pass
+                    except Exception as _ne:
+                        home_name = mid[:10]
+
+                # Usar totales directamente — las columnas split pueden ser 0
+                _corn_total = int(res.get("corners") or 0)
+                _card_total = int(res.get("cards") or 0)
+                _shot_total = int(res.get("shots") or 0)
+                _sot_total  = int(res.get("shots_on_target") or 0)
+                # Si hay split, usarlo; si no, repartir mitad/mitad
+                _hc = int(res.get("home_corners") or 0)
+                _ac = int(res.get("away_corners") or 0)
+                if _hc == 0 and _ac == 0 and _corn_total > 0:
+                    _hc = _corn_total // 2; _ac = _corn_total - _hc
+                _hk = int(res.get("home_cards") or 0)
+                _ak = int(res.get("away_cards") or 0)
+                if _hk == 0 and _ak == 0 and _card_total > 0:
+                    _hk = _card_total // 2; _ak = _card_total - _hk
+                _hs = int(res.get("home_shots") or 0)
+                _as = int(res.get("away_shots") or 0)
+                if _hs == 0 and _as == 0 and _shot_total > 0:
+                    _hs = _shot_total // 2; _as = _shot_total - _hs
 
                 out = MatchOutcome(
                     match_id=mid,
                     home_score=int(res.get("home_score") or 0),
                     away_score=int(res.get("away_score") or 0),
                     actual_winner=res.get("winner") or "EMPATE",
-                    home_corners=int(res.get("home_corners") or 0),
-                    away_corners=int(res.get("away_corners") or 0),
-                    home_cards=int(res.get("home_cards") or 0),
-                    away_cards=int(res.get("away_cards") or 0),
-                    home_shots=int(res.get("home_shots") or 0),
-                    away_shots=int(res.get("away_shots") or 0),
-                    home_shots_on_target=int(res.get("home_shots_on_target") or 0),
-                    away_shots_on_target=int(res.get("away_shots_on_target") or 0),
+                    home_corners=_hc, away_corners=_ac,
+                    home_cards=_hk,   away_cards=_ak,
+                    home_shots=_hs,   away_shots=_as,
+                    home_shots_on_target=_sot_total//2,
+                    away_shots_on_target=_sot_total-_sot_total//2,
                 )
 
                 try:
@@ -1190,9 +1212,10 @@ if st.session_state.get("run_retrolearn"):
                     real_w = out.actual_winner
                     hit_1x2 = pred_w == real_w
 
-                    total_corn = out.home_corners + out.away_corners
-                    total_card = out.home_cards + out.away_cards
-                    total_shot = out.home_shots + out.away_shots
+                    # Usar los totales originales del res, no los split del MatchOutcome
+                    total_corn = int(res.get("corners") or 0) or (out.home_corners + out.away_corners)
+                    total_card = int(res.get("cards") or 0) or (out.home_cards + out.away_cards)
+                    total_shot = int(res.get("shots") or 0) or (out.home_shots + out.away_shots)
                     lo_c,hi_c,hit_c = _check_range(getattr(pred,"predicted_corners",""), total_corn)
                     lo_k,hi_k,hit_k = _check_range(getattr(pred,"predicted_cards",""), total_card)
                     lo_s,hi_s,hit_s = _check_range(getattr(pred,"predicted_shots",""), total_shot)
