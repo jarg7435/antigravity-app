@@ -1061,8 +1061,117 @@ with st.sidebar:
         st.session_state.semaforos = not st.session_state.get("semaforos", False)
         st.session_state.sh = False
 
+    st.divider()
+    st.markdown('<p style="color:#fdffcc;font-size:0.8rem;font-weight:bold;">🧠 Aprendizaje Retroactivo</p>', unsafe_allow_html=True)
+    st.markdown('<p style="color:#888;font-size:0.72rem;">Procesa estudios completados que aún no han alimentado la IA.</p>', unsafe_allow_html=True)
+    if st.button("🔄 Recalibrar con estudios anteriores", use_container_width=True, type="primary"):
+        st.session_state["run_retrolearn"] = True
+        st.rerun()
+
 if st.session_state.get("sh"):
     render_historical_dashboard(db_manager=db_manager)
 
 if st.session_state.get("semaforos"):
     render_semaforo_history(db_manager)
+
+# ── APRENDIZAJE RETROACTIVO ───────────────────────────────────────────────────
+if st.session_state.get("run_retrolearn"):
+    st.session_state["run_retrolearn"] = False
+    st.markdown("---")
+    st.markdown("### 🧠 Recalibrando IA con estudios anteriores...")
+
+    try:
+        from src.logic.learning_engine import LearningEngine
+        from src.models.base import MatchOutcome
+        import json, re
+
+        # Cargar todos los completados: tienen resultado en resultados y predicción en predictions
+        if db_manager.use_supabase:
+            res_rows = db_manager._sb_get("resultados",
+                "select=match_id,home_score,away_score,winner,corners,cards,shots,"
+                "shots_on_target,home_corners,away_corners,home_cards,away_cards,"
+                "home_shots,away_shots,home_shots_on_target,away_shots_on_target"
+                "&order=created_at.asc&limit=100")
+        else:
+            import sqlite3
+            conn = sqlite3.connect(db_manager.db_path)
+            r_raw = conn.execute(
+                "SELECT match_id,home_score,away_score,winner,corners,cards,shots,"
+                "shots_on_target,home_corners,away_corners,home_cards,away_cards,"
+                "home_shots,away_shots,home_shots_on_target,away_shots_on_target "
+                "FROM resultados ORDER BY created_at ASC LIMIT 100").fetchall()
+            res_rows = [{"match_id":r[0],"home_score":r[1],"away_score":r[2],
+                         "winner":r[3],"corners":r[4],"cards":r[5],"shots":r[6],
+                         "shots_on_target":r[7],"home_corners":r[8],"away_corners":r[9],
+                         "home_cards":r[10],"away_cards":r[11],"home_shots":r[12],
+                         "away_shots":r[13],"home_shots_on_target":r[14],
+                         "away_shots_on_target":r[15]} for r in r_raw]
+            conn.close()
+
+        # Verificar cuáles ya están en aprendizaje para no duplicar
+        if db_manager.use_supabase:
+            ya_aprendidos = {r["match_id"] for r in
+                db_manager._sb_get("aprendizaje", "select=match_id") or []}
+        else:
+            try:
+                conn = sqlite3.connect(db_manager.db_path)
+                ya_aprendidos = {r[0] for r in
+                    conn.execute("SELECT DISTINCT match_id FROM aprendizaje").fetchall()}
+                conn.close()
+            except Exception:
+                ya_aprendidos = set()
+
+        pendientes = [r for r in res_rows if r["match_id"] not in ya_aprendidos]
+
+        if not pendientes:
+            st.success("✅ Todos los estudios ya han sido procesados por la IA.")
+        else:
+            try:
+                le = LearningEngine(bpa_engine, db_manager)
+            except TypeError:
+                le = LearningEngine(bpa_engine)
+
+            total_ok = 0
+            for res in pendientes:
+                mid = res["match_id"]
+                pred = db_manager.get_prediction(mid)
+                match_obj = db_manager.get_match(mid)
+                if not pred:
+                    st.warning(f"Sin predicción para {mid} — omitido")
+                    continue
+
+                home_name = match_obj.home_team.name if match_obj else mid[:8]
+                away_name = match_obj.away_team.name if match_obj else "?"
+                comp = match_obj.competition if match_obj else ""
+
+                out = MatchOutcome(
+                    match_id=mid,
+                    home_score=int(res.get("home_score") or 0),
+                    away_score=int(res.get("away_score") or 0),
+                    actual_winner=res.get("winner") or "EMPATE",
+                    home_corners=int(res.get("home_corners") or 0),
+                    away_corners=int(res.get("away_corners") or 0),
+                    home_cards=int(res.get("home_cards") or 0),
+                    away_cards=int(res.get("away_cards") or 0),
+                    home_shots=int(res.get("home_shots") or 0),
+                    away_shots=int(res.get("away_shots") or 0),
+                    home_shots_on_target=int(res.get("home_shots_on_target") or 0),
+                    away_shots_on_target=int(res.get("away_shots_on_target") or 0),
+                )
+
+                try:
+                    rep = le.process_result(pred, out, home_name, away_name, comp)
+                    with st.expander(f"✅ {home_name} vs {away_name}", expanded=False):
+                        st.markdown(rep)
+                    total_ok += 1
+                except Exception as e:
+                    st.warning(f"Error procesando {home_name} vs {away_name}: {e}")
+
+            if total_ok > 0:
+                st.success(f"✅ {total_ok} estudio(s) procesado(s). La IA ha aprendido de todos ellos.")
+                st.balloons()
+            else:
+                st.error("No se pudo procesar ningún estudio.")
+
+    except Exception as e:
+        st.error(f"Error en aprendizaje retroactivo: {e}")
