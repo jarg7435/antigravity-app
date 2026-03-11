@@ -163,6 +163,121 @@ def render_prediction_cards(result: PredictionResult):
         st.markdown(f'<p style="font-size: 0.9rem; font-weight: 700; color: #fff;">{format_stat_range(getattr(result, "predicted_shots_on_target", "🏠 0 | ✈️ 0"))}</p>', unsafe_allow_html=True)
 
     st.divider()
+
+    # ── RECOMENDACIÓN DE APUESTA ──────────────────────────────────────────
+    ph = result.win_prob_home
+    pd_ = result.draw_prob
+    pa = result.win_prob_away
+    xg = result.total_goals_expected
+    conf = result.confidence_score
+
+    # Lógica de recomendación
+    def _get_recommendation(ph, pd_, pa, xg, conf):
+        # Doble oportunidad si hay incertidumbre alta
+        p1x = ph + pd_
+        px2 = pd_ + pa
+        p12 = ph + pa
+
+        # Determinar apuesta principal
+        MAX_SINGLE = 0.50   # mínimo para apostar simple
+        MIN_CONF   = 0.45   # confianza mínima
+
+        rec = None
+        strength = ""
+        color = "#94a3b8"
+        emoji = "⚪"
+        reasoning = []
+
+        if ph >= MAX_SINGLE and conf >= MIN_CONF:
+            rec = "1 (Victoria Local)"
+            color = "#4ade80"
+            emoji = "🏠"
+            strength = "FUERTE" if ph > 0.60 else "MODERADA"
+            reasoning.append(f"Victoria local con {ph*100:.1f}% de probabilidad")
+        elif pa >= MAX_SINGLE and conf >= MIN_CONF:
+            rec = "2 (Victoria Visitante)"
+            color = "#60a5fa"
+            emoji = "✈️"
+            strength = "FUERTE" if pa > 0.60 else "MODERADA"
+            reasoning.append(f"Victoria visitante con {pa*100:.1f}% de probabilidad")
+        elif pd_ >= 0.38 and conf >= MIN_CONF:
+            rec = "X (Empate)"
+            color = "#fbbf24"
+            emoji = "🤝"
+            strength = "MODERADA"
+            reasoning.append(f"Empate con {pd_*100:.1f}% de probabilidad")
+        elif p1x >= 0.70 and ph > pa:
+            rec = "1X (Local no pierde)"
+            color = "#a3e635"
+            emoji = "🛡️"
+            strength = "MODERADA"
+            reasoning.append(f"Local no pierde: {p1x*100:.1f}% (1X)")
+        elif px2 >= 0.70 and pa > ph:
+            rec = "X2 (Visitante no pierde)"
+            color = "#38bdf8"
+            emoji = "🛡️"
+            strength = "MODERADA"
+            reasoning.append(f"Visitante no pierde: {px2*100:.1f}% (X2)")
+        elif p12 >= 0.72:
+            rec = "12 (Alguien gana)"
+            color = "#e879f9"
+            emoji = "⚡"
+            strength = "MODERADA"
+            reasoning.append(f"Alguien gana: {p12*100:.1f}% (sin empate)")
+        else:
+            rec = "ABSTENERSE"
+            color = "#ef4444"
+            emoji = "🚫"
+            strength = "SIN VENTAJA"
+            reasoning.append("No hay ventaja estadística clara")
+
+        # Añadir contexto goles
+        if rec != "ABSTENERSE":
+            if xg > 2.8:
+                reasoning.append(f"Partido con goles esperado ({xg:.1f} xG → Over 2.5)")
+            elif xg < 2.0:
+                reasoning.append(f"Partido cerrado ({xg:.1f} xG → Under 2.5)")
+
+        if conf < 0.45 and rec != "ABSTENERSE":
+            reasoning.append(f"⚠️ Confianza baja ({conf*100:.0f}%) — considera reducir stake")
+
+        return rec, strength, color, emoji, reasoning
+
+    rec, strength, color, emoji, reasoning = _get_recommendation(ph, pd_, pa, xg, conf)
+
+    strength_bg = {
+        "FUERTE":      ("#14532d", "#4ade80"),
+        "MODERADA":    ("#1e3a5f", "#60a5fa"),
+        "SIN VENTAJA": ("#3f1a1a", "#ef4444"),
+    }.get(strength, ("#1e293b", "#94a3b8"))
+
+    st.markdown(
+        f'<div style="background:{strength_bg[0]};border-radius:12px;padding:16px 20px;'
+        f'margin:10px 0;border:2px solid {color};">'
+        f'<div style="color:#fdffcc;font-size:0.8rem;text-transform:uppercase;letter-spacing:1px;">'
+        f'🤖 Recomendación de la IA</div>'
+        f'<div style="display:flex;align-items:center;gap:12px;margin-top:8px;">'
+        f'<span style="font-size:2.2rem;">{emoji}</span>'
+        f'<div>'
+        f'<div style="color:{color};font-size:1.5rem;font-weight:900;">{rec}</div>'
+        f'<div style="color:{strength_bg[1]};font-size:0.8rem;font-weight:bold;">'
+        f'Señal {strength}</div>'
+        f'</div>'
+        f'<div style="margin-left:auto;text-align:right;">'
+        f'<div style="color:#fff;font-size:0.85rem;">🏠 {ph*100:.1f}% &nbsp;·&nbsp; '
+        f'🤝 {pd_*100:.1f}% &nbsp;·&nbsp; ✈️ {pa*100:.1f}%</div>'
+        f'<div style="color:#94a3b8;font-size:0.75rem;">Confianza: {conf*100:.0f}%</div>'
+        f'</div></div>',
+        unsafe_allow_html=True
+    )
+    for r in reasoning:
+        st.markdown(
+            f'<div style="color:#cbd5e1;font-size:0.78rem;padding:2px 0 0 20px;">• {r}</div>',
+            unsafe_allow_html=True
+        )
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.divider()
     # 4. Quick Bet
     st.markdown("#### 🎫 Registro Rápido de Apuesta")
     with st.expander("Abrir Cupón de Apuesta"):
