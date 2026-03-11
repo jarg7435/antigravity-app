@@ -727,6 +727,112 @@ def render_semaforo_history(db_manager):
 
     st.caption(f"Mostrando los últimos {len(history)} partidos validados.")
 
+    # ── SECCIÓN DE AJUSTES APRENDIDOS ─────────────────────────────────────────
+    st.divider()
+    st.markdown("### 🧠 Ajustes que la IA ha Aprendido")
+    st.caption("Estos factores se aplican automáticamente en cada nueva predicción de estos equipos.")
+
+    try:
+        team_factors = db_manager.get_all_team_factors()
+        if not team_factors:
+            st.info("La IA aún no ha generado factores de corrección. Pulsa '🔄 Recalibrar con estudios anteriores' en el panel lateral.")
+        else:
+            # Separar equipos con ajustes significativos
+            con_ajuste = [t for t in team_factors
+                         if abs(float(t.get("sesgo_local",0))) > 0.005
+                         or abs(float(t.get("sesgo_visitante",0))) > 0.005
+                         or abs(float(t.get("sesgo_empate",0))) > 0.005]
+
+            if not con_ajuste:
+                st.info("Los ajustes son mínimos todavía. Con más partidos el sistema se irá afinando.")
+            else:
+                for t in con_ajuste:
+                    equipo = t.get("equipo","?")
+                    sl = float(t.get("sesgo_local",0))
+                    sv = float(t.get("sesgo_visitante",0))
+                    se = float(t.get("sesgo_empate",0))
+                    sc = float(t.get("sesgo_corners",0))
+                    sk = float(t.get("sesgo_cards",0))
+                    partidos = int(t.get("total_partidos",0))
+                    aciertos = int(t.get("aciertos",0))
+
+                    # Construir líneas de ajuste
+                    ajustes = []
+                    if abs(sl) > 0.005:
+                        dir_l = "⬆️ subestimado" if sl > 0 else "⬇️ sobreestimado"
+                        color_l = "#4ade80" if sl > 0 else "#f87171"
+                        ajustes.append((f"🏠 Local", sl, color_l, dir_l,
+                            f"Cuando juega en casa, la IA {'sube' if sl>0 else 'baja'} su probabilidad {abs(sl)*100:.1f}%"))
+                    if abs(sv) > 0.005:
+                        dir_v = "⬆️ subestimado" if sv > 0 else "⬇️ sobreestimado"
+                        color_v = "#4ade80" if sv > 0 else "#f87171"
+                        ajustes.append((f"✈️ Visitante", sv, color_v, dir_v,
+                            f"Cuando juega fuera, la IA {'sube' if sv>0 else 'baja'} su probabilidad {abs(sv)*100:.1f}%"))
+                    if abs(se) > 0.005:
+                        color_e = "#fbbf24"
+                        ajustes.append((f"🤝 Empate", se, color_e, "ajuste empate",
+                            f"Mayor tendencia al empate detectada ({abs(se)*100:.1f}%)"))
+                    if abs(sc) > 0.005:
+                        color_c = "#a3e635"
+                        ajustes.append(("🚩 Córners", sc, color_c, "ajuste córners",
+                            f"Córners {'por encima' if sc>0 else 'por debajo'} de lo esperado ({abs(sc)*100:.1f}%)"))
+
+                    if not ajustes:
+                        continue
+
+                    # Renderizar tarjeta del equipo
+                    fiabilidad = f"{round(aciertos/partidos*100) if partidos>0 else 0}% acierto en {partidos} partido(s)"
+                    st.markdown(
+                        f'<div style="background:#1e293b;border-radius:10px;padding:12px 16px;'
+                        f'margin-bottom:10px;border-left:3px solid #60a5fa;">',
+                        unsafe_allow_html=True
+                    )
+                    st.markdown(
+                        f'<span style="color:#f5f0e0;font-size:0.95rem;font-weight:bold;">'
+                        f'{equipo}</span> '
+                        f'<span style="color:#64748b;font-size:0.75rem;">{fiabilidad}</span>',
+                        unsafe_allow_html=True
+                    )
+                    for label, val, color, direccion, explicacion in ajustes:
+                        signo = "+" if val > 0 else ""
+                        st.markdown(
+                            f'<div style="display:flex;align-items:center;gap:8px;'
+                            f'margin-top:5px;padding:4px 8px;background:#0f172a;border-radius:6px;">',
+                            unsafe_allow_html=True
+                        )
+                        st.markdown(
+                            f'<span style="color:#94a3b8;font-size:0.78rem;min-width:90px;">{label}</span>'
+                            f'<span style="color:{color};font-size:0.85rem;font-weight:bold;">{signo}{val:.3f}</span>'
+                            f'<span style="color:{color};font-size:0.72rem;margin-left:4px;">{direccion}</span>',
+                            unsafe_allow_html=True
+                        )
+                        st.markdown(
+                            f'<div style="color:#64748b;font-size:0.7rem;margin-top:1px;padding-left:8px;">'
+                            f'→ {explicacion}</div></div></div>',
+                            unsafe_allow_html=True
+                        )
+
+                # Nota explicativa
+                st.markdown(
+                    '<div style="background:#0f172a;border-radius:8px;padding:10px 14px;margin-top:12px;">',
+                    unsafe_allow_html=True
+                )
+                st.markdown(
+                    '<p style="color:#94a3b8;font-size:0.78rem;margin:0;">',
+                    unsafe_allow_html=True
+                )
+                st.markdown("""
+                    **¿Cómo usa la IA estos ajustes?**  
+                    Cada vez que analices un partido con estos equipos, el sistema multiplica
+                    automáticamente la probabilidad base por el factor aprendido.  
+                    Ejemplo: si Real Madrid tiene factor Local +0.025, y el modelo base da 55%,
+                    el sistema aplicará 55% × 1.025 = **56.4%** como probabilidad final.  
+                    Cuantos más partidos proceses, más precisos serán estos factores.
+                """)
+                st.markdown('</p></div>', unsafe_allow_html=True)
+    except Exception as e:
+        st.warning(f"No se pudieron cargar los factores: {e}")
+
 
 def render_lineup_check_ui(team_name: str, players: list[Player], side: str = "home"):
     st.markdown(f'<h3 style="color: #ffffff; text-decoration: underline; text-decoration-color: #00d4ff;">Alineación: {team_name}</h3>', unsafe_allow_html=True)
