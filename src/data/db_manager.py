@@ -418,3 +418,29 @@ class DataManager:
                 print(f"[DB] Error get_all_studies: {e}")
 
         return studies
+    def delete_study(self, match_id: str) -> bool:
+        """
+        Elimina un estudio (predicción + partido) de la BD.
+        NO borra el resultado real si ya estaba validado.
+        """
+        try:
+            if self.use_supabase:
+                # Borrar predicción
+                url_pred = f"{self.supabase_url}/rest/v1/predictions?match_id=eq.{match_id}"
+                headers = {**self._sb_headers(), "Prefer": "return=minimal"}
+                import requests as _req
+                _req.delete(url_pred, headers=headers, timeout=10)
+                # Borrar partido
+                url_match = f"{self.supabase_url}/rest/v1/matches?id=eq.{match_id}"
+                _req.delete(url_match, headers=headers, timeout=10)
+            else:
+                conn = sqlite3.connect(self.db_path)
+                conn.execute("DELETE FROM predictions WHERE match_id=?", (match_id,))
+                conn.execute("DELETE FROM matches WHERE id=?", (match_id,))
+                conn.commit()
+                conn.close()
+            print(f"[DB] ✅ Estudio eliminado: {match_id}")
+            return True
+        except Exception as e:
+            print(f"[DB] Error delete_study: {e}")
+            return False
