@@ -448,49 +448,139 @@ class DataManager:
     def get_semaforo_history(self, limit: int = 100) -> List[dict]:
         """
         Devuelve historial completo de semáforos por partido.
-        Agrupa los registros de aprendizaje por match_id.
+        Primero busca en tabla aprendizaje (datos detallados).
+        Si está vacía, reconstruye los semáforos desde resultados+predictions.
         """
+        from collections import OrderedDict
+        import json, re
+
         results = []
         try:
+            # 1. Intentar desde tabla aprendizaje (datos completos)
             if self.use_supabase:
                 rows = self._sb_get("aprendizaje",
                     f"select=match_id,mercado,predicho,real,acierto,home_team,away_team,competition,created_at"
                     f"&order=created_at.desc&limit={limit*4}")
             else:
                 conn = sqlite3.connect(self.db_path)
-                rows = conn.execute('''
-                    SELECT match_id, mercado, predicho, real, acierto,
-                           home_team, away_team, competition, created_at
-                    FROM aprendizaje ORDER BY created_at DESC LIMIT ?
-                ''', (limit * 4,)).fetchall()
+                raw = conn.execute(
+                    "SELECT match_id,mercado,predicho,real,acierto,home_team,away_team,competition,created_at "
+                    "FROM aprendizaje ORDER BY created_at DESC LIMIT ?", (limit*4,)).fetchall()
                 conn.close()
-                rows = [{"match_id": r[0], "mercado": r[1], "predicho": r[2],
-                         "real": r[3], "acierto": r[4], "home_team": r[5],
-                         "away_team": r[6], "competition": r[7], "created_at": r[8]}
-                        for r in rows]
+                rows = [{"match_id":r[0],"mercado":r[1],"predicho":r[2],"real":r[3],
+                         "acierto":r[4],"home_team":r[5],"away_team":r[6],
+                         "competition":r[7],"created_at":r[8]} for r in raw]
 
-            # Agrupar por match_id
-            from collections import OrderedDict
-            partidos = OrderedDict()
-            for row in rows:
-                mid = row.get("match_id", "")
-                if mid not in partidos:
-                    partidos[mid] = {
-                        "match_id": mid,
-                        "home_team": row.get("home_team", "?"),
-                        "away_team": row.get("away_team", "?"),
-                        "competition": row.get("competition", ""),
-                        "created_at": (row.get("created_at") or "")[:10],
-                        "mercados": {}
+            if rows:
+                partidos = OrderedDict()
+                for row in rows:
+                    mid = row.get("match_id","")
+                    if mid not in partidos:
+                        partidos[mid] = {
+                            "match_id": mid,
+                            "home_team": row.get("home_team","?"),
+                            "away_team": row.get("away_team","?"),
+                            "competition": row.get("competition",""),
+                            "created_at": (row.get("created_at") or "")[:10],
+                            "mercados": {}
+                        }
+                    mercado = row.get("mercado","")
+                    partidos[mid]["mercados"][mercado] = {
+                        "predicho": row.get("predicho",""),
+                        "real": row.get("real",""),
+                        "acierto": bool(row.get("acierto",0))
                     }
-                mercado = row.get("mercado", "")
-                partidos[mid]["mercados"][mercado] = {
-                    "predicho": row.get("predicho", ""),
-                    "real": row.get("real", ""),
-                    "acierto": bool(row.get("acierto", 0))
+                return list(partidos.values())[:limit]
+
+            # 2. FALLBACK: reconstruir desde resultados + predictions + matches
+            print("[DB] aprendizaje vacío — reconstruyendo semáforos desde resultados")
+            if self.use_supabase:
+                res_rows = self._sb_get("resultados",
+                    "select=match_id,home_score,away_score,winner,corners,cards,shots,created_at"
+                    "&order=created_at.desc&limit=50")
+                all_matches = {m["id"]: m for m in self._sb_get("matches",
+                    "select=id,home_team,away_team,competition,date") or []}
+                all_preds = {p["match_id"]: p for p in self._sb_get("predictions",
+                    "select=match_id,prediction_json") or []}
+            else:
+                conn = sqlite3.connect(self.db_path)
+                r_raw = conn.execute(
+                    "SELECT match_id,home_score,away_score,winner,corners,cards,shots,created_at "
+                    "FROM resultados ORDER BY created_at DESC LIMIT 50").fetchall()
+                res_rows = [{"match_id":r[0],"home_score":r[1],"away_score":r[2],
+                             "winner":r[3],"corners":r[4],"cards":r[5],
+                             "shots":r[6],"created_at":r[7]} for r in r_raw]
+                m_raw = conn.execute("SELECT id,home_team,away_team,competition,date FROM matches").fetchall()
+                all_matches = {r[0]:{"id":r[0],"home_team":r[1],"away_team":r[2],
+                                     "competition":r[3],"date":r[4]} for r in m_raw}
+                p_raw = conn.execute("SELECT match_id,prediction_json FROM predictions").fetchall()
+                all_preds = {r[0]:{"match_id":r[0],"prediction_json":r[1]} for r in p_raw}
+                conn.close()
+
+            for res in res_rows:
+                mid = res.get("match_id","")
+                match = all_matches.get(mid, {})
+                pred_row = all_preds.get(mid, {})
+                pred_json = {}
+                try:
+                    pred_json = json.loads(pred_row.get("prediction_json","{}"))
+                except Exception:
+                    pass
+
+                home = match.get("home_team","?")
+                away = match.get("away_team","?")
+                comp = match.get("competition","")
+                fecha = (res.get("created_at") or "")[:10]
+
+                real_winner = res.get("winner","")
+                real_corners = int(res.get("corners") or 0)
+                real_cards = int(res.get("cards") or 0)
+                real_shots = int(res.get("shots") or 0)
+
+                mercados = {}
+
+                # 1X2
+                pred_winner = "EMPATE"
+                ph = float(pred_json.get("win_prob_home",0))
+                pa = float(pred_json.get("win_prob_away",0))
+                if ph > 0.45: pred_winner = "LOCAL"
+                elif pa > 0.45: pred_winner = "VISITANTE"
+                mercados["1X2"] = {
+                    "predicho": pred_winner,
+                    "real": real_winner,
+                    "acierto": pred_winner == real_winner
                 }
 
-            results = list(partidos.values())[:limit]
+                # Córners
+                def parse_range(s):
+                    nums = re.findall(r"\d+", str(s or ""))
+                    if len(nums) >= 2: return int(nums[0]), int(nums[1])
+                    if len(nums) == 1: return int(nums[0]), int(nums[0])
+                    return None, None
+
+                for key, pred_key, real_val in [
+                    ("Córners",  "predicted_corners", real_corners),
+                    ("Tarjetas", "predicted_cards",   real_cards),
+                    ("Remates",  "predicted_shots",   real_shots),
+                ]:
+                    lo, hi = parse_range(pred_json.get(pred_key,""))
+                    if lo is not None:
+                        hit = lo <= real_val <= hi
+                        mercados[key] = {
+                            "predicho": f"{lo}-{hi}",
+                            "real": str(real_val),
+                            "acierto": hit
+                        }
+
+                results.append({
+                    "match_id": mid,
+                    "home_team": home,
+                    "away_team": away,
+                    "competition": comp,
+                    "created_at": fecha,
+                    "mercados": mercados
+                })
+
         except Exception as e:
             print(f"[DB] Error get_semaforo_history: {e}")
-        return results
+        return results[:limit]
