@@ -460,6 +460,150 @@ def render_historical_dashboard(db_manager=None, kb=None):
     else:
         st.success("✅ No se detectan sesgos sistemáticos graves. El modelo está bien calibrado.")
 
+def render_semaforo_history(db_manager):
+    """
+    Página completa de historial de semáforos y evolución de aciertos.
+    """
+    st.markdown("## 🚦 Historial de Semáforos y Evolución")
+
+    try:
+        history = db_manager.get_semaforo_history(limit=50)
+        stats = db_manager.get_total_stats()
+        mercados_stats = stats.get("mercados", {})
+        total = stats.get("total_partidos", 0)
+    except Exception as e:
+        st.error(f"Error cargando historial: {e}")
+        return
+
+    if not history:
+        st.info("💡 Aún no hay partidos validados. Introduce resultados reales en la Zona de Aprendizaje para ver el historial.")
+        return
+
+    # KPIs globales
+    st.markdown("### 🎯 Precisión Global Acumulada")
+    MERCADOS = [
+        ("1X2",      "🏆 Ganador",  "#00d4ff"),
+        ("Córners",  "🚩 Córners",  "#ffd700"),
+        ("Tarjetas", "🟨 Tarjetas", "#ff6b6b"),
+        ("Remates",  "⚽ Remates",  "#51cf66"),
+    ]
+    cols = st.columns(4)
+    for i, (key, label, color) in enumerate(MERCADOS):
+        m = mercados_stats.get(key, {})
+        prec = m.get("precision", 0)
+        hits = m.get("aciertos", 0)
+        tot  = m.get("total", 0)
+        with cols[i]:
+            bg = "#1a3a1a" if prec >= 60 else ("#3a2a1a" if prec >= 45 else "#3a1a1a")
+            st.markdown(
+                f'<div style="background:{bg};border-radius:10px;padding:12px;'
+                f'text-align:center;border-left:4px solid {color};">'
+                f'<div style="color:{color};font-size:0.95rem;font-weight:bold;">{label}</div>'
+                f'<div style="color:white;font-size:2rem;font-weight:900;">{prec}%</div>'
+                f'<div style="color:#aaa;font-size:0.72rem;">{hits}/{tot} aciertos</div>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+
+    st.divider()
+
+    # Evolución temporal
+    st.markdown("### 📈 Evolución de Aciertos (últimos partidos)")
+
+    running = {"1X2": [], "Córners": [], "Tarjetas": [], "Remates": []}
+    hits_acc  = {"1X2": 0, "Córners": 0, "Tarjetas": 0, "Remates": 0}
+    total_acc = {"1X2": 0, "Córners": 0, "Tarjetas": 0, "Remates": 0}
+
+    for partido in reversed(history):
+        for key in running.keys():
+            m = partido["mercados"].get(key)
+            if m:
+                total_acc[key] += 1
+                if m["acierto"]:
+                    hits_acc[key] += 1
+                pct = round(hits_acc[key] / total_acc[key] * 100, 1) if total_acc[key] else 0
+                running[key].append(pct)
+            else:
+                prev = running[key][-1] if running[key] else 0
+                running[key].append(prev)
+
+    if total > 0:
+        try:
+            chart_data = pd.DataFrame(running)
+            chart_data.index = [f"P{i+1}" for i in range(len(chart_data))]
+            st.line_chart(chart_data, height=220)
+            st.caption("Cada punto = un partido validado. La línea sube cuando aciertas, baja cuando fallas.")
+        except Exception:
+            pass
+
+    st.divider()
+
+    # Tabla semáforos por partido
+    st.markdown("### 🚦 Semáforos por Partido")
+
+    mercado_labels = [("1X2","1X2"), ("Córners","COR"), ("Tarjetas","TAR"), ("Remates","REM")]
+
+    for partido in history:
+        home  = partido.get("home_team", "?")
+        away  = partido.get("away_team", "?")
+        fecha = partido.get("created_at", "")
+        comp  = partido.get("competition", "")[:20]
+        merc  = partido.get("mercados", {})
+
+        total_m = len(merc)
+        hits_m  = sum(1 for m in merc.values() if m.get("acierto"))
+        all_hit = hits_m == total_m and total_m > 0
+        border  = "#4ade80" if all_hit else ("#f59e0b" if hits_m >= total_m / 2 else "#f87171")
+        icon    = "🟢" if all_hit else ("🟡" if hits_m >= total_m / 2 else "🔴")
+
+        # Cabecera del partido
+        st.markdown(
+            f'<div style="background:#0f172a;border-radius:10px;padding:10px 14px;'
+            f'margin-bottom:4px;border-left:4px solid {border};">'
+            f'<div style="display:flex;justify-content:space-between;align-items:center;">'
+            f'<div><span style="color:#f5f0e0;font-size:0.9rem;font-weight:bold;">'
+            f'{icon} {home} vs {away}</span>'
+            f'<span style="color:#64748b;font-size:0.75rem;margin-left:8px;">'
+            f'{fecha} · {comp}</span></div>'
+            f'<span style="color:{border};font-size:0.85rem;font-weight:bold;">'
+            f'{hits_m}/{total_m} aciertos</span></div></div>',
+            unsafe_allow_html=True
+        )
+
+        # Badges de mercado
+        badge_cols = st.columns(4)
+        for col_i, (key, label_short) in enumerate(mercado_labels):
+            m = merc.get(key)
+            with badge_cols[col_i]:
+                if m:
+                    color_b = "#4ade80" if m["acierto"] else "#f87171"
+                    icon_b  = "✅" if m["acierto"] else "❌"
+                    pred_b  = m.get("predicho", "?")
+                    real_b  = m.get("real", "?")
+                    st.markdown(
+                        f'<div style="background:#1e293b;border:1px solid {color_b};'
+                        f'border-radius:6px;padding:5px 8px;text-align:center;">'
+                        f'<div style="color:{color_b};font-size:0.75rem;font-weight:bold;">'
+                        f'{icon_b} {label_short}</div>'
+                        f'<div style="color:#f5f0e0;font-size:0.7rem;">Pred: {pred_b}</div>'
+                        f'<div style="color:#94a3b8;font-size:0.7rem;">Real: {real_b}</div>'
+                        f'</div>',
+                        unsafe_allow_html=True
+                    )
+                else:
+                    st.markdown(
+                        f'<div style="background:#1e293b;border:1px solid #334155;'
+                        f'border-radius:6px;padding:5px 8px;text-align:center;">'
+                        f'<div style="color:#475569;font-size:0.75rem;">{label_short}</div>'
+                        f'<div style="color:#334155;font-size:0.7rem;">N/A</div>'
+                        f'</div>',
+                        unsafe_allow_html=True
+                    )
+        st.markdown("<div style='margin-bottom:8px;'></div>", unsafe_allow_html=True)
+
+    st.caption(f"Mostrando los últimos {len(history)} partidos validados.")
+
+
 def render_lineup_check_ui(team_name: str, players: list[Player], side: str = "home"):
     st.markdown(f'<h3 style="color: #ffffff; text-decoration: underline; text-decoration-color: #00d4ff;">Alineación: {team_name}</h3>', unsafe_allow_html=True)
     
