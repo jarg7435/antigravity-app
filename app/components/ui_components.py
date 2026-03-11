@@ -583,9 +583,6 @@ def render_semaforo_history(db_manager):
 
     try:
         history = db_manager.get_semaforo_history(limit=50)
-        stats = db_manager.get_total_stats()
-        mercados_stats = stats.get("mercados", {})
-        total = stats.get("total_partidos", 0)
     except Exception as e:
         st.error(f"Error cargando historial: {e}")
         return
@@ -594,19 +591,31 @@ def render_semaforo_history(db_manager):
         st.info("💡 Aún no hay partidos validados. Introduce resultados reales en la Zona de Aprendizaje para ver el historial.")
         return
 
-    # KPIs globales
-    st.markdown("### 🎯 Precisión Global Acumulada")
+    # Calcular precisión DIRECTAMENTE desde el historial reconstruido
     MERCADOS = [
         ("1X2",      "🏆 Ganador",  "#00d4ff"),
         ("Córners",  "🚩 Córners",  "#ffd700"),
         ("Tarjetas", "🟨 Tarjetas", "#ff6b6b"),
         ("Remates",  "⚽ Remates",  "#51cf66"),
     ]
+    precision_from_history = {}
+    for key, _, _ in MERCADOS:
+        hits = sum(1 for p in history if p["mercados"].get(key, {}).get("acierto", False))
+        tot  = sum(1 for p in history if key in p["mercados"])
+        precision_from_history[key] = {
+            "hits": hits,
+            "total": tot,
+            "precision": round(hits / tot * 100) if tot > 0 else 0
+        }
+    total = len(history)
+
+    # KPIs globales
+    st.markdown("### 🎯 Precisión Global Acumulada")
     cols = st.columns(4)
     for i, (key, label, color) in enumerate(MERCADOS):
-        m = mercados_stats.get(key, {})
+        m    = precision_from_history.get(key, {})
         prec = m.get("precision", 0)
-        hits = m.get("aciertos", 0)
+        hits = m.get("hits", 0)
         tot  = m.get("total", 0)
         with cols[i]:
             bg = "#1a3a1a" if prec >= 60 else ("#3a2a1a" if prec >= 45 else "#3a1a1a")
