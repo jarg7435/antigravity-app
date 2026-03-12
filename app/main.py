@@ -1205,18 +1205,12 @@ if st.session_state.get("run_retrolearn"):
                     import re as _re
 
                     def _check_range(pred_str, real_val):
-                        """Parsea rangos: '🏠 4-6 | ✈️ 3-5' suma home+away. '5-8' directo."""
+                        """Mismo parseo que semáforos: toma solo los 2 primeros números."""
                         s = str(pred_str or "")
                         nums = [int(n) for n in _re.findall(r"\d+", s)]
                         if not nums: return None, None, None
-                        # Si hay 4 números → formato home/away separado, sumar
-                        if len(nums) >= 4:
-                            lo = nums[0] + nums[2]
-                            hi = nums[1] + nums[3]
-                        elif len(nums) == 2:
-                            lo, hi = nums[0], nums[1]
-                        else:
-                            lo = hi = nums[0]
+                        if len(nums) >= 2: lo, hi = nums[0], nums[1]
+                        else: lo = hi = nums[0]
                         return lo, hi, lo <= real_val <= hi
 
                     pred_w = "EMPATE"
