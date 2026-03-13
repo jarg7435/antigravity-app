@@ -181,11 +181,8 @@ class LearningEngine:
         """Analiza un mercado de rango (córners, tarjetas, remates)."""
         nums = [int(n) for n in re.findall(r'\d+', pred_range_str or "")]
 
-        if len(nums) >= 4:
-            # Formato "Local X-Y | Visitante A-B"
-            min_t = nums[0] + nums[2]
-            max_t = nums[1] + nums[3]
-        elif len(nums) == 2:
+        # Mismo parseo que semáforos: primeros 2 números siempre
+        if len(nums) >= 2:
             min_t, max_t = nums[0], nums[1]
         elif len(nums) == 1:
             min_t = max_t = nums[0]
@@ -315,8 +312,8 @@ class LearningEngine:
 
         def add_market(nombre, pred_str, actual):
             nums = [int(n) for n in re.findall(r'\d+', pred_str or "")]
-            if len(nums) >= 4: min_t, max_t = nums[0]+nums[2], nums[1]+nums[3]
-            elif len(nums) == 2: min_t, max_t = nums[0], nums[1]
+            # Mismo parseo que semáforos: primeros 2 números siempre
+            if len(nums) >= 2: min_t, max_t = nums[0], nums[1]
             elif len(nums) == 1: min_t = max_t = nums[0]
             else:
                 comparison.append({"Mercado": nombre, "Predicción": "N/A", "Real": str(actual), "Estado": "⚪ N/A"})
