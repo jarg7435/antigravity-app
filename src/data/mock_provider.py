@@ -75,12 +75,14 @@ class MockDataProvider(DataProvider):
     def _init_teams(self) -> Dict[str, Team]:
         teams = {}
         
-        # --- LA LIGA (España) ---
+        # --- LA LIGA (España) 2025-26 (20 equipos) ---
+        # Promovidos: Levante, Elche, Real Oviedo | Descendidos: Valladolid, Las Palmas, Leganés
         la_liga_teams = [
-            "FC Barcelona", "Real Madrid", "Atletico Madrid", "Villarreal", "Real Betis", 
-            "Espanyol", "Celta de Vigo", "Real Sociedad", "Osasuna", "Alavés", 
-            "Athletic Club", "Girona", "Elche", "Mallorca", "Sevilla FC", 
-            "Valencia", "Getafe", "Rayo Vallecano", "Levante", "Real Oviedo"
+            "FC Barcelona", "Real Madrid", "Atletico Madrid", "Villarreal", "Real Betis",
+            "Espanyol", "Celta de Vigo", "Real Sociedad", "Osasuna", "Alavés",
+            "Athletic Club", "Girona", "Mallorca", "Sevilla FC",
+            "Valencia", "Getafe", "Rayo Vallecano",
+            "Levante", "Elche", "Real Oviedo"
         ]
         for name in la_liga_teams:
             if name == "Elche":
@@ -126,15 +128,18 @@ class MockDataProvider(DataProvider):
                 teams[name] = self._create_team(name, "La Liga", ["Greif", "Maffeo", "Valjent", "Raíllo", "Mojica", "Samu Costa", "Morlanes", "Robert Navarro", "Dani Rodríguez", "Larin", "Muriqi"], base_rating=7.6)
             elif name == "Real Oviedo":
                 teams[name] = self._create_team(name, "La Liga", ["Escandell", "Luengo", "Dani Calvo", "David Costas", "Rahim", "Sibo", "Colombatto", "Cazorla", "Ilyas Chaira", "Sebas Moyano", "Alemao"], base_rating=7.0)
+            elif name == "Elche":
+                teams[name] = self._create_team(name, "La Liga", ["Edgar Badía", "Bigas", "Barragán", "Verdú", "Gragera", "Clerc", "Collado", "Domingos", "Boyé", "Guti", "Nico Castro"], base_rating=7.0)
             else:
                 teams[name] = self._create_dummy_team(name, "La Liga", base_rating=6.9)
 
-        # --- PREMIER LEAGUE (Inglaterra) ---
+        # --- PREMIER LEAGUE (Inglaterra) 2025-26 (20 equipos) ---
+        # Promovidos: Leeds Utd, Burnley, Sunderland | Descendidos: Southampton, Leicester City, Ipswich Town
         pl_teams = [
-            "Arsenal", "Manchester City", "Aston Villa", "Manchester Utd", "Chelsea", 
-            "Liverpool", "Brentford", "Sunderland", "Fulham", "Everton", 
-            "Newcastle", "Bournemouth", "Brighton", "Tottenham", "Crystal Palace", 
-            "Leeds Utd", "Nottingham Forest", "West Ham", "Burnley", "Wolves"
+            "Arsenal", "Manchester City", "Liverpool", "Chelsea", "Aston Villa",
+            "Newcastle", "Manchester Utd", "West Ham", "Tottenham", "Brighton",
+            "Wolves", "Brentford", "Fulham", "Crystal Palace", "Nottingham Forest",
+            "Everton", "Bournemouth", "Leeds Utd", "Burnley", "Sunderland"
         ]
         for name in pl_teams:
             if name == "Manchester City":
@@ -159,15 +164,22 @@ class MockDataProvider(DataProvider):
             elif name == "Crystal Palace":
                 # ADDED: Strand Larsen & Brennan Johnson (Winter 2026)
                 teams[name] = self._create_team(name, "Premier League", ["Henderson", "Munoz", "Guehi", "Lacroix", "Mitchell", "Wharton", "Lerma", "Brennan Johnson", "Eze", "Kamada", "Strand Larsen"], base_rating=7.7)
+            elif name == "Leeds Utd":
+                teams[name] = self._create_team(name, "Premier League", ["Meslier", "Bogle", "Rodon", "Byram", "Firpo", "Ampadu", "Wharton", "Gnonto", "Summerville", "Bamford", "Piroe"], base_rating=7.2)
+            elif name == "Burnley":
+                teams[name] = self._create_team(name, "Premier League", ["Flekken", "Roberts", "Beyer", "O'Shea", "Maatsen", "Brownhill", "Cork", "Cullen", "Benson", "Zeki Amdouni", "Rodriguez"], base_rating=7.1)
+            elif name == "Sunderland":
+                teams[name] = self._create_team(name, "Premier League", ["Patterson", "Hume", "Ballard", "O'Nien", "Cirkin", "Neil", "Ojo", "Ekwah", "Clarke", "Mayenda", "Roberts"], base_rating=7.0)
             else:
                 teams[name] = self._create_dummy_team(name, "Premier League", base_rating=7.1)
 
-        # --- SERIE A (Italia) ---
+        # --- SERIE A (Italia) 2025-26 (20 equipos) ---
+        # Promovidos: Sassuolo, Pisa, Cremonese | Descendidos: Venezia, Empoli, Monza
         serie_a_teams = [
-            "Inter Milan", "AC Milan", "Napoles", "Juventus", "AS Roma", 
-            "Como", "Atalanta", "Lazio", "Udinese", "Bolonia", 
-            "Sassuolo", "Cagliari", "Torino", "Genoa", "Fiorentina", 
-            "Parma", "Verona", "Empoli", "Lecce", "Monza"
+            "Inter Milan", "Napoles", "Atalanta", "Juventus", "AC Milan",
+            "Lazio", "Fiorentina", "Bolonia", "AS Roma", "Torino",
+            "Como", "Udinese", "Cagliari", "Genoa", "Parma",
+            "Verona", "Lecce", "Sassuolo", "Pisa", "Cremonese"
         ]
         for name in serie_a_teams:
             if name == "Inter Milan":
@@ -186,15 +198,22 @@ class MockDataProvider(DataProvider):
                 teams[name] = self._create_team(name, "Serie A", ["Carnesecchi", "Djimsiti", "Hien", "Kolasinac", "Bellanova", "De Roon", "Ederson", "Ruggeri", "De Ketelaere", "Retegui", "Samardzic"], base_rating=8.1)
             elif name == "Lazio":
                 teams[name] = self._create_team(name, "Serie A", ["Provedel", "Lazzari", "Gila", "Romagnoli", "Tavares", "Guendouzi", "Rovella", "Isaksen", "Dia", "Zaccagni", "Castellanos"], base_rating=7.7)
+            elif name == "Sassuolo":
+                teams[name] = self._create_team(name, "Serie A", ["Moldovan", "Toljan", "Erlic", "Lovato", "Kyriakopoulos", "Mateus Henrique", "Obiang", "Boloca", "Berardi", "Pinamonti", "Laurienté"], base_rating=7.2)
+            elif name == "Pisa":
+                teams[name] = self._create_team(name, "Serie A", ["Nicolas", "Touré", "Caracciolo", "Rus", "Angori", "Marin", "Arena", "Piccinini", "Tramoni", "Moreo", "Lind"], base_rating=6.9)
+            elif name == "Cremonese":
+                teams[name] = self._create_team(name, "Serie A", ["Sarr", "Sernicola", "Bianchetti", "Antov", "Quagliata", "Collocolo", "Castagnetti", "Zanimacchia", "Buonaiuto", "Coda", "Vazquez"], base_rating=6.9)
             else:
                 teams[name] = self._create_dummy_team(name, "Serie A", base_rating=7.0)
 
-        # --- BUNDESLIGA (Alemania) ---
+        # --- BUNDESLIGA (Alemania) 2025-26 (18 equipos) ---
+        # Promovidos: Hamburgo, Koln | Descendidos: Holstein Kiel, Bochum
         bundesliga_teams = [
             "Bayern Munich", "Bayer Leverkusen", "RB Leipzig", "Dortmund", "Stuttgart",
-            "Frankfurt", "Hoffenheim", "Freiburg", "Heidenheim", "Augsburg",
-            "Werder Bremen", "Wolfsburg", "Gladbach", "Union Berlin", "Mainz 05",
-            "Hamburgo", "St. Pauli", "Holstein Kiel", "Bochum", "Koln", "Darmstadt"
+            "Frankfurt", "Freiburg", "Hoffenheim", "Werder Bremen", "Heidenheim",
+            "Augsburg", "Wolfsburg", "Gladbach", "Union Berlin", "Mainz 05",
+            "St. Pauli", "Hamburgo", "Koln"
         ]
         for name in bundesliga_teams:
             if name == "Bayern Munich":
@@ -212,12 +231,13 @@ class MockDataProvider(DataProvider):
             else:
                 teams[name] = self._create_dummy_team(name, "Bundesliga", base_rating=7.0)
 
-        # --- LIGUE 1 (Francia) ---
+        # --- LIGUE 1 (Francia) 2025-26 (18 equipos) ---
+        # Promovidos: Lorient, Paris FC, Metz | Descendidos: Montpellier, Saint-Etienne, Reims
         ligue_1_teams = [
-             "PSG", "Monaco", "Brest", "Lille", "Nice",
-             "Lens", "Marseille", "Rennes", "Reims", "Lyon",
-             "Toulouse", "Strasbourg", "Montpellier", "Lorient", "Nantes",
-             "Metz", "Le Havre", "Clermont" # 18 teams
+            "PSG", "Monaco", "Marseille", "Lille", "Nice",
+            "Lens", "Rennes", "Lyon", "Toulouse", "Strasbourg",
+            "Nantes", "Le Havre", "Auxerre", "Angers", "Brest",
+            "Lorient", "Paris FC", "Metz"
         ]
         for name in ligue_1_teams:
             if name == "PSG":
@@ -228,6 +248,16 @@ class MockDataProvider(DataProvider):
                 teams[name] = self._create_team(name, "Ligue 1", ["Rulli", "Murillo", "Balerdi", "Cornelius", "Merlin", "Hojbjerg", "Rabiot", "Greenwood", "Harit", "Henrique", "Wahi"], base_rating=8.2)
             elif name == "Lille":
                 teams[name] = self._create_team(name, "Ligue 1", ["Chevalier", "Tiago Santos", "Diakité", "Alexsandro", "Gudmundsson", "André", "Angel Gomes", "Zhegrova", "Cabella", "Sahraoui", "David"], base_rating=7.8)
+            elif name == "Auxerre":
+                teams[name] = self._create_team(name, "Ligue 1", ["Léon", "Jubal", "Zedadka", "Sciard", "Nkounkou", "Autret", "Sakamoto", "Gboho", "Sinayoko", "Pellenard", "Traoré"], base_rating=7.0)
+            elif name == "Angers":
+                teams[name] = self._create_team(name, "Ligue 1", ["Fofana", "Manceau", "Mendy", "Doumbia", "Colin", "Bentaleb", "Abdelli", "Doucouré", "Niane", "Batubinsika", "Kanga"], base_rating=7.0)
+            elif name == "Lorient":
+                teams[name] = self._create_team(name, "Ligue 1", ["Nardi", "Peda", "Laporte", "Talbi", "Le Goff", "Abergel", "Monconduit", "Innocent", "Fofana", "Hamel", "Kalulu"], base_rating=7.1)
+            elif name == "Paris FC":
+                teams[name] = self._create_team(name, "Ligue 1", ["Letellier", "Dramé", "Laporte", "Pape", "Bakwa", "Camara", "Zigi", "Selnaes", "Lopy", "Cardona", "Lebeau"], base_rating=6.9)
+            elif name == "Metz":
+                teams[name] = self._create_team(name, "Ligue 1", ["Oukidja", "Centonze", "Bronn", "Kouyaté", "Udol", "Diallo", "Thill", "Camara", "Gueye", "Boulaya", "Adli"], base_rating=7.0)
             else:
                 teams[name] = self._create_dummy_team(name, "Ligue 1", base_rating=7.0)
 
