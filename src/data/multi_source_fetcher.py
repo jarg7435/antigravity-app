@@ -12,25 +12,31 @@ from typing import Dict, Optional
 
 
 def _normalize_league(league: str) -> str:
-    if not league:
-        return ""
-    norm = league.lower().strip()
-    if "(" in norm:
-        norm = norm.split("(")[0].strip()
-    norm = norm.replace("ea sports", "").replace("santander", "").strip()
-    if "la liga" in norm or "primera" in norm or "españa" in norm or "espana" in norm:
+    """Normaliza nombres de ligas para los scrapers internacionales."""
+    if not league: return ""
+    l = league.lower().strip()
+    
+    # Prioridad: Coincidencias exactas o específicas
+    if any(x in l for x in ["primera", "laliga", "la liga", "santander"]):
+        if "2" in l or "segunda" in l: return "Segunda"
         return "La Liga"
-    if "premier" in norm or "england" in norm:
-        return "Premier League"
-    if "serie a" in norm or "italy" in norm or "italia" in norm:
-        return "Serie A"
-    if "bundesliga" in norm or "germany" in norm or "german" in norm:
+    if "bundesliga" in l:
+        if "austria" in l or "at" in l or "aut" in l: return "Austria"
         return "Bundesliga"
-    if "ligue 1" in norm or "france" in norm:
-        return "Ligue 1"
-    if "champions" in norm or "uefa" in norm:
-        return "Champions League"
-    return norm
+    if "premier" in l or "england" in l: return "Premier League"
+    if "serie a" in l or "italy" in l or "italia" in l: return "Serie A"
+    if "ligue 1" in l or "france" in l: return "Ligue 1"
+    if "eredivisie" in l or "holanda" in l: return "Eredivisie"
+    if "primeira" in l or "portugal" in l: return "Primeira Liga"
+    if "superliga" in l or "dinamarca" in l or "denmark" in l: return "Denmark"
+    if "poland" in l or "ekstraklasa" in l: return "Poland"
+    if "noruega" in l or "norway" in l or "eliteserien" in l: return "Norway"
+    if "suecia" in l or "sweden" in l or "allsvenskan" in l: return "Sweden"
+    if "croacia" in l or "croatia" in l or "hnl" in l: return "Croatia"
+    if "eslovenia" in l or "slovenia" in l or "prva" in l: return "Slovenia"
+    if "hungria" in l or "hungary" in l or "nb i" in l: return "Hungary"
+    
+    return league.title()
 
 
 def _get_scraper(league: str):
@@ -117,7 +123,18 @@ class MultiSourceFetcher:
         except Exception as e:
             print(f"  [SofaScore] lineup error: {e}")
 
-        # 2. Scraper específico de liga
+        # 2. BeSoccer — excelente alternativa para alineaciones (especialmente ligas menores)
+        try:
+            from src.data.scrapers.besoccer_scraper import fetch_data_besoccer
+            be = fetch_data_besoccer(home, away, _normalize_league(league))
+            if be and (be.get("home") or be.get("away")):
+                be.setdefault("source", "BeSoccer")
+                print(f"  [BeSoccer] ✅ {len(be.get('home',[]))} + {len(be.get('away',[]))} jugadores")
+                return be
+        except Exception as e:
+            print(f"  [BeSoccer] lineup error: {e}")
+
+        # 3. Scraper específico de liga
         try:
             scraper = _get_scraper(league)
             safe_date = match_date if match_date else datetime.now()
@@ -174,7 +191,62 @@ class MultiSourceFetcher:
             print(f"  [FutbolFantasy] referee error: {e}")
             ff_link = None
 
-        # 1. Google News RSS — fuente secundaria multi-idioma
+        # 1. BeSoccer — árbitro y verificación (prioritario para España/Portugal)
+        try:
+            from src.data.scrapers.besoccer_scraper import fetch_data_besoccer
+            be = fetch_data_besoccer(home, away, _normalize_league(league))
+            be_ref = be.get("referee")
+            if be_ref and be_ref not in ["Por confirmar", ""]:
+                print(f"  [BeSoccer] ✅ Árbitro: {be_ref}")
+                ref_dict = {
+                    "name": be_ref,
+                    "source": "BeSoccer",
+                    "verification_link": be.get("verification_link", ""),
+                    "_is_fallback": False
+                }
+                # Enriquecer con WorldFootball stats
+                try:
+                    from src.data.scrapers.worldfootball_scraper import fetch_referee_stats
+                    stats = fetch_referee_stats(be_ref)
+                    if stats:
+                        ref_dict.update(stats)
+                except: pass
+                
+                try:
+                    from src.data.referee_database import enrich_referee
+                    ref_dict = enrich_referee(ref_dict)
+                except Exception: pass
+                return ref_dict
+        except Exception as e:
+            print(f"  [BeSoccer] referee error: {e}")
+
+        # 2. WorldFootball — asignación oficial y estadísticas históricas
+        try:
+            from src.data.scrapers.worldfootball_scraper import fetch_referee_worldfootball, fetch_referee_stats
+            wf = fetch_referee_worldfootball(home, away, _normalize_league(league))
+            wf_ref = wf.get("name")
+            if wf_ref:
+                print(f"  [WorldFootball] ✅ Árbitro: {wf_ref}")
+                ref_dict = {
+                    "name": wf_ref,
+                    "source": "WorldFootball.net",
+                    "verification_link": wf.get("verification_link", ""),
+                    "_is_fallback": False
+                }
+                # Enriquecer con stats
+                stats = fetch_referee_stats(wf_ref)
+                if stats:
+                    ref_dict.update(stats)
+                
+                try:
+                    from src.data.referee_database import enrich_referee
+                    ref_dict = enrich_referee(ref_dict)
+                except Exception: pass
+                return ref_dict
+        except Exception as e:
+            print(f"  [WorldFootball] referee error: {e}")
+
+        # 3. Google News RSS — fuente secundaria multi-idioma
         try:
             from src.data.scrapers.sofascore_api import fetch_referee as sf_ref
             sf = sf_ref(home, away)
