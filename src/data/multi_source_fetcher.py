@@ -68,32 +68,91 @@ def _get_scraper(league: str):
 
 
 class _GenericScraper:
-    """Fallback for international / mixta matches."""
+    """Fallback for non-big5 leagues. Tries SofaScore first (universal)."""
 
     def fetch_lineup(self, home: str, away: str, match_date: datetime) -> Dict:
+        # Try SofaScore for lineups (universal, no JS)
+        try:
+            import requests
+            search_query = f"{home} {away}".replace(" ", "%20")
+            api_url = f"https://api.sofascore.com/api/v1/search/events?q={search_query}"
+            headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
+            resp = requests.get(api_url, headers=headers, timeout=8)
+            if resp.status_code == 200:
+                events = resp.json().get("events", [])
+                for ev in events[:5]:
+                    hn = ev.get("homeTeam", {}).get("name", "").lower()
+                    an = ev.get("awayTeam", {}).get("name", "").lower()
+                    if (home.lower().split()[0] in hn or hn in home.lower()) and                        (away.lower().split()[0] in an or an in away.lower()):
+                        eid = ev.get("id")
+                        if eid:
+                            lu_url = f"https://api.sofascore.com/api/v1/event/{eid}/lineups"
+                            r2 = requests.get(lu_url, headers=headers, timeout=8)
+                            if r2.status_code == 200:
+                                lu = r2.json()
+                                def _names(side):
+                                    players = lu.get(side, {}).get("players", [])
+                                    return [p.get("player", {}).get("name", "") for p in players
+                                            if p.get("player", {}).get("name")]
+                                home_p = _names("home")
+                                away_p = _names("away")
+                                if home_p or away_p:
+                                    return {
+                                        "home": home_p, "away": away_p, "bajas": [],
+                                        "source": "SofaScore",
+                                        "verification_link": f"https://www.sofascore.com/es/partido/{eid}",
+                                        "_is_fallback": False
+                                    }
+        except Exception as e:
+            print(f"[Generic] SofaScore lineup error: {e}")
         return {
-            'home': [], 'away': [], 'bajas': [],
-            'source': 'Sin datos (Liga no soportada en scraping automático)',
-            'verification_link': None,
-            '_is_fallback': True
+            "home": [], "away": [], "bajas": [],
+            "source": "Sin datos (liga no soportada en scraping automático)",
+            "verification_link": None,
+            "_is_fallback": True
         }
 
     def fetch_referee(self, home: str, away: str, match_date: datetime) -> Dict:
-        import random
         from src.models.base import RefereeStrictness
-        pool = [
-            {'name': 'Glenn Nyberg', 'avg_cards': 4.1},
-            {'name': 'Sandro Schärer', 'avg_cards': 4.8},
-            {'name': 'Irati Gallastegui', 'avg_cards': 4.2},
-        ]
-        ref = random.choice(pool)
+        # Try SofaScore first (works for all leagues)
+        try:
+            import requests
+            search_query = f"{home} {away}".replace(" ", "%20")
+            api_url = f"https://api.sofascore.com/api/v1/search/events?q={search_query}"
+            headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
+            resp = requests.get(api_url, headers=headers, timeout=8)
+            if resp.status_code == 200:
+                events = resp.json().get("events", [])
+                for ev in events[:5]:
+                    hn = ev.get("homeTeam", {}).get("name", "").lower()
+                    an = ev.get("awayTeam", {}).get("name", "").lower()
+                    if (home.lower().split()[0] in hn or hn in home.lower()) and                        (away.lower().split()[0] in an or an in away.lower()):
+                        eid = ev.get("id")
+                        if eid:
+                            detail_url = f"https://api.sofascore.com/api/v1/event/{eid}"
+                            r2 = requests.get(detail_url, headers=headers, timeout=8)
+                            if r2.status_code == 200:
+                                ref = r2.json().get("event", {}).get("referee", {})
+                                ref_name = ref.get("name", "")
+                                if ref_name and len(ref_name.split()) >= 2:
+                                    return {
+                                        "name": ref_name,
+                                        "strictness": RefereeStrictness.MEDIUM,
+                                        "avg_cards": 4.0,
+                                        "source": "SofaScore",
+                                        "verification_link": f"https://www.sofascore.com/es/partido/{eid}",
+                                        "_is_fallback": False
+                                    }
+        except Exception as e:
+            print(f"[Generic] SofaScore referee error: {e}")
+        # Hard fallback: indicate manual entry needed
         return {
-            'name': ref['name'],
-            'strictness': RefereeStrictness.MEDIUM,
-            'avg_cards': ref['avg_cards'],
-            'source': 'Pool Internacional (fuente automática no disponible)',
-            'verification_link': None,
-            '_is_fallback': True
+            "name": "Por Detectar",
+            "strictness": RefereeStrictness.MEDIUM,
+            "avg_cards": 4.0,
+            "source": "No detectado automáticamente — introduce el árbitro manualmente",
+            "verification_link": None,
+            "_is_fallback": True
         }
 
 
