@@ -170,102 +170,144 @@ if st.session_state.get("review_study"):
 
     col_a, col_b, col_c, col_d = st.columns(4)
 
-    # Botón reanalizar alineación — siempre activo
+    # ── Importaciones comunes para todos los botones ────────────────────────
+    from src.logic.lineup_fetcher import LineupFetcher as _LF
+    from src.logic.rss_analyst import RSSAnalyst as _RSS
+    from src.models.base import Player, PlayerPosition, PlayerStatus, NodeRole
+
+    # Helper: construir lista de jugadores desde nombres
+    def _build_players(names, tname):
+        _roles = [NodeRole.KEEPER, NodeRole.DEFENSIVE, NodeRole.DEFENSIVE,
+                  NodeRole.DEFENSIVE, NodeRole.DEFENSIVE,
+                  NodeRole.CREATOR, NodeRole.CREATOR, NodeRole.CREATOR,
+                  NodeRole.FINALIZER, NodeRole.FINALIZER, NodeRole.FINALIZER]
+        _pos   = [PlayerPosition.GOALKEEPER,
+                  PlayerPosition.DEFENDER, PlayerPosition.DEFENDER,
+                  PlayerPosition.DEFENDER, PlayerPosition.DEFENDER,
+                  PlayerPosition.MIDFIELDER, PlayerPosition.MIDFIELDER,
+                  PlayerPosition.MIDFIELDER,
+                  PlayerPosition.FORWARD, PlayerPosition.FORWARD,
+                  PlayerPosition.FORWARD]
+        return [Player(id=f"{tname}_{i}", name=n, team_name=tname,
+                       position=_pos[i] if i < len(_pos) else PlayerPosition.MIDFIELDER,
+                       node_role=_roles[i] if i < len(_roles) else NodeRole.CREATOR,
+                       status=PlayerStatus.TITULAR, rating_last_5=7.5)
+                for i, n in enumerate(names[:11])]
+
+    # Helper: extraer fecha y competición del match_rs de forma robusta
+    _match_date = getattr(match_rs, "date", None) if match_rs else None
+    _match_comp = (getattr(match_rs, "competition", "") or "") if match_rs else ""
+
+    # ── Botón 1: Alineación ───────────────────────────────────────────────
     with col_a:
         btn_label = "🔄 Alineación Oficial" if can_reanalyze_rs else "🔄 Alineación (probable)"
         if st.button(btn_label, use_container_width=True,
                      type="primary" if can_reanalyze_rs else "secondary", key="rv_lineup"):
             with st.spinner("Buscando alineación..."):
                 try:
-                    from src.logic.lineup_fetcher import LineupFetcher
-                    from src.models.base import Player, PlayerPosition, PlayerStatus, NodeRole
-                    lf = LineupFetcher(data_provider)
-                    match_date_rs = getattr(match_rs, "date", None)
-                    match_comp_rs = getattr(match_rs, "competition", "") or ""
-                    new_lu = lf.fetch_smart_lineup(
-                        home_name_rs, away_name_rs,
-                        match_date_rs, match_comp_rs
+                    lf_rv = _LF(data_provider)
+                    new_lu = lf_rv.fetch_smart_lineup(
+                        home_name_rs, away_name_rs, _match_date, _match_comp
                     )
                     if new_lu.get("home") or new_lu.get("away"):
-                        roles = [NodeRole.PORTERO,NodeRole.DEFENSA,NodeRole.DEFENSA,NodeRole.DEFENSA,
-                                 NodeRole.DEFENSA,NodeRole.MEDIOCAMPISTA,NodeRole.MEDIOCAMPISTA,
-                                 NodeRole.MEDIOCAMPISTA,NodeRole.DELANTERO,NodeRole.DELANTERO,NodeRole.DELANTERO]
-                        def _tp(names, tname):
-                            return [Player(id=f"{tname}_{i}",name=n,team_name=tname,
-                                position=PlayerPosition.MIDFIELDER,
-                                node_role=roles[i] if i<len(roles) else NodeRole.MEDIOCAMPISTA,
-                                status=PlayerStatus.TITULAR,rating_last_5=7.5)
-                                for i,n in enumerate(names[:11])]
                         upd_h = data_provider.get_team_data(home_name_rs)
                         upd_a = data_provider.get_team_data(away_name_rs)
-                        if new_lu.get("home"): upd_h.players = _tp(new_lu["home"], home_name_rs)
-                        if new_lu.get("away"): upd_a.players = _tp(new_lu["away"], away_name_rs)
-                        match_rs.home_team = upd_h
-                        match_rs.away_team = upd_a
-                        new_pred_rs = predictor.predict(match_rs)
-                        new_pred_rs.match_id = rs["match_id"]
-                        db_manager.save_prediction(new_pred_rs)
-                        db_manager.save_match(match_rs)
-                        rs["prediction"] = new_pred_rs
-                        st.session_state.review_study = rs
+                        if new_lu.get("home"):
+                            upd_h.players = _build_players(new_lu["home"], home_name_rs)
+                        if new_lu.get("away"):
+                            upd_a.players = _build_players(new_lu["away"], away_name_rs)
+                        if match_rs:
+                            match_rs.home_team = upd_h
+                            match_rs.away_team = upd_a
+                            new_pred_rs = predictor.predict(match_rs)
+                            new_pred_rs.match_id = rs["match_id"]
+                            db_manager.save_prediction(new_pred_rs)
+                            db_manager.save_match(match_rs)
+                            rs["prediction"] = new_pred_rs
+                            st.session_state.review_study = rs
                         tag_rs = "✅ Oficial" if new_lu.get("is_official") else "📊 Probable"
                         if not can_reanalyze_rs:
-                            tag_rs += " · Confirma 1-2h antes del partido"
-                        st.toast(f"🔄 Alineación actualizada · {tag_rs}", icon="✅")
+                            tag_rs += " · Confirma 1-2h antes"
+                        st.success(f"🔄 Alineación actualizada · {tag_rs}")
                         st.rerun()
                     else:
                         st.warning("Alineación no disponible aún. Intenta más cerca del partido.")
                 except Exception as e:
                     st.error(f"Error alineación: {e}")
 
-    # Botón actualizar prensa
+    # ── Botón 2: Prensa ───────────────────────────────────────────────────
     with col_b:
         if st.button("📰 Actualizar Prensa", use_container_width=True, key="rv_press"):
             with st.spinner("Buscando noticias..."):
                 try:
-                    from src.logic.rss_analyst import RSSAnalyst
-                    analyst = RSSAnalyst()
-                    # Usar nombres directamente si match_rs falla
+                    rss = _RSS()
+                    # analyze_team devuelve análisis por equipo; combinar impactos
                     try:
-                        intel = analyst.analyze(home_name_rs, away_name_rs)
-                    except Exception:
-                        intel = {"impact": {"home": 0.0, "away": 0.0}, "summary": "Sin datos de prensa"}
-                    h_moral = float(intel.get("impact", {}).get("home", 0))
-                    a_moral = float(intel.get("impact", {}).get("away", 0))
+                        home_intel = rss.analyze_team(home_name_rs, [])
+                        away_intel = rss.analyze_team(away_name_rs, [])
+                        # impacto_partido puede ser "positivo"/"negativo"/"neutro"
+                        def _moral(intel):
+                            imp = intel.get("impacto_partido", "neutro")
+                            score = intel.get("score_impacto", 0)
+                            if isinstance(score, (int, float)):
+                                return float(score) * 0.05
+                            return 0.02 if imp == "positivo" else (-0.02 if imp == "negativo" else 0.0)
+                        h_moral = _moral(home_intel)
+                        a_moral = _moral(away_intel)
+                        summary = (
+                            f"🏠 {home_name_rs}: {home_intel.get('impacto_partido','neutro')} | "
+                            f"✈️ {away_name_rs}: {away_intel.get('impacto_partido','neutro')}"
+                        )
+                    except Exception as _rss_err:
+                        h_moral, a_moral = 0.0, 0.0
+                        summary = f"Sin datos de prensa ({_rss_err})"
+
                     if pred_rs:
-                        pred_rs.win_prob_home = min(0.95, max(0.05, pred_rs.win_prob_home * (1 + h_moral)))
-                        pred_rs.win_prob_away = min(0.95, max(0.05, pred_rs.win_prob_away * (1 + a_moral)))
-                        pred_rs.draw_prob = round(max(0.05, 1 - pred_rs.win_prob_home - pred_rs.win_prob_away), 3)
+                        pred_rs.win_prob_home = min(0.95, max(0.05,
+                            pred_rs.win_prob_home * (1 + h_moral)))
+                        pred_rs.win_prob_away = min(0.95, max(0.05,
+                            pred_rs.win_prob_away * (1 + a_moral)))
+                        pred_rs.draw_prob = round(max(0.05,
+                            1 - pred_rs.win_prob_home - pred_rs.win_prob_away), 3)
                         if hasattr(pred_rs, "external_analysis_summary"):
-                            pred_rs.external_analysis_summary = intel.get("summary", "")
+                            pred_rs.external_analysis_summary = summary
                         db_manager.save_prediction(pred_rs)
                         rs["prediction"] = pred_rs
                         st.session_state.review_study = rs
-                    st.toast(f"📰 Prensa actualizada · 📡 RSS", icon="✅")
+
                     col_press1, col_press2 = st.columns(2)
-                    col_press1.metric("🏠 Moral Local", f"{h_moral:+.3f}")
+                    col_press1.metric("🏠 Moral Local",     f"{h_moral:+.3f}")
                     col_press2.metric("✈️ Moral Visitante", f"{a_moral:+.3f}")
+                    st.info(summary)
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error prensa: {e}")
 
-    # Botón re-buscar árbitro
+    # ── Botón 3: Árbitro ──────────────────────────────────────────────────
     with col_c:
         if st.button("👨‍⚖️ Re-buscar Árbitro", use_container_width=True, key="rv_ref"):
             with st.spinner("Buscando árbitro..."):
                 try:
-                    match_date_ref = getattr(match_rs, "date", None)
-                    match_comp_ref = getattr(match_rs, "competition", "") or ""
-                    ref_data = l_fetcher.fetch_match_referee(
-                        home_name_rs, away_name_rs, match_date_ref, match_comp_ref
+                    lf_ref = _LF(data_provider)
+                    ref_data = lf_ref.fetch_match_referee(
+                        home_name_rs, away_name_rs, _match_date, _match_comp
                     )
                     if ref_data and not ref_data.get("_is_fallback"):
-                        st.success(f"👨‍⚖️ Árbitro: **{ref_data['name']}** ({ref_data.get('source','?')})")
+                        st.success(
+                            f"👨‍⚖️ **{ref_data.get('name','?')}**  "
+                            f"({ref_data.get('source','?')})"
+                        )
+                        # Guardar árbitro en la predicción si es posible
+                        if pred_rs and hasattr(pred_rs, "referee_name"):
+                            pred_rs.referee_name = ref_data.get("name", "")
+                            db_manager.save_prediction(pred_rs)
+                            rs["prediction"] = pred_rs
+                            st.session_state.review_study = rs
                         st.session_state[f"ref_rs_{rs['match_id']}"] = ref_data
                     else:
-                        st.warning("No se encontró árbitro confirmado. Introdúcelo manualmente.")
+                        st.warning("Árbitro no confirmado aún. Introdúcelo manualmente si lo conoces.")
                 except Exception as e:
-                    st.info(f"Árbitro no disponible: {e}")
+                    st.warning(f"Árbitro no disponible: {e}")
 
     # Botón meter resultado y cerrar revisión
     with col_d:
