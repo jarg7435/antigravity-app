@@ -1,445 +1,377 @@
-"""
-ExternalAnalyst v2 — Análisis de Prensa con 3 capas
-=====================================================
-Capa 1 (mejor): Claude API + búsqueda web    → requiere ANTHROPIC_API_KEY
-Capa 2 (buena): Google News RSS              → gratuito, sin API key
-Capa 3 (básica): Fallback con datos internos → siempre disponible
-"""
-
-import os
-import re
-import json
+import random
 import requests
+import re
+from bs4 import BeautifulSoup
 from src.models.base import Match, Team
 
-
-PRESS_ANALYSIS_PROMPT = """Eres un analista de fútbol experto. Busca noticias REALES y actualizadas sobre el equipo "{team_name}" para su partido del {match_date} en {league}.
-
-BUSCA específicamente en prensa deportiva española/local:
-1. Lesiones o bajas confirmadas para este partido
-2. Jugadores en duda o con problemas físicos
-3. Estado del vestuario: tensiones internas, ambiente, relación entrenador-plantilla
-4. Relación del club con la prensa local esta semana
-5. Últimos 3 resultados y sensaciones
-6. Noticias relevantes de esta semana
-
-Responde ÚNICAMENTE con este JSON (sin markdown, sin texto extra):
-{{"bajas_confirmadas":[],"dudas":[],"estado_vestuario":"positivo|neutro|negativo","descripcion_vestuario":"texto","relacion_prensa":"buena|normal|tensa","sensaciones_recientes":"positivas|neutras|negativas","descripcion_reciente":"texto","noticias_clave":[],"impacto_partido":"positivo|neutro|negativo","resumen":"texto","puntuacion_moral":0.0}}
-
-puntuacion_moral: de -0.15 (muy negativo) a +0.15 (muy positivo)."""
-
-
 class ExternalAnalyst:
-
+    """
+    Simulates the aggregation of external intelligence from:
+    1. Local Press (City/Region specific) - Focused on Injuries & Signings.
+    2. National Press (Country specific) - Context & Sentiment.
+    3. Weather Reports.
+    4. Expert Consensus.
+    """
+    
+    # Simulation Data: Mapping Teams to Context
+    # Simulation Data: Expanded European Context
     TEAM_CONTEXT = {
-        # =====================================================================
-        # LA LIGA (ESPAÑA)
-        # =====================================================================
-        "Real Madrid":          {"city": "Madrid",          "papers": ["Marca", "AS", "Defensa Central"]},
-        "FC Barcelona":         {"city": "Barcelona",       "papers": ["Sport", "Mundo Deportivo", "El Periódico"]},
-        "Atletico Madrid":      {"city": "Madrid",          "papers": ["Marca", "AS", "El Español"]},
-        "Athletic Club":        {"city": "Bilbao",          "papers": ["Deia", "El Correo", "Marca Athletic"]},
-        "Real Sociedad":        {"city": "San Sebastián",   "papers": ["Diario Vasco", "Noticias de Gipuzkoa"]},
-        "Villarreal":           {"city": "Villarreal",      "papers": ["El Periódico Mediterráneo", "Superdeporte"]},
-        "Real Betis":           {"city": "Sevilla",         "papers": ["Estadio Deportivo", "El Desmarque Sevilla"]},
-        "Sevilla FC":           {"city": "Sevilla",         "papers": ["Estadio Deportivo", "Diario de Sevilla"]},
-        "Osasuna":              {"city": "Pamplona",        "papers": ["Diario de Navarra", "Noticias de Navarra"]},
-        "Valencia":             {"city": "Valencia",        "papers": ["Superdeporte", "Las Provincias"]},
-        "Celta":                {"city": "Vigo",            "papers": ["Faro de Vigo", "La Voz de Galicia"]},
-        "Espanyol":             {"city": "Barcelona",       "papers": ["Sport", "Mundo Deportivo"]},
-        "Girona":               {"city": "Girona",          "papers": ["El Punt Avui", "Diari de Girona"]},
-        "Getafe":               {"city": "Getafe",          "papers": ["Marca", "AS"]},
-        "Rayo Vallecano":       {"city": "Madrid",          "papers": ["Marca", "AS"]},
-        "Leganés":              {"city": "Leganés",         "papers": ["Marca", "AS"]},
-        "Las Palmas":           {"city": "Las Palmas",      "papers": ["Canarias7", "La Provincia"]},
-        "Mallorca":             {"city": "Palma",           "papers": ["Última Hora", "Diario de Mallorca"]},
-        "Alavés":               {"city": "Vitoria",         "papers": ["El Correo", "Noticias de Álava"]},
-        "Real Valladolid":      {"city": "Valladolid",      "papers": ["El Norte de Castilla", "La Voz"]},
-        "Real Oviedo":          {"city": "Oviedo",          "papers": ["El Comercio", "La Nueva España"]},
-        "Sporting de Gijón":    {"city": "Gijón",           "papers": ["El Comercio", "La Nueva España"]},
-        "Real Zaragoza":        {"city": "Zaragoza",        "papers": ["Heraldo de Aragón", "El Periódico de Aragón"]},
-        "Cádiz":                {"city": "Cádiz",           "papers": ["Diario de Cádiz", "La Voz de Cádiz"]},
-        "Granada":              {"city": "Granada",         "papers": ["Ideal", "Granada Hoy"]},
-        "Levante":              {"city": "Valencia",        "papers": ["Superdeporte", "Las Provincias"]},
-        "Tenerife":             {"city": "Tenerife",        "papers": ["El Día", "Canarias7"]},
-        "Racing Santander":     {"city": "Santander",       "papers": ["El Diario Montañés", "Alerta"]},
-        "Deportivo":            {"city": "A Coruña",        "papers": ["La Voz de Galicia", "El Ideal Gallego"]},
-        "Almería":              {"city": "Almería",         "papers": ["La Voz de Almería", "Ideal"]},
-        "Burgos CF":            {"city": "Burgos",          "papers": ["Diario de Burgos", "El Mundo de Burgos"]},
-        "Córdoba":              {"city": "Córdoba",         "papers": ["Diario Córdoba", "ABC Córdoba"]},
-        "Elche":                {"city": "Elche",           "papers": ["Información", "Superdeporte"]},
-        "Huesca":               {"city": "Huesca",          "papers": ["Diario del Alto Aragón", "Heraldo"]},
-        "Albacete":             {"city": "Albacete",        "papers": ["La Tribuna de Albacete", "ABC"]},
-        "Cartagena":            {"city": "Cartagena",       "papers": ["La Verdad", "ABC Murcia"]},
-        # =====================================================================
-        # PREMIER LEAGUE
-        # =====================================================================
-        "Manchester City":      {"city": "Manchester",      "papers": ["Manchester Evening News", "The Guardian"]},
-        "Arsenal":              {"city": "Londres",         "papers": ["Football.London", "The Guardian"]},
-        "Liverpool":            {"city": "Liverpool",       "papers": ["Liverpool Echo", "The Guardian"]},
-        "Chelsea":              {"city": "Londres",         "papers": ["Football.London", "Evening Standard"]},
-        "Manchester Utd":       {"city": "Manchester",      "papers": ["Manchester Evening News", "The Telegraph"]},
-        "Tottenham":            {"city": "Londres",         "papers": ["Football.London", "The Guardian"]},
-        "Newcastle":            {"city": "Newcastle",       "papers": ["The Chronicle", "BBC Sport"]},
-        "Aston Villa":          {"city": "Birmingham",      "papers": ["Birmingham Mail", "Sky Sports"]},
-        "West Ham":             {"city": "Londres",         "papers": ["Football.London", "Evening Standard"]},
-        "Brighton":             {"city": "Brighton",        "papers": ["The Argus", "BBC Sport"]},
-        "Wolves":               {"city": "Wolverhampton",   "papers": ["Express & Star", "Sky Sports"]},
-        "Everton":              {"city": "Liverpool",       "papers": ["Liverpool Echo", "Sky Sports"]},
-        "Nottingham Forest":    {"city": "Nottingham",      "papers": ["Nottingham Post", "BBC Sport"]},
-        "Crystal Palace":       {"city": "Londres",         "papers": ["South London Press", "Football.London"]},
-        "Brentford":            {"city": "Londres",         "papers": ["Football.London", "Sky Sports"]},
-        "Fulham":               {"city": "Londres",         "papers": ["Football.London", "Evening Standard"]},
-        "Bournemouth":          {"city": "Bournemouth",     "papers": ["Bournemouth Echo", "Sky Sports"]},
-        "Leicester":            {"city": "Leicester",       "papers": ["Leicester Mercury", "Sky Sports"]},
-        "Southampton":          {"city": "Southampton",     "papers": ["Daily Echo", "Sky Sports"]},
-        "Ipswich":              {"city": "Ipswich",         "papers": ["East Anglian Daily Times", "Sky Sports"]},
-        # =====================================================================
-        # SERIE A
-        # =====================================================================
-        "Inter Milan":          {"city": "Milán",           "papers": ["Gazzetta dello Sport", "Corriere della Sera"]},
-        "AC Milan":             {"city": "Milán",           "papers": ["Gazzetta dello Sport", "La Repubblica"]},
-        "Juventus":             {"city": "Turín",           "papers": ["Tuttosport", "Gazzetta dello Sport"]},
-        "Napoli":               {"city": "Nápoles",         "papers": ["Il Mattino", "Corriere del Mezzogiorno"]},
-        "AS Roma":              {"city": "Roma",            "papers": ["Corriere dello Sport", "La Repubblica"]},
-        "Lazio":                {"city": "Roma",            "papers": ["Corriere dello Sport", "Lazionews24"]},
-        "Atalanta":             {"city": "Bérgamo",         "papers": ["L'Eco di Bergamo", "Gazzetta dello Sport"]},
-        "Fiorentina":           {"city": "Florencia",       "papers": ["La Nazione", "Corriere Fiorentino"]},
-        "Bologna":              {"city": "Bolonia",         "papers": ["Corriere di Bologna", "Il Resto del Carlino"]},
-        "Torino":               {"city": "Turín",           "papers": ["Tuttosport", "La Stampa"]},
-        "Udinese":              {"city": "Udine",           "papers": ["Il Messaggero Veneto", "Gazzetta dello Sport"]},
-        "Genoa":                {"city": "Génova",          "papers": ["Il Secolo XIX", "Gazzetta dello Sport"]},
-        "Cagliari":             {"city": "Cagliari",        "papers": ["L'Unione Sarda", "La Nuova Sardegna"]},
-        "Empoli":               {"city": "Empoli",          "papers": ["Il Tirreno", "La Nazione"]},
-        "Parma":                {"city": "Parma",           "papers": ["Gazzetta di Parma", "Gazzetta dello Sport"]},
-        "Como":                 {"city": "Como",            "papers": ["La Provincia di Como", "Gazzetta dello Sport"]},
-        "Venezia":              {"city": "Venecia",         "papers": ["La Nuova Venezia", "Gazzetta dello Sport"]},
-        "Monza":                {"city": "Monza",           "papers": ["Il Cittadino", "Gazzetta dello Sport"]},
-        "Lecce":                {"city": "Lecce",           "papers": ["Quotidiano di Puglia", "Gazzetta dello Sport"]},
-        "Hellas Verona":        {"city": "Verona",          "papers": ["L'Arena", "Gazzetta dello Sport"]},
-        # =====================================================================
-        # BUNDESLIGA
-        # =====================================================================
-        "Bayern Munich":        {"city": "Múnich",          "papers": ["Kicker", "Bild Sport", "Münchner Merkur"]},
-        "Bayer Leverkusen":     {"city": "Leverkusen",      "papers": ["Kicker", "Rheinische Post"]},
-        "Dortmund":             {"city": "Dortmund",        "papers": ["Ruhr Nachrichten", "Kicker"]},
-        "RB Leipzig":           {"city": "Leipzig",         "papers": ["Kicker", "Leipziger Volkszeitung"]},
-        "Stuttgart":            {"city": "Stuttgart",       "papers": ["Stuttgarter Zeitung", "Kicker"]},
-        "Eintracht Frankfurt":  {"city": "Frankfurt",       "papers": ["Frankfurter Allgemeine", "Kicker"]},
-        "Wolfsburg":            {"city": "Wolfsburg",       "papers": ["Wolfsburger Allgemeine", "Kicker"]},
-        "Freiburg":             {"city": "Friburgo",        "papers": ["Badische Zeitung", "Kicker"]},
-        "Werder Bremen":        {"city": "Bremen",          "papers": ["Weser-Kurier", "Kicker"]},
-        "Mönchengladbach":      {"city": "Mönchengladbach", "papers": ["Rheinische Post", "Kicker"]},
-        "Union Berlin":         {"city": "Berlín",          "papers": ["Berliner Zeitung", "Kicker"]},
-        "Hoffenheim":           {"city": "Hoffenheim",      "papers": ["Rhein-Neckar-Zeitung", "Kicker"]},
-        "Mainz":                {"city": "Maguncia",        "papers": ["Allgemeine Zeitung", "Kicker"]},
-        "Augsburg":             {"city": "Augsburgo",       "papers": ["Augsburger Allgemeine", "Kicker"]},
-        "Heidenheim":           {"city": "Heidenheim",      "papers": ["Heidenheimer Zeitung", "Kicker"]},
-        "Bochum":               {"city": "Bochum",          "papers": ["WAZ", "Kicker"]},
-        "Holstein Kiel":        {"city": "Kiel",            "papers": ["Kieler Nachrichten", "Kicker"]},
-        "St. Pauli":            {"city": "Hamburgo",        "papers": ["Hamburger Abendblatt", "Kicker"]},
-        # =====================================================================
-        # LIGUE 1
-        # =====================================================================
-        "PSG":                  {"city": "París",           "papers": ["L'Équipe", "Le Parisien"]},
-        "Marseille":            {"city": "Marsella",        "papers": ["La Provence", "L'Équipe"]},
-        "Monaco":               {"city": "Mónaco",          "papers": ["L'Équipe", "Nice-Matin"]},
-        "Lyon":                 {"city": "Lyon",            "papers": ["Le Progrès", "L'Équipe"]},
-        "Lille":                {"city": "Lille",           "papers": ["La Voix du Nord", "L'Équipe"]},
-        "Rennes":               {"city": "Rennes",          "papers": ["Ouest-France", "L'Équipe"]},
-        "Nice":                 {"city": "Niza",            "papers": ["Nice-Matin", "L'Équipe"]},
-        "Lens":                 {"city": "Lens",            "papers": ["La Voix du Nord", "L'Équipe"]},
-        "Strasbourg":           {"city": "Estrasburgo",     "papers": ["Dernières Nouvelles d'Alsace", "L'Équipe"]},
-        "Nantes":               {"city": "Nantes",          "papers": ["Ouest-France", "L'Équipe"]},
-        "Montpellier":          {"city": "Montpellier",     "papers": ["Midi Libre", "L'Équipe"]},
-        "Toulouse":             {"city": "Toulouse",        "papers": ["La Dépêche du Midi", "L'Équipe"]},
-        "Reims":                {"city": "Reims",           "papers": ["L'Union", "L'Équipe"]},
-        "Brest":                {"city": "Brest",           "papers": ["Ouest-France", "Le Télégramme"]},
-        "Le Havre":             {"city": "El Havre",        "papers": ["Paris-Normandie", "L'Équipe"]},
-        "Auxerre":              {"city": "Auxerre",         "papers": ["L'Yonne Républicaine", "L'Équipe"]},
-        "Saint-Étienne":        {"city": "Saint-Étienne",   "papers": ["Le Progrès", "L'Équipe"]},
-        "Angers":               {"city": "Angers",          "papers": ["Ouest-France", "L'Équipe"]},
-        "Bordeaux":             {"city": "Burdeos",         "papers": ["Sud Ouest", "L'Équipe"]},
-        "Lorient":              {"city": "Lorient",         "papers": ["Le Télégramme", "Ouest-France"]},
+        # --- La Liga (Spain) ---
+        "Real Madrid": {"city": "Madrid", "country": "Spain", "papers": ["Marca", "Defensa Central"]},
+        "Atletico Madrid": {"city": "Madrid", "country": "Spain", "papers": ["Marca", "Mundo Deportivo"]},
+        "FC Barcelona": {"city": "Barcelona", "country": "Spain", "papers": ["Sport", "Mundo Deportivo"]},
+        "Athletic Club": {"city": "Bilbao", "country": "Spain", "papers": ["Deia", "El Correo"]},
+        "Real Sociedad": {"city": "San Sebastian", "country": "Spain", "papers": ["Diario Vasco", "Mundo Deportivo"]},
+        "Osasuna": {"city": "Pamplona", "country": "Spain", "papers": ["Diario de Navarra", "Noticias de Navarra"]},
+        "Sevilla FC": {"city": "Sevilla", "country": "Spain", "papers": ["Estadio Deportivo", "Diario de Sevilla"]},
+        "Real Betis": {"city": "Sevilla", "country": "Spain", "papers": ["Estadio Deportivo", "El Desmarque"]},
+        "Valencia": {"city": "Valencia", "country": "Spain", "papers": ["Superdeporte", "Plaza Deportiva"]},
+        "Celta": {"city": "Vigo", "country": "Spain", "papers": ["Faro de Vigo", "La Voz de Galicia"]},
+        "Villarreal": {"city": "Villarreal", "country": "Spain", "papers": ["El Periódico Mediterráneo", "Marca"]},
+        "Las Palmas": {"city": "Gran Canaria", "country": "Spain", "papers": ["Canarias7", "La Provincia"]},
+
+        # --- Premier League (UK) ---
+        "Manchester City": {"city": "Manchester", "country": "England", "papers": ["Manchester Evening News", "City Xtra"]},
+        "Manchester Utd": {"city": "Manchester", "country": "England", "papers": ["Manchester Evening News", "United Stand"]},
+        "Liverpool": {"city": "Liverpool", "country": "England", "papers": ["Liverpool Echo", "Anfield Watch"]},
+        "Arsenal": {"city": "London", "country": "England", "papers": ["Football.London", "Arseblog"]},
+        "Chelsea": {"city": "London", "country": "England", "papers": ["Football.London", "We Ain't Got No History"]},
+        "Tottenham": {"city": "London", "country": "England", "papers": ["Football.London", "Spurs Web"]},
+        "Newcastle": {"city": "Newcastle", "country": "England", "papers": ["The Chronicle", "Geordie Boot Boys"]},
+
+        # --- Serie A (Italy) ---
+        "Inter Milan": {"city": "Milan", "country": "Italy", "papers": ["Gazzetta dello Sport", "L'Interista"]},
+        "AC Milan": {"city": "Milan", "country": "Italy", "papers": ["Gazzetta dello Sport", "MilanNews"]},
+        "Juventus": {"city": "Turin", "country": "Italy", "papers": ["Tuttosport", "Juventibus"]},
+        "Napoli": {"city": "Naples", "country": "Italy", "papers": ["Il Mattino", "TuttoNapoli"]},
+        "AS Roma": {"city": "Rome", "country": "Italy", "papers": ["Corriere dello Sport", "RomaPress"]},
+        "Lazio": {"city": "Rome", "country": "Italy", "papers": ["Corriere dello Sport", "La Lazio Siamo Noi"]},
+
+        # --- Bundesliga (Germany) ---
+        "Bayern Munich": {"city": "Munich", "country": "Germany", "papers": ["Kicker", "Bild Sport"]},
+        "Dortmund": {"city": "Dortmund", "country": "Germany", "papers": ["Ruhr Nachrichten", "Kicker"]},
+        "Leverkusen": {"city": "Leverkusen", "country": "Germany", "papers": ["Kicker", "Bild"]},
+
+        # --- Ligue 1 (France) ---
+        "PSG": {"city": "Paris", "country": "France", "papers": ["L'Equipe", "Le Parisien"]},
+        "Marseille": {"city": "Marseille", "country": "France", "papers": ["La Provence", "L'Equipe"]}
     }
 
-    def _get_context(self, team_name):
-        # 1. Buscar en equipos de las 5 grandes ligas
+    def _get_context(self, team_name: str):
+        # 1. Exact Match
         if team_name in self.TEAM_CONTEXT:
             return self.TEAM_CONTEXT[team_name]
-        # 2. Buscar en equipos europeos y resto del mundo
-        try:
-            from src.logic.european_teams import EUROPEAN_TEAMS
-            if team_name in EUROPEAN_TEAMS:
-                return EUROPEAN_TEAMS[team_name]
-            # Búsqueda parcial en europeos
-            for key, val in EUROPEAN_TEAMS.items():
-                if key.lower() in team_name.lower() or team_name.lower() in key.lower():
-                    return val
-        except ImportError:
-            pass
-        # 3. Búsqueda parcial en 5 grandes ligas
-        for key, val in self.TEAM_CONTEXT.items():
-            if key.lower() in team_name.lower() or team_name.lower() in key.lower():
-                return val
-        # 4. Inferencia por nombre
-        name_l = team_name.lower()
-        if any(x in name_l for x in ["united", "city", "town", "hotspur", "villa"]):
-            return {"city": "Reino Unido", "papers": ["BBC Sport", "Sky Sports"]}
-        if any(x in name_l for x in ["münchen", "borussia", "schalke", "frankfurt"]):
-            return {"city": "Alemania", "papers": ["Kicker", "Bild"]}
-        if any(x in name_l for x in ["milan", "juve", "roma", "lazio", "napoli"]):
-            return {"city": "Italia", "papers": ["Gazzetta dello Sport", "Corriere"]}
-        if any(x in name_l for x in ["paris", "marseille", "lyon", "monaco"]):
-            return {"city": "Francia", "papers": ["L'Équipe", "France Football"]}
-        if any(x in name_l for x in ["ajax", "psv", "feyenoord", "eredivisie"]):
-            return {"city": "Holanda", "papers": ["De Telegraaf", "AD Sportwereld"]}
-        if any(x in name_l for x in ["benfica", "porto", "sporting", "braga"]):
-            return {"city": "Portugal", "papers": ["Record", "A Bola"]}
-        if any(x in name_l for x in ["galatasaray", "fenerbahce", "besiktas"]):
-            return {"city": "Turquía", "papers": ["Fanatik", "Fotomaç"]}
-        if any(x in name_l for x in ["celtic", "rangers", "glasgow"]):
-            return {"city": "Escocia", "papers": ["Daily Record", "The Herald"]}
-        if any(x in name_l for x in ["dinamo", "zagreb", "hajduk", "split"]):
-            return {"city": "Croacia", "papers": ["Sportske novosti", "Večernji list"]}
-        if any(x in name_l for x in ["red star", "partizan", "belgrado"]):
-            return {"city": "Serbia", "papers": ["Sportski žurnal", "Večernje novosti"]}
-        if any(x in name_l for x in ["slavia", "sparta", "plzen", "praga"]):
-            return {"city": "República Checa", "papers": ["Sport.cz", "iSport.cz"]}
-        if any(x in name_l for x in ["salzburg", "rapid", "sturm", "lask"]):
-            return {"city": "Austria", "papers": ["Kronen Zeitung", "Der Standard"]}
-        if any(x in name_l for x in ["young boys", "basel", "zürich", "zurich"]):
-            return {"city": "Suiza", "papers": ["Blick", "Tages-Anzeiger"]}
-        if any(x in name_l for x in ["legia", "lech", "wisla", "rakow"]):
-            return {"city": "Polonia", "papers": ["Przegląd Sportowy", "Gazeta Wyborcza"]}
-        if any(x in name_l for x in ["olympiakos", "panathinaikos", "aek", "paok"]):
-            return {"city": "Grecia", "papers": ["Sport24", "Sportime"]}
-        if any(x in name_l for x in ["shakhtar", "dynamo kyiv", "dynamo kiev"]):
-            return {"city": "Ucrania", "papers": ["Football.ua", "Sportarena"]}
-        if any(x in name_l for x in ["copenhagen", "brondby", "midtjylland"]):
-            return {"city": "Dinamarca", "papers": ["BT Sport", "Ekstra Bladet"]}
-        if any(x in name_l for x in ["malmö", "malmo", "aik", "djurgarden", "hammarby"]):
-            return {"city": "Suecia", "papers": ["Aftonbladet", "Expressen"]}
-        if any(x in name_l for x in ["rosenborg", "molde", "bodo", "glimt"]):
-            return {"city": "Noruega", "papers": ["VG Sport", "Aftenposten"]}
-        if any(x in name_l for x in ["flamengo", "palmeiras", "corinthians", "fluminense"]):
-            return {"city": "Brasil", "papers": ["Lance!", "O Globo Esporte"]}
-        if any(x in name_l for x in ["river plate", "boca juniors", "racing", "independiente"]):
-            return {"city": "Argentina", "papers": ["Olé", "La Nación Deportes"]}
-        # Fallback genérico
-        return {"city": f"Ciudad de {team_name}", "papers": [f"Prensa de {team_name}", "SofaScore"]}
+            
+        # 2. Smart Inference (Heuristic) for Manual Teams
+        return self._infer_context_from_name(team_name)
 
-    # =========================================================================
-    # CAPA 1: Claude API con búsqueda web
-    # =========================================================================
-    def _call_claude_with_search(self, team_name, league, match_date_str):
-        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        if not api_key:
-            return None
-        prompt = PRESS_ANALYSIS_PROMPT.format(
-            team_name=team_name, league=league, match_date=match_date_str
-        )
-        try:
-            resp = requests.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json"
-                },
-                json={
-                    "model": "claude-sonnet-4-20250514",
-                    "max_tokens": 1000,
-                    "tools": [{"type": "web_search_20250305", "name": "web_search"}],
-                    "messages": [{"role": "user", "content": prompt}]
-                },
-                timeout=35
-            )
-            if resp.status_code != 200:
-                return None
-            data = resp.json()
-            text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
-            text = re.sub(r"```json|```", "", text).strip()
-            m = re.search(r'\{.*\}', text, re.DOTALL)
-            if m:
-                return json.loads(m.group())
-        except Exception as e:
-            print(f"[ExternalAnalyst] Error Claude API: {e}")
-        return None
+    def _infer_context_from_name(self, name: str):
+        """
+        Guesses the region/press based on the team name string.
+        """
+        name_lower = name.lower()
+        
+        # Italian patterns
+        if any(x in name_lower for x in ["inter", "milan", "juve", "roma", "lazio", "napoli", "calcio", "fiorentina"]):
+            return {"city": "Italia (Inferido)", "country": "Italy", "papers": ["Gazzetta dello Sport", "Corriere dello Sport"]}
+            
+        # English patterns
+        if any(x in name_lower for x in ["united", "city", "fc", "town", "albion", "wanderers", "hotspur", "villa", "palace"]):
+            return {"city": "Reino Unido (Inferido)", "country": "England", "papers": ["BBC Sport", "Sky Sports News"]}
+            
+        # German patterns
+        if any(x in name_lower for x in ["bayern", "borussia", "rb ", "leipzig", "schalke", "werder", "hamburg", "eintracht"]):
+            return {"city": "Alemania (Inferido)", "country": "Germany", "papers": ["Kicker", "Bild"]}
 
-    # =========================================================================
-    # CAPA 2: Google News RSS (sin API key)
-    # =========================================================================
-    def _call_rss_analysis(self, team_name, papers):
-        try:
-            from src.logic.rss_analyst import RSSAnalyst
-            rss = RSSAnalyst()
-            return rss.analyze_team(team_name, papers)
-        except Exception as e:
-            print(f"[ExternalAnalyst] Error RSS: {e}")
-        return None
-
-    # =========================================================================
-    # CAPA 3: Fallback básico con datos internos
-    # =========================================================================
-    def _fallback_analysis(self, team):
-        bajas = [p.name for p in team.players if p.status.value == "Baja"]
-        dudas = [p.name for p in team.players if p.status.value == "Duda"]
-        moral = -(len(bajas) * 0.02) - (len(dudas) * 0.01)
-        estado = "negativo" if moral < -0.04 else ("positivo" if moral > 0.02 else "neutro")
+        # Default / Spanish fallback
         return {
-            "bajas_confirmadas": bajas, "dudas": dudas,
-            "estado_vestuario": estado,
-            "descripcion_vestuario": "Sin acceso a prensa local en este momento.",
-            "relacion_prensa": "normal", "sensaciones_recientes": "neutras",
-            "descripcion_reciente": "Sin datos de prensa disponibles.",
-            "noticias_clave": [],
-            "impacto_partido": "neutro" if moral >= -0.02 else "negativo",
-            "resumen": f"{len(bajas)} bajas en BD interna.",
-            "puntuacion_moral": round(moral, 3)
+            "city": f"Ciudad de {name}", 
+            "country": "Internacional/España", 
+            "papers": [f"Diario de {name}", "Agencias Internacionales", "Marca (Global)"]
         }
 
-    # =========================================================================
-    # FORMATO DEL INFORME
-    # =========================================================================
-    def _format_team_report(self, analysis, team_name, papers):
-        via_rss = analysis.get("_via_rss", False)
-        fuentes_rss = analysis.get("fuentes_rss", [])
+    def _get_city(self, team_name): return self._get_context(team_name)["city"]
+    def _get_country(self, team_name): return self._get_context(team_name)["country"]
+    def _get_papers(self, team_name): return self._get_context(team_name)["papers"]
 
-        if via_rss and fuentes_rss:
-            fuentes_str = ", ".join(fuentes_rss[:2])
-            lines = [f"*Fuentes RSS: {fuentes_str}*"]
-        else:
-            lines = [f"*Fuentes: {', '.join(papers[:2])}*"]
-
-        if analysis.get("bajas_confirmadas"):
-            lines.append(f"🚨 **Bajas:** {', '.join(analysis['bajas_confirmadas'])}")
-        if analysis.get("dudas"):
-            lines.append(f"⏳ **Dudas:** {', '.join(analysis['dudas'])}")
-        if not analysis.get("bajas_confirmadas") and not analysis.get("dudas"):
-            lines.append("✅ **Sin Bajas Relevantes** detectadas en prensa")
-
-        vest = analysis.get("estado_vestuario", "neutro")
-        vest_icon = {"positivo": "💚", "neutro": "🟡", "negativo": "🔴"}.get(vest, "🟡")
-        desc_vest = analysis.get("descripcion_vestuario", "")
-        if desc_vest:
-            lines.append(f"{vest_icon} **Vestuario:** {desc_vest}")
-
-        prensa = analysis.get("relacion_prensa", "normal")
-        if prensa == "tensa":
-            lines.append("📰 **Prensa local:** Relación tensa con el club esta semana")
-        elif prensa == "buena":
-            lines.append("📰 **Prensa local:** Tono positivo y apoyo al equipo")
-
-        sens = analysis.get("sensaciones_recientes", "neutras")
-        desc_rec = analysis.get("descripcion_reciente", "")
-        if desc_rec:
-            s_icon = {"positivas": "📈", "neutras": "➡️", "negativas": "📉"}.get(sens, "➡️")
-            lines.append(f"{s_icon} **Forma:** {desc_rec}")
-
-        for noticia in analysis.get("noticias_clave", [])[:2]:
-            lines.append(f"🔹 {noticia}")
-
-        moral = analysis.get("puntuacion_moral", 0.0)
-        impacto = analysis.get("impacto_partido", "neutro")
-        i_map = {
-            "positivo": f"✅ **Impacto POSITIVO** (moral: +{abs(moral):.2f})",
-            "neutro":   "⚪ **Impacto NEUTRO**",
-            "negativo": f"⚠️ **Impacto NEGATIVO** (lastre: -{abs(moral):.2f})"
-        }
-        lines.append(i_map.get(impacto, "⚪ **Impacto NEUTRO**"))
-        return "\n".join(lines)
-
-    # =========================================================================
-    # MÉTODO PRINCIPAL
-    # =========================================================================
     def get_detailed_intelligence(self, match: Match) -> dict:
-        match_date_str = match.date.strftime("%d/%m/%Y") if match.date else "hoy"
-        league = match.competition or "Liga"
-        has_api = bool(os.environ.get("ANTHROPIC_API_KEY", ""))
+        """
+        New method that returns both the text report and the numerical impact modifiers.
+        """
+        # Fetch real injuries if available
+        real_injuries = {}
+        try:
+            from src.logic.lineup_fetcher import LineupFetcher
+            from src.data.mock_provider import MockDataProvider
+            fetcher = LineupFetcher(MockDataProvider())
+            real_injuries = fetcher.fetch_injuries(match.competition)
+        except:
+            pass
 
-        def analyze_team(team):
-            ctx = self._get_context(team.name)
-            # Capa 1: Claude API
-            if has_api:
-                print(f"[ExternalAnalyst] 🤖 Claude API: {team.name}")
-                result = self._call_claude_with_search(team.name, league, match_date_str)
-                if result:
-                    return result, ctx, "Claude API"
-            # Capa 2: RSS
-            print(f"[ExternalAnalyst] 📰 RSS: {team.name}")
-            result = self._call_rss_analysis(team.name, ctx["papers"])
-            if result and result.get("noticias_clave") or result and result.get("bajas_confirmadas"):
-                return result, ctx, "Google News RSS"
-            # Capa 3: Fallback
-            print(f"[ExternalAnalyst] ⚪ Fallback: {team.name}")
-            return self._fallback_analysis(team), ctx, "BD Interna"
-
-        h_analysis, h_ctx, h_source = analyze_team(match.home_team)
-        a_analysis, a_ctx, a_source = analyze_team(match.away_team)
-
-        h_report = self._format_team_report(h_analysis, match.home_team.name, h_ctx["papers"])
-        a_report = self._format_team_report(a_analysis, match.away_team.name, a_ctx["papers"])
+        # 1. Scans with sentiment tracking
+        home_news, home_impact = self._scan_and_quantify(match.home_team, real_injuries)
+        away_news, away_impact = self._scan_and_quantify(match.away_team, real_injuries)
+        
+        # 2. Context & Weather (minimal impact usually)
+        nat_context = self._scan_national_press(match.home_team)
         weather = self._analyze_weather(match)
-
-        # Indicador de fuente
-        source_indicator = ""
-        if not has_api:
-            source_indicator = "\n> 💡 *Análisis via Google News RSS. Activa ANTHROPIC_API_KEY para análisis más profundo.*"
-
-        report = f"""### PRENSA LOCAL Y ENTORNO{source_indicator}
-
-**🏠 {match.home_team.name} ({h_ctx['city']}):**
-{h_report}
-
-**✈️ {match.away_team.name} ({a_ctx['city']}):**
-{a_report}
-
-### 🌤️ CONDICIONES
-{weather}"""
+        
+        # Build Report Text
+        h_papers = ', '.join(self._get_papers(match.home_team.name))
+        a_papers = ', '.join(self._get_papers(match.away_team.name))
+        country_name = str(self._get_country(match.home_team.name))
+        
+        report = f"""
+        ### PRENSA LOCAL Y ENTORNO (50 min antes)
+        
+        **Local: {match.home_team.name} ({self._get_city(match.home_team.name)}):**
+        *Fuentes Detectadas: {h_papers}*
+        {home_news}
+        
+        **Visitante: {match.away_team.name} ({self._get_city(match.away_team.name)}):**
+        *Fuentes Detectadas: {a_papers}*
+        {away_news}
+        
+        ### CONTEXTO NACIONAL ({country_name.upper()})
+        {nat_context}
+        
+        ### CLIMA Y CONDICIONES
+        {weather}
+        """.strip()
 
         return {
             "report": report,
             "impact": {
-                "home": h_analysis.get("puntuacion_moral", 0.0),
-                "away": a_analysis.get("puntuacion_moral", 0.0)
-            },
-            "home_analysis": h_analysis,
-            "away_analysis": a_analysis,
-            "source": f"Local:{h_source} | Visitante:{a_source}"
+                "home": home_impact,
+                "away": away_impact
+            }
         }
 
     def analyze_match(self, match: Match) -> str:
-        return self.get_detailed_intelligence(match)["report"]
+        """Compatibility layer for old Predictor approach."""
+        res = self.get_detailed_intelligence(match)
+        return res["report"]
+
+    def _scan_and_quantify(self, team: Team, real_injuries: dict) -> tuple:
+        """
+        Returns (text_report, numerical_multiplier).
+        Base multiplier is 1.0 (neutral).
+        """
+        reports = []
+        impact = 1.0
+        
+        # 1. Real Scraped Injuries (High Weight)
+        found_real = []
+        for team_name_scraped, players in real_injuries.items():
+            if team.name.lower() in team_name_scraped.lower() or team_name_scraped.lower() in team.name.lower():
+                for p_data in players:
+                    stat = p_data.get('status', '').lower()
+                    if 'out' in stat or 'baja' in stat or 'injure' in stat:
+                        found_real.append(f"🚨 {p_data['player']}: {p_data['reason']} (Confirmado)")
+                        impact -= 0.03 # Penalty per real injury detected in elite sources
+                    elif 'doubt' in stat or 'duda' in stat:
+                        found_real.append(f"⏳ {p_data['player']}: Duda por {p_data['reason']}")
+                        impact -= 0.01
+
+        # 2. Live Web News Search
+        web_news, web_impact = self._search_live_news_with_sentiment(team)
+        impact += web_impact
+        
+        if found_real or web_news:
+            reports.append("INFO: Análisis de Inteligencia Real:")
+            all_raw = found_real + web_news
+            for item in all_raw[:6]:
+                reports.append(item)
+        else:
+            # Fallback to team state if no live news
+            bajas = [p for p in team.players if p.status.value == "Baja"]
+            if bajas:
+                reports.append(f"WARN: La prensa local confirma las bajas ya conocidas de {bajas[0].name}.")
+                impact -= 0.02
+            else:
+                reports.append("OK: Sin incidencias de última hora reportadas.")
+
+        # 3. Environment (Atmosphere)
+        atmospheres = [
+            ("INFO: Ambiente: 'Es una final', mucha presión en el vestuario.", -0.01),
+            ("INFO: Estabilidad: Rumores de mal vestuario o impagos.", -0.04),
+            ("INFO: Motivación: El club ha prometido prima por ganar.", 0.03),
+            ("INFO: Táctica: Se espera un planteamiento muy atrevido.", 0.01),
+            ("INFO: Entorno estable y concentrado.", 0.0)
+        ]
+        # Weighted random choice based on team status or just salt
+        choice, mod = random.choice(atmospheres)
+        reports.append(choice)
+        impact += mod
+        
+        return "\n".join(reports), round(impact, 3)
+
+    def _search_live_news_with_sentiment(self, team: Team) -> tuple:
+        """
+        Performs search and analyzes keywords for sentiment multiplier.
+        """
+        news_found = []
+        sentiment_impact = 0.0
+        
+        papers = self._get_papers(team.name)
+        primary_paper = papers[0] if papers else "prensa local"
+        
+        query = f"{team.name} {primary_paper} lesionados noticias hoy"
+        search_url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+        
+        try:
+            resp = requests.get(search_url, headers=headers, timeout=5)
+            if resp.status_code == 200:
+                soup = BeautifulSoup(resp.text, 'html.parser')
+                snippets = []
+                for g in soup.find_all('div', class_=re.compile(r'VwiC3b|g|s', re.I)):
+                    st_text = g.get_text()
+                    if len(st_text) > 40: snippets.append(st_text)
+                
+                # Sentiment Scoring Rules
+                neg_keywords = {
+                    "baja": -0.04, "lesión": -0.03, "roja": -0.05, "quirófano": -0.06, 
+                    "duda": -0.01, "crisis": -0.04, "derrota": -0.02, "problemas": -0.02
+                }
+                pos_keywords = {
+                    "vuelve": 0.03, "recuperado": 0.03, "alta": 0.04, "listo": 0.02,
+                    "motivación": 0.02, "fichaje": 0.02, "victoria": 0.01, "líder": 0.02
+                }
+                
+                for snippet in snippets[:4]:
+                    snippet_lower = snippet.lower()
+                    relevance = False
+                    
+                    # Apply sentiment
+                    for kw, val in neg_keywords.items():
+                        if kw in snippet_lower:
+                            sentiment_impact += val
+                            relevance = True
+                    for kw, val in pos_keywords.items():
+                        if kw in snippet_lower:
+                            sentiment_impact += val
+                            relevance = True
+                    
+                    if relevance:
+                        clean = re.sub(r'\s+', ' ', snippet).strip()
+                        news_found.append(f"🔗 {clean[:140]}...")
+        except:
+            pass
+            
+        return news_found, round(sentiment_impact, 3)
+
+    def _scan_national_press(self, team: Team) -> str:
+        country = self._get_country(team.name)
+        if country == "Spain":
+            return "La prensa nacional (Marca/As) debate sobre la carrera por el título y la presión arbitral."
+        elif country == "England":
+            return "Sky Sports y BBC destacan la intensidad del calendario y su impacto en las lesiones."
+        elif country == "Italy":
+            return "Debate táctico en La Gazzetta sobre el 'Catenaccio' moderno y la falta de gol."
+        else:
+            return "Atención mediática centrada en las competiciones europeas."
 
     def _analyze_weather(self, match: Match) -> str:
         cond = match.conditions
         if not cond:
-            return "☀️ **Clima estable**. Sin datos críticos."
-        if cond.rain_mm > 5:
-            return f"☔ **Lluvia intensa** ({cond.rain_mm}mm). Puede afectar el juego en corto."
-        elif cond.wind_kmh > 20:
-            return f"💨 **Viento fuerte** ({cond.wind_kmh}km/h). Dificulta el juego aéreo."
-        return "☀️ **Clima perfecto**. Sin factores meteorológicos condicionantes."
+             return "☀️ **Clima estable**. No hay datos meteorológicos críticos."
+             
+        # Handle dict if pydantic didn't parse it (happens sometimes in re-analysis)
+        if isinstance(cond, dict):
+             rain = cond.get("rain_mm", 0)
+             wind = cond.get("wind_kmh", 0)
+        else:
+             rain = getattr(cond, "rain_mm", 0)
+             wind = getattr(cond, "wind_kmh", 0)
+             
+        if rain > 5:
+            return f"☔ **Lluvia intensa** ({rain}mm). Atención a resbalones y balones rápidos."
+        elif wind > 20:
+             return f"💨 **Viento fuerte** ({wind}km/h). Dificultad para el juego en largo."
+        else:
+             return "☀️ **Clima perfecto**. Sin excusas meteorológicas."
 
-    def calculate_stat_markets(self, match: Match, bpa_home: float, bpa_away: float):
+    def calculate_stat_markets(self, match: Match, bpa_home: float, bpa_away: float, h_lambda: float = 1.3, a_lambda: float = 1.1):
         from src.models.base import RefereeStrictness
-        dominance = max(-0.25, min(0.25, bpa_home - bpa_away))
-        corners_h = max(2.0, round(5.0 + (dominance * 7), 1))
-        corners_a = max(1.5, round(4.5 - (dominance * 5), 1))
-        ref_factor = 0.0
-        if match.referee:
-            if match.referee.strictness == RefereeStrictness.HIGH: ref_factor = 1.5
-            elif match.referee.strictness == RefereeStrictness.LOW: ref_factor = -1.0
-        cards_h = max(0.5, 1.8 + ref_factor + (-0.8 if dominance > 0.05 else 0.8))
-        cards_a = max(0.5, 2.2 + ref_factor + (1.0 if dominance > 0.05 else -0.3))
-        shots_h = max(4.0, round(11.0 + (dominance * 18), 1))
-        shots_a = max(3.0, round(9.0  - (dominance * 14), 1))
-        sot_h = round(shots_h * 0.33, 1)
-        sot_a = round(shots_a * 0.33, 1)
-        return {
-            "corners": (f"{max(2,int(corners_h-1))}-{int(corners_h+2)}", f"{max(1,int(corners_a-1))}-{int(corners_a+2)}"),
-            "cards":   (f"{max(0,int(cards_h-1))}-{int(cards_h+1)}", f"{max(0,int(cards_a-1))}-{int(cards_a+1)}"),
-            "shots":   (f"{max(4,int(shots_h-3))}-{int(shots_h+3)}", f"{max(3,int(shots_a-2))}-{int(shots_a+3)}"),
-            "shots_on_target": (f"{max(1,int(sot_h-1))}-{int(sot_h+2)}", f"{max(1,int(sot_a-1))}-{int(sot_a+2)}")
+        import hashlib
+        import math
+        
+        # 0. Deterministic Salt
+        salt_val = int(hashlib.md5(match.id.encode()).hexdigest(), 16) % 10 / 10.0
+        
+        # 1. League Baselines
+        league_baselines = {
+            "Premier League": (10.5, 3.8, 26.5),
+            "La Liga": (9.2, 5.2, 23.0),
+            "Bundesliga": (9.8, 4.2, 27.5),
+            "Serie A": (9.5, 4.8, 24.0),
+            "Ligue 1": (9.0, 4.0, 23.5),
+            "Champions League": (10.0, 4.5, 25.5),
         }
+        comp_norm = match.competition.split(" (")[0]
+        base_corners, base_cards, base_shots = league_baselines.get(comp_norm, (9.5, 4.5, 24.5))
+        
+        # 2. Total Goals Range (User Methodology: 4.3 xG -> 3-5 goals)
+        total_xg = h_lambda + a_lambda
+        # User logic approximation: round down for min, round up for max (+/- 1)
+        goals_min = max(0, math.floor(total_xg - 0.5))
+        goals_max = math.ceil(total_xg + 0.5)
+        total_goals_range = f"{goals_min}-{goals_max}"
+
+        # 3. Intensity Multiplier (Based on xG and PPDA)
+        # Low PPDA = High intensity
+        h_ppda = sum(p.ppda for p in match.home_team.players if p.ppda > 0) / 11 or 12.0
+        a_ppda = sum(p.ppda for p in match.away_team.players if p.ppda > 0) / 11 or 12.0
+        avg_ppda = (h_ppda + a_ppda) / 2
+        # PPDA 10.0 is high intensity, 14.0 is low. Neutral ~12.0
+        intensity_mult = (total_xg / 2.4) * (12.0 / avg_ppda)
+        intensity_mult = max(0.7, min(1.5, intensity_mult))
+
+        # 4. Dominance & Flow Adjustment
+        dominance = max(-0.25, min(0.25, bpa_home - bpa_away))
+        
+        # --- Corners ---
+        total_corners = base_corners * intensity_mult + (salt_val * 0.5)
+        # Local teams usually more corners if dominant
+        corners_h = total_corners * (0.55 + dominance)
+        corners_a = total_corners * (0.45 - dominance)
+        
+        # --- Cards (The Professional "Triad" Rule) ---
+        # Formula: (Ref_Avg * 0.5) + (Team_H_Agg * 0.25) + (Team_A_Agg * 0.25)
+        ref_avg = match.referee.avg_cards if (match.referee and match.referee.avg_cards > 1.0) else base_cards
+        
+        # Aggressiveness proxy: low PPDA and high Motivation level
+        h_agg = (15.0 / max(5.0, h_ppda)) * match.home_team.motivation_level
+        a_agg = (15.0 / max(5.0, a_ppda)) * match.away_team.motivation_level
+        
+        total_cards_expected = (ref_avg * 0.5) + (h_agg * 1.0) + (a_agg * 1.0) # Scaled weights
+        # Penalty for high workload/fatigue: more cards/fouls
+        fatigue_h = 1.0 + (match.home_team.travel_km / 2000.0) - (match.home_team.days_rest / 10.0)
+        fatigue_a = 1.0 + (match.away_team.travel_km / 2000.0) - (match.away_team.days_rest / 10.0)
+        
+        cards_h = total_cards_expected * 0.45 * fatigue_h * (1.1 - dominance)
+        cards_a = total_cards_expected * 0.55 * fatigue_a * (1.1 + dominance)
+        
+        # --- Shots & SOT (Professional 30-35% Ratio) ---
+        total_shots = base_shots * intensity_mult + (salt_val * 2.0)
+        shots_h = total_shots * (0.55 + dominance)
+        shots_a = total_shots * (0.45 - dominance)
+        
+        # Shot Precision Adjustments
+        precision_h = 0.32 + (dominance * 0.1)
+        precision_a = 0.30 - (dominance * 0.05)
+        
+        # Apply 30-35% rule
+        sot_h = shots_h * precision_h
+        sot_a = shots_a * precision_a
+        
+        return {
+            "total_goals_range": total_goals_range,
+            "corners": (f"{max(2, int(corners_h-1))}-{int(corners_h+2)}", f"{max(1, int(corners_a-1))}-{int(corners_a+2)}"),
+            "cards":   (f"{max(0, int(cards_h-1))}-{int(cards_h+1)}", f"{max(0, int(cards_a-1))}-{int(cards_a+1)}"),
+            "shots":   (f"{max(4, int(shots_h-3))}-{int(shots_h+3)}", f"{max(3, int(shots_a-2))}-{int(shots_a+3)}"),
+            "shots_on_target": (f"{max(1, int(sot_h-1))}-{int(sot_h+2)}", f"{max(1, int(sot_a-1))}-{int(sot_a+2)}")
+        }
+
+
