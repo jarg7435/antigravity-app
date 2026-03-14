@@ -497,9 +497,26 @@ if home_team and away_team:
             # Auto-fetch failed or not yet searched — show manual input + search button
             with c_ref1:
                 if is_fallback:
-                    st.markdown(f'<p style="color: #ffaa00; font-size: 0.9rem;">⚠️ No se encontró el árbitro automáticamente. Introdúcelo manualmente si lo conoces:</p>', unsafe_allow_html=True)
+                    st.markdown('<p style="color: #ffaa00; font-size: 0.9rem;">⚠️ No se encontró el árbitro automáticamente.</p>', unsafe_allow_html=True)
+                    _league_ref_links = {
+                        "La Liga": ("RFEF Designaciones", "https://www.rfef.es/noticias/arbitros/designaciones"),
+                        "Premier League": ("Premier League", "https://www.premierleague.com/referees/overview"),
+                        "Bundesliga": ("DFB Árbitros", "https://www.dfb.de/schiedsrichter/ansetzungen/"),
+                        "Serie A": ("AIA", "https://www.aia-figc.it/"),
+                        "Ligue 1": ("FFF Arbitrage", "https://www.fff.fr/arbitrage"),
+                        "Champions League": ("UEFA", "https://www.uefa.com/uefachampionsleague/"),
+                    }
+                    _ref_label, _ref_url = _league_ref_links.get(
+                        selected_league.split(" (")[0],
+                        ("SofaScore", "https://www.sofascore.com")
+                    )
+                    st.markdown(
+                        f'🔗 Consulta: <a href="{_ref_url}" target="_blank" style="color:#60a5fa;">{_ref_label}</a> · '
+                        f'<a href="https://www.sofascore.com" target="_blank" style="color:#60a5fa;">SofaScore</a>',
+                        unsafe_allow_html=True
+                    )
                 else:
-                    st.markdown(f'<h4 style="color: #fdffcc; margin-top: 5px;">👨‍⚖️ Árbitro: Pendiente...</h4>', unsafe_allow_html=True)
+                    st.markdown('<h4 style="color: #fdffcc; margin-top: 5px;">👨‍⚖️ Árbitro: Pendiente...</h4>', unsafe_allow_html=True)
                 
                 # 👇 NUEVO: campo de entrada manual
                 manual_ref = st.text_input(
