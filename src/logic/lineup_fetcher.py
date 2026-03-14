@@ -44,15 +44,18 @@ class LineupFetcher:
         def _safe_fallback(source_msg: str) -> Dict:
             """Returns a safe fallback result using internal DB lineups."""
             try:
+                # Import here to avoid circular dependencies if any
                 home_last = self.data_provider.get_last_match_lineup(home_team_name)
                 away_last = self.data_provider.get_last_match_lineup(away_team_name)
-            except Exception:
+            except Exception as e:
+                print(f"DEBUG: Fallback error: {e}")
                 home_last, away_last = [], []
+            
             return {
                 'home': home_last,
                 'away': away_last,
                 'bajas_detectadas': [],
-                'source': source_msg,
+                'source': f"{source_msg} (Última conocida)",
                 'count': len(home_last) + len(away_last),
                 'status': 'fallback',
                 'is_official': False
@@ -128,10 +131,24 @@ class LineupFetcher:
         """
         print(f"[MultiSource] Buscando árbitro para {league}: {home_team} vs {away_team}")
         
-        # Primary: MultiSourceFetcher (cascades elite → official → fallback)
+        # 1. Primary: MultiSourceFetcher (cascades elite → official → fallback)
         result = self.ms_fetcher.fetch_referee(home_team, away_team, match_date, league)
         
-        # If fallback used, also try old RefereeSourceMapper as secondary
+        # 2. If it's La Liga, we can try a secondary search in "Prensa Deportiva" (Marca/As/MundoDeportivo)
+        # as the user requested specifically "confirmar arbitraje y prensa deportiva".
+        if league.lower() in ['la liga', 'primera', 'laliga'] and result.get('_is_fallback'):
+            print(f"  [Prensa] Intentando verificación en prensa deportiva para La Liga...")
+            try:
+                # This would ideally be a dedicated scraper, but for now we use the mapper's fallback
+                # which has been updated to include more elite sources.
+                press_ref = self.ms_fetcher.fetch_referee_press(home_team, away_team, league)
+                if press_ref and "To be determined" not in press_ref.get('name', ''):
+                    result = press_ref
+                    print(f"  [Prensa] ✅ Confirmado por prensa: {result['name']}")
+            except Exception:
+                pass
+
+        # 3. If still fallback, try old RefereeSourceMapper as secondary
         if result.get('_is_fallback'):
             try:
                 old_scraper = RefereeSourceMapper.get_scraper(league)
