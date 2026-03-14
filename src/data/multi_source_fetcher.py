@@ -85,6 +85,19 @@ class MultiSourceFetcher:
                      match_date: datetime, league: str) -> Dict:
         print(f"\n[MSF] LINEUP: {home} vs {away} | {league}")
 
+        # 0. FutbolFantasy — alineaciones probables para todas las ligas
+        try:
+            from src.data.scrapers.futbolfantasy_scraper import fetch_lineup_and_referee as ff_fetch
+            norm = _normalize_league(league)
+            ff = ff_fetch(home, away, norm)
+            if ff and (ff.get("home") or ff.get("away")):
+                ff.setdefault("bajas", ff.get("bajas", []))
+                ff.setdefault("source", "FutbolFantasy")
+                print(f"  [FutbolFantasy] {len(ff.get('home',[]))} + {len(ff.get('away',[]))} jugadores")
+                return ff
+        except Exception as e:
+            print(f"  [FutbolFantasy] lineup error: {e}")
+
         # 1. SofaScore — fuente primaria universal
         try:
             from src.data.scrapers.sofascore_api import fetch_lineups as sf_lu
@@ -94,7 +107,6 @@ class MultiSourceFetcher:
                 print(f"  [SofaScore] ✅ {len(sf.get('home',[]))} + {len(sf.get('away',[]))} jugadores")
                 return sf
             elif sf and sf.get("not_available_yet"):
-                # Aún no publicadas pero sabemos el link
                 print(f"  [SofaScore] Alineaciones no publicadas aún")
                 return {
                     "home": [], "away": [], "bajas": [],
@@ -122,11 +134,10 @@ class MultiSourceFetcher:
         except Exception as e:
             print(f"  [LigaScraper] error: {e}")
 
-        # 3. Sin datos
         return {
             "home": [], "away": [], "bajas": [],
             "source": "No disponible",
-            "verification_link": "https://www.sofascore.com",
+            "verification_link": "https://www.futbolfantasy.com",
             "_is_fallback": True
         }
 
@@ -134,30 +145,58 @@ class MultiSourceFetcher:
                       match_date: datetime, league: str) -> Dict:
         print(f"\n[MSF] REFEREE: {home} vs {away} | {league}")
 
-        # 1. SofaScore — fuente primaria universal
+        # 0. FutbolFantasy — árbitro oficial cuando está designado
+        try:
+            from src.data.scrapers.futbolfantasy_scraper import fetch_lineup_and_referee as ff_fetch
+            norm = _normalize_league(league)
+            ff = ff_fetch(home, away, norm)
+            ref_name = ff.get("referee") if ff else None
+            if ref_name and ref_name not in ["Por confirmar", ""]:
+                print(f"  [FutbolFantasy] ✅ Árbitro: {ref_name}")
+                ref_dict = {
+                    "name": ref_name,
+                    "source": "FutbolFantasy",
+                    "verification_link": ff.get("verification_link", ""),
+                    "_is_fallback": False
+                }
+                try:
+                    from src.data.referee_database import enrich_referee
+                    ref_dict = enrich_referee(ref_dict)
+                except Exception:
+                    pass
+                return ref_dict
+            elif ff and ff.get("verification_link"):
+                # Partido encontrado pero árbitro no asignado
+                ff_link = ff["verification_link"]
+            else:
+                ff_link = None
+        except Exception as e:
+            print(f"  [FutbolFantasy] referee error: {e}")
+            ff_link = None
+
+        # 1. Google News RSS — fuente secundaria multi-idioma
         try:
             from src.data.scrapers.sofascore_api import fetch_referee as sf_ref
             sf = sf_ref(home, away)
             if sf and sf.get("name") and sf["name"] not in ["Por confirmar", ""]:
-                print(f"  [SofaScore] ✅ Árbitro: {sf['name']}")
-                # Enriquecer con BD local
+                print(f"  [RSS] ✅ Árbitro: {sf['name']}")
                 try:
                     from src.data.referee_database import enrich_referee
                     sf = enrich_referee(sf)
                 except Exception:
                     pass
+                if ff_link:
+                    sf["verification_link"] = ff_link
                 return sf
-            elif sf and sf.get("verification_link"):
-                # Partido encontrado pero árbitro no asignado — devolver link
-                print(f"  [SofaScore] Árbitro no asignado aún, link disponible")
+            elif sf and ff_link:
                 return {
                     "name": "Por confirmar",
-                    "source": "SofaScore (árbitro no asignado aún)",
-                    "verification_link": sf["verification_link"],
+                    "source": "FutbolFantasy (árbitro no asignado aún)",
+                    "verification_link": ff_link,
                     "_is_fallback": True
                 }
         except Exception as e:
-            print(f"  [SofaScore] referee error: {e}")
+            print(f"  [RSS] referee error: {e}")
 
         # 2. Scraper específico de liga
         try:
@@ -165,15 +204,14 @@ class MultiSourceFetcher:
             safe_date = match_date if match_date else datetime.now()
             result = scraper.fetch_referee(home, away, safe_date)
             result.setdefault("source", "Liga scraper")
-            result.setdefault("verification_link", None)
+            result.setdefault("verification_link", ff_link)
             result.setdefault("_is_fallback", False)
-            # Enriquecer siempre con BD local
             try:
                 from src.data.referee_database import enrich_referee
                 result = enrich_referee(result)
             except Exception:
                 pass
-            print(f"  [LigaScraper] Árbitro: {result.get('name','?')} | fallback: {result.get('_is_fallback')}")
+            print(f"  [LigaScraper] Árbitro: {result.get('name','?')}")
             return result
         except Exception as e:
             print(f"  [LigaScraper] error: {e}")
@@ -185,6 +223,6 @@ class MultiSourceFetcher:
             "strictness": RefereeStrictness.MEDIUM,
             "avg_cards": 4.0,
             "source": "Sin datos — introduce el árbitro manualmente",
-            "verification_link": "https://www.sofascore.com",
+            "verification_link": ff_link or "https://www.futbolfantasy.com",
             "_is_fallback": True
         }
