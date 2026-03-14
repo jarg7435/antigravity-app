@@ -110,6 +110,7 @@ def render_prediction_cards(result: PredictionResult):
             <div style="background: rgba(30, 41, 59, 0.5); padding: 15px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05);">
                 <div style="color: #fdffcc; font-size: 0.8rem; text-transform: uppercase;">Expected Goals (xG)</div>
                 <div style="font-size: 1.8rem; font-weight: 800; color: #fff;">{result.total_goals_expected:.2f}</div>
+                <div style="font-size: 1.0rem; color: #38bdf8; font-weight: 700;">Rango: {getattr(result, "total_goals_range", "0-0")} Goles</div>
                 <div style="font-size: 0.8rem; color: #10b981;">BTTS: {result.both_teams_to_score_prob*100:.1f}%</div>
             </div>
         """, unsafe_allow_html=True)
@@ -143,8 +144,9 @@ def render_prediction_cards(result: PredictionResult):
     col_a, col_b, col_c, col_d, col_e = st.columns(5)
     
     with col_a:
-        st.write(f"**🥅 Goles**: {result.total_goals_expected:.2f}")
-        st.markdown(f'<p style="color: #fdffcc; font-size: 0.8rem; font-weight: bold;">Tendencia: {"Over 2.5" if result.total_goals_expected > 2.5 else "Under 2.5"}</p>', unsafe_allow_html=True)
+        st.write(f"**🥅 Goles**")
+        st.markdown(f'<p style="font-size: 0.9rem; font-weight: 700; color: #fff;">{getattr(result, "total_goals_range", "0-0")}</p>', unsafe_allow_html=True)
+        st.markdown(f'<p style="color: #fdffcc; font-size: 0.75rem; font-weight: 500;">xG: {result.total_goals_expected:.2f}</p>', unsafe_allow_html=True)
 
     with col_b:
         st.write(f"**🏁 Córners**")
