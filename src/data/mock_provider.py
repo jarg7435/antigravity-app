@@ -261,12 +261,13 @@ class MockDataProvider(DataProvider):
             else:
                 teams[name] = self._create_dummy_team(name, "Ligue 1", base_rating=7.0)
 
-        # --- SUPER LIG (Turquia) ---
+        # --- SÜPER LIG (Turquía) 2025-26 --- 19 equipos
         super_lig_teams = [
             "Galatasaray", "Fenerbahce", "Besiktas", "Trabzonspor",
             "Basaksehir", "Sivasspor", "Konyaspor", "Kayserispor",
             "Rizespor", "Antalyaspor", "Gaziantep", "Alanyaspor",
             "Kasimpasa", "Samsunspor", "Adana Demirspor", "Hatayspor",
+            "Eyupspor", "Göztepe", "Bodrum FK",
         ]
         for name in super_lig_teams:
             if name == "Galatasaray":
@@ -282,11 +283,12 @@ class MockDataProvider(DataProvider):
             else:
                 teams[name] = self._create_dummy_team(name, "Super Lig", base_rating=7.0)
 
-        # --- EREDIVISIE (Holanda) ---
+        # --- EREDIVISIE (Holanda) 2025-26 --- 18 equipos
         eredivisie_teams = [
             "Ajax", "PSV", "Feyenoord", "AZ Alkmaar", "Utrecht",
-            "Twente", "Vitesse", "Groningen", "Heerenveen", "Sparta Rotterdam",
+            "Twente", "Groningen", "Heerenveen", "Sparta Rotterdam",
             "Go Ahead Eagles", "Almere City", "NEC Nijmegen", "Heracles",
+            "RKC Waalwijk", "PEC Zwolle", "NAC Breda", "Fortuna Sittard", "Willem II",
         ]
         for name in eredivisie_teams:
             if name == "Ajax":
@@ -302,11 +304,12 @@ class MockDataProvider(DataProvider):
             else:
                 teams[name] = self._create_dummy_team(name, "Eredivisie", base_rating=7.2)
 
-        # --- PRIMEIRA LIGA (Portugal) ---
+        # --- PRIMEIRA LIGA (Portugal) 2025-26 --- 18 equipos
         primeira_liga_teams = [
             "Benfica", "FC Porto", "Sporting CP", "Braga", "Vitoria SC",
             "Boavista", "Gil Vicente", "Casa Pia", "Famalicao", "Rio Ave",
             "Moreirense", "Arouca", "Vizela", "Portimonense", "Estoril",
+            "Nacional", "AVS", "Estrela da Amadora",
         ]
         for name in primeira_liga_teams:
             if name == "Benfica":
