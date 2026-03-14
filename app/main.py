@@ -230,7 +230,7 @@ if st.session_state.get("review_study"):
                         if match_rs:
                             match_rs.home_team = upd_h
                             match_rs.away_team = upd_a
-                            new_pred_rs = predictor.predict(match_rs)
+                            new_pred_rs = predictor.predict_match(match_rs)
                             new_pred_rs.match_id = rs["match_id"]
                             db_manager.save_prediction(new_pred_rs)
                             db_manager.save_match(match_rs)
@@ -1014,7 +1014,7 @@ with st.sidebar:
                                                 upd_away.players = _to_players(new_lineup["away"], s["away_team"])
                                             match_obj_r.home_team = upd_home
                                             match_obj_r.away_team = upd_away
-                                            new_pred = predictor.predict(match_obj_r)
+                                            new_pred = predictor.predict_match(match_obj_r)
                                             new_pred.match_id = s["match_id"]
                                             db_manager.save_prediction(new_pred)
                                             db_manager.save_match(match_obj_r)
