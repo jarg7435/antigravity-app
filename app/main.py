@@ -228,8 +228,16 @@ if st.session_state.get("review_study"):
                         if new_lu.get("away"):
                             upd_a.players = _build_players(new_lu["away"], away_name_rs)
                         if match_rs:
-                            match_rs.home_team = upd_h
-                            match_rs.away_team = upd_a
+                            # Convertir dict→Match si viene de Supabase
+                            if isinstance(match_rs, dict):
+                                from src.models.base import Match
+                                try:
+                                    match_rs = Match.model_validate(match_rs)
+                                except Exception:
+                                    pass
+                            if hasattr(match_rs, "home_team"):
+                                match_rs.home_team = upd_h
+                                match_rs.away_team = upd_a
                             new_pred_rs = predictor.predict_match(match_rs)
                             new_pred_rs.match_id = rs["match_id"]
                             db_manager.save_prediction(new_pred_rs)
