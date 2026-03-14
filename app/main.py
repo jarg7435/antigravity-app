@@ -209,6 +209,17 @@ if st.session_state.get("review_study"):
                     new_lu = lf_rv.fetch_smart_lineup(
                         home_name_rs, away_name_rs, _match_date, _match_comp
                     )
+                    # Si la web no devuelve datos, usar BD interna como fallback real
+                    if not new_lu.get("home") and not new_lu.get("away"):
+                        upd_h = data_provider.get_team_data(home_name_rs)
+                        upd_a = data_provider.get_team_data(away_name_rs)
+                        new_lu = {
+                            "home": [p.name for p in upd_h.players[:11]],
+                            "away": [p.name for p in upd_a.players[:11]],
+                            "is_official": False,
+                            "source": "BD Interna (alineación tipo del último partido conocido)"
+                        }
+
                     if new_lu.get("home") or new_lu.get("away"):
                         upd_h = data_provider.get_team_data(home_name_rs)
                         upd_a = data_provider.get_team_data(away_name_rs)
@@ -225,13 +236,31 @@ if st.session_state.get("review_study"):
                             db_manager.save_match(match_rs)
                             rs["prediction"] = new_pred_rs
                             st.session_state.review_study = rs
-                        tag_rs = "✅ Oficial" if new_lu.get("is_official") else "📊 Probable"
-                        if not can_reanalyze_rs:
-                            tag_rs += " · Confirma 1-2h antes"
-                        st.success(f"🔄 Alineación actualizada · {tag_rs}")
+                        is_official = new_lu.get("is_official", False)
+                        source = new_lu.get("source", "Desconocida")
+                        if is_official:
+                            tag_rs = "✅ Alineación OFICIAL confirmada"
+                            color = "green"
+                        elif "SofaScore" in source or "FutbolFantasy" in source:
+                            tag_rs = f"📊 Alineación probable ({source})"
+                            color = "blue"
+                        else:
+                            tag_rs = f"⚠️ Alineación tipo BD interna — confirma 1-2h antes del partido"
+                            color = "orange"
+                        st.success(f"🔄 Alineación cargada · {tag_rs}")
+                        # Mostrar jugadores detectados
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            st.markdown(f"**🏠 {home_name_rs}**")
+                            for p in new_lu.get("home", []):
+                                st.markdown(f"• {p}")
+                        with c2:
+                            st.markdown(f"**✈️ {away_name_rs}**")
+                            for p in new_lu.get("away", []):
+                                st.markdown(f"• {p}")
                         st.rerun()
                     else:
-                        st.warning("Alineación no disponible aún. Intenta más cerca del partido.")
+                        st.error("No se pudo cargar ninguna alineación.")
                 except Exception as e:
                     st.error(f"Error alineación: {e}")
 
@@ -286,28 +315,56 @@ if st.session_state.get("review_study"):
     # ── Botón 3: Árbitro ──────────────────────────────────────────────────
     with col_c:
         if st.button("👨‍⚖️ Re-buscar Árbitro", use_container_width=True, key="rv_ref"):
-            with st.spinner("Buscando árbitro..."):
+            with st.spinner("Buscando árbitro en SofaScore y fuentes oficiales..."):
                 try:
                     lf_ref = _LF(data_provider)
                     ref_data = lf_ref.fetch_match_referee(
                         home_name_rs, away_name_rs, _match_date, _match_comp
                     )
+                    st.session_state[f"ref_rs_{rs['match_id']}"] = ref_data
                     if ref_data and not ref_data.get("_is_fallback"):
-                        st.success(
-                            f"👨‍⚖️ **{ref_data.get('name','?')}**  "
-                            f"({ref_data.get('source','?')})"
-                        )
-                        # Guardar árbitro en la predicción si es posible
+                        ref_name = ref_data.get("name", "?")
+                        source   = ref_data.get("source", "?")
+                        vlink    = ref_data.get("verification_link", "")
+                        # Guardar en predicción
                         if pred_rs and hasattr(pred_rs, "referee_name"):
-                            pred_rs.referee_name = ref_data.get("name", "")
+                            pred_rs.referee_name = ref_name
                             db_manager.save_prediction(pred_rs)
                             rs["prediction"] = pred_rs
                             st.session_state.review_study = rs
-                        st.session_state[f"ref_rs_{rs['match_id']}"] = ref_data
+                        avg_c = ref_data.get("avg_cards", "?")
+                        st.success(f"👨‍⚖️ **{ref_name}** · {source}")
+                        if avg_c != "?":
+                            st.markdown(f"📋 Media tarjetas: **{avg_c}** por partido")
+                        if vlink:
+                            st.markdown(f"🔗 [Verificar en {source}]({vlink})")
                     else:
-                        st.warning("Árbitro no confirmado aún. Introdúcelo manualmente si lo conoces.")
+                        src_msg = ref_data.get("source", "") if ref_data else ""
+                        vlink = ref_data.get("verification_link", "") if ref_data else ""
+                        st.warning(f"⚠️ Árbitro no detectado automáticamente.")
+                        if vlink:
+                            st.markdown(f"🔗 [Consultar designaciones]({vlink})")
+                        else:
+                            st.markdown("🔗 Consulta manualmente en [RFEF](https://www.rfef.es/noticias/arbitros/designaciones) · [SofaScore](https://www.sofascore.com)")
+                        st.markdown("✏️ **Introduce el árbitro manualmente:**")
+                        manual_ref = st.text_input(
+                            "Nombre del árbitro",
+                            placeholder="Ej: Jesús Gil Manzano",
+                            key=f"manual_ref_{rs['match_id']}"
+                        )
+                        if manual_ref and st.button("💾 Guardar árbitro", key=f"save_ref_{rs['match_id']}"):
+                            if pred_rs and hasattr(pred_rs, "referee_name"):
+                                pred_rs.referee_name = manual_ref
+                                db_manager.save_prediction(pred_rs)
+                                rs["prediction"] = pred_rs
+                                st.session_state.review_study = rs
+                            st.session_state[f"ref_rs_{rs['match_id']}"] = {
+                                "name": manual_ref, "_is_fallback": False, "source": "Manual"
+                            }
+                            st.success(f"✅ Árbitro guardado: {manual_ref}")
                 except Exception as e:
-                    st.warning(f"Árbitro no disponible: {e}")
+                    st.warning(f"Error buscando árbitro: {e}")
+                    st.markdown("🔗 Consulta en [RFEF](https://www.rfef.es/noticias/arbitros/designaciones) · [SofaScore](https://www.sofascore.com)")
 
     # Botón meter resultado y cerrar revisión
     with col_d:
