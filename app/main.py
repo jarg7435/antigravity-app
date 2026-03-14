@@ -533,6 +533,10 @@ if home_team and away_team:
             selected_ref = Referee(
                 name=ref_name,
                 strictness=st.session_state.fetched_ref.get("strictness", RefereeStrictness.MEDIUM),
+                avg_cards=float(st.session_state.fetched_ref.get("avg_cards", 4.5)),
+                avg_yellows=float(st.session_state.fetched_ref.get("avg_yellows", 4.2)),
+                avg_reds=float(st.session_state.fetched_ref.get("avg_reds", 0.12)),
+                penalty_rate=float(st.session_state.fetched_ref.get("penalty_rate", 1.0)),
                 verification_link=v_link
             )
         else:
@@ -617,7 +621,11 @@ if home_team and away_team:
             if is_fallback:
                 selected_ref = Referee(
                     name=st.session_state.fetched_ref.get("name", "Por Confirmar"),
-                    strictness=st.session_state.fetched_ref.get("strictness", RefereeStrictness.MEDIUM)
+                    strictness=st.session_state.fetched_ref.get("strictness", RefereeStrictness.MEDIUM),
+                    avg_cards=float(st.session_state.fetched_ref.get("avg_cards", 4.5)),
+                    avg_yellows=float(st.session_state.fetched_ref.get("avg_yellows", 4.2)),
+                    avg_reds=float(st.session_state.fetched_ref.get("avg_reds", 0.12)),
+                    penalty_rate=float(st.session_state.fetched_ref.get("penalty_rate", 1.0))
                 )
             else:
                 selected_ref = Referee(name="Por Detectar", strictness=RefereeStrictness.MEDIUM)
