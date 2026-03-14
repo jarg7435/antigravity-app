@@ -590,13 +590,28 @@ if home_team and away_team:
 
             with c_ref2:
                 if st.button("🔍 Buscar Árbitro Auto", use_container_width=True):
-                    with st.spinner("Buscando en fuentes oficiales..."):
-                        l_fetcher = LineupFetcher(data_provider)
-                        ref_data = l_fetcher.fetch_match_referee(
-                            home_team.name, away_team.name, selected_date, selected_league
-                        )
+                    with st.spinner("Buscando en SofaScore y Google News..."):
+                        import io, sys
+                        # Capturar logs para mostrar al usuario
+                        log_capture = io.StringIO()
+                        old_stdout = sys.stdout
+                        sys.stdout = log_capture
+                        try:
+                            l_fetcher = LineupFetcher(data_provider)
+                            ref_data = l_fetcher.fetch_match_referee(
+                                home_team.name, away_team.name,
+                                selected_date, selected_league
+                            )
+                        finally:
+                            sys.stdout = old_stdout
+                        logs = log_capture.getvalue()
                         st.session_state.fetched_ref = ref_data
+                        st.session_state.ref_search_logs = logs
                         st.rerun()
+                # Mostrar logs de búsqueda si existen
+                if st.session_state.get("ref_search_logs"):
+                    with st.expander("🔎 Ver log de búsqueda"):
+                        st.code(st.session_state.ref_search_logs, language=None)
             
             # Use fallback pool ref or manual if available
             if is_fallback:
