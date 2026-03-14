@@ -23,6 +23,12 @@ class NodeRole(str, Enum):
     KEEPER = "Portero"        # Portero
     TACTICAL = "Tactico"      # Entrenador
     NONE = "Ninguno"
+    
+    # Aliases for backward compatibility
+    PORTERO = "Portero"
+    DEFENSA = "Defensivo"
+    MEDIOCAMPISTA = "Creador"
+    DELANTERO = "Finalizador"
 
 class Player(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="ignore")
