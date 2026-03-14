@@ -1,85 +1,85 @@
 """
-european_teams.py — Diccionario de equipos de ligas europeas
-=============================================================
-Ligas incluidas:
-- Eredivisie (Holanda)
-- Primeira Liga (Portugal)  
-- Süper Lig (Turquía)
-- Scottish Premiership (Escocia)
-- Belgian Pro League (Bélgica)
-- Austrian Bundesliga (Austria)
-- Swiss Super League (Suiza)
-- Ekstraklasa (Polonia)
-- Czech First League (República Checa)
-- Superliga (Dinamarca)
-- Allsvenskan (Suecia)
-- Eliteserien (Noruega)
-- Veikkausliiga (Finlandia)
-- Super League (Grecia)
-- SuperLiga (Serbia)
-- Ukrainian Premier League (Ucrania)
-- Russian Premier League (Rusia)
-- Liga Profesional (Argentina) — para partidos internacionales
-- Brasileirão (Brasil)
+european_teams.py — Diccionario completo de equipos por liga (2025-26)
 """
 
 EUROPEAN_TEAMS = {
 
-    # =========================================================================
-    # EREDIVISIE (HOLANDA)
-    # =========================================================================
-    "Ajax":                 {"city": "Ámsterdam",       "country": "Netherlands", "papers": ["De Telegraaf", "AD Sportwereld"]},
+    # EREDIVISIE (HOLANDA) 2025-26 — 18 equipos
+    "Ajax":                 {"city": "Ámsterdam",       "country": "Netherlands", "papers": ["De Telegraaf", "AD"]},
     "PSV":                  {"city": "Eindhoven",        "country": "Netherlands", "papers": ["Eindhovens Dagblad", "De Telegraaf"]},
-    "Feyenoord":            {"city": "Róterdam",         "country": "Netherlands", "papers": ["AD Rotterdams Dagblad", "De Telegraaf"]},
+    "Feyenoord":            {"city": "Róterdam",         "country": "Netherlands", "papers": ["AD Rotterdams", "De Telegraaf"]},
     "AZ Alkmaar":           {"city": "Alkmaar",          "country": "Netherlands", "papers": ["Noordhollands Dagblad", "De Telegraaf"]},
     "Utrecht":              {"city": "Utrecht",          "country": "Netherlands", "papers": ["Algemeen Dagblad", "De Telegraaf"]},
     "Twente":               {"city": "Enschede",         "country": "Netherlands", "papers": ["Tubantia", "De Telegraaf"]},
-    "Vitesse":              {"city": "Arnhem",           "country": "Netherlands", "papers": ["De Gelderlander", "De Telegraaf"]},
     "Groningen":            {"city": "Groninga",         "country": "Netherlands", "papers": ["Dagblad van het Noorden", "De Telegraaf"]},
     "Heerenveen":           {"city": "Heerenveen",       "country": "Netherlands", "papers": ["Leeuwarder Courant", "De Telegraaf"]},
-    "Sparta Rotterdam":     {"city": "Róterdam",         "country": "Netherlands", "papers": ["AD Rotterdams Dagblad", "De Telegraaf"]},
+    "Sparta Rotterdam":     {"city": "Róterdam",         "country": "Netherlands", "papers": ["AD Rotterdams", "De Telegraaf"]},
+    "Go Ahead Eagles":      {"city": "Deventer",         "country": "Netherlands", "papers": ["De Stentor", "De Telegraaf"]},
+    "Almere City":          {"city": "Almere",           "country": "Netherlands", "papers": ["De Telegraaf", "Algemeen Dagblad"]},
+    "NEC Nijmegen":         {"city": "Nimega",           "country": "Netherlands", "papers": ["De Gelderlander", "De Telegraaf"]},
+    "Heracles":             {"city": "Almelo",           "country": "Netherlands", "papers": ["Tubantia", "De Telegraaf"]},
+    "RKC Waalwijk":         {"city": "Waalwijk",         "country": "Netherlands", "papers": ["Brabants Dagblad", "De Telegraaf"]},
+    "PEC Zwolle":           {"city": "Zwolle",           "country": "Netherlands", "papers": ["De Stentor", "De Telegraaf"]},
+    "NAC Breda":            {"city": "Breda",            "country": "Netherlands", "papers": ["BN DeStem", "De Telegraaf"]},
+    "Fortuna Sittard":      {"city": "Sittard",          "country": "Netherlands", "papers": ["De Limburger", "De Telegraaf"]},
+    "Willem II":            {"city": "Tilburgo",         "country": "Netherlands", "papers": ["Brabants Dagblad", "De Telegraaf"]},
 
-    # =========================================================================
-    # PRIMEIRA LIGA (PORTUGAL)
-    # =========================================================================
-    "Benfica":              {"city": "Lisboa",           "country": "Portugal", "papers": ["Record", "A Bola", "O Jogo"]},
-    "FC Porto":             {"city": "Oporto",           "country": "Portugal", "papers": ["O Jogo", "Record", "A Bola"]},
-    "Sporting CP":          {"city": "Lisboa",           "country": "Portugal", "papers": ["Record", "A Bola", "O Jogo"]},
+    # PRIMEIRA LIGA (PORTUGAL) 2025-26 — 18 equipos
+    "Benfica":              {"city": "Lisboa",           "country": "Portugal", "papers": ["Record", "A Bola"]},
+    "FC Porto":             {"city": "Oporto",           "country": "Portugal", "papers": ["O Jogo", "Record"]},
+    "Sporting CP":          {"city": "Lisboa",           "country": "Portugal", "papers": ["Record", "A Bola"]},
     "Braga":                {"city": "Braga",            "country": "Portugal", "papers": ["Correio do Minho", "Record"]},
-    "Vitória SC":           {"city": "Guimarães",        "country": "Portugal", "papers": ["Record", "A Bola"]},
-    "Guimarães":            {"city": "Guimarães",        "country": "Portugal", "papers": ["Record", "A Bola"]},
-    "Famalicão":            {"city": "Famalicão",        "country": "Portugal", "papers": ["Record", "A Bola"]},
+    "Vitoria SC":           {"city": "Guimarães",        "country": "Portugal", "papers": ["Record", "A Bola"]},
     "Boavista":             {"city": "Oporto",           "country": "Portugal", "papers": ["O Jogo", "Record"]},
     "Gil Vicente":          {"city": "Barcelos",         "country": "Portugal", "papers": ["Record", "A Bola"]},
     "Casa Pia":             {"city": "Lisboa",           "country": "Portugal", "papers": ["Record", "A Bola"]},
+    "Famalicao":            {"city": "Famalicão",        "country": "Portugal", "papers": ["Record", "A Bola"]},
+    "Rio Ave":              {"city": "Vila do Conde",    "country": "Portugal", "papers": ["Record", "A Bola"]},
+    "Moreirense":           {"city": "Moreira de Cónegos","country": "Portugal", "papers": ["Record", "A Bola"]},
+    "Arouca":               {"city": "Arouca",           "country": "Portugal", "papers": ["Record", "A Bola"]},
+    "Vizela":               {"city": "Vizela",           "country": "Portugal", "papers": ["Record", "A Bola"]},
+    "Portimonense":         {"city": "Portimão",         "country": "Portugal", "papers": ["Record", "A Bola"]},
+    "Estoril":              {"city": "Estoril",          "country": "Portugal", "papers": ["Record", "A Bola"]},
+    "Nacional":             {"city": "Funchal",          "country": "Portugal", "papers": ["Diário de Notícias Madeira", "Record"]},
+    "AVS":                  {"city": "Vila das Aves",    "country": "Portugal", "papers": ["Record", "A Bola"]},
+    "Estrela da Amadora":   {"city": "Amadora",          "country": "Portugal", "papers": ["Record", "A Bola"]},
 
-    # =========================================================================
-    # SÜPER LIG (TURQUÍA)
-    # =========================================================================
-    "Galatasaray":          {"city": "Estambul",         "country": "Turkey", "papers": ["Fanatik", "Fotomaç", "Milliyet"]},
-    "Fenerbahçe":           {"city": "Estambul",         "country": "Turkey", "papers": ["Fanatik", "Fotomaç", "Milliyet"]},
-    "Beşiktaş":             {"city": "Estambul",         "country": "Turkey", "papers": ["Fanatik", "Fotomaç", "Milliyet"]},
+    # SÜPER LIG (TURQUÍA) 2025-26 — 19 equipos
+    "Galatasaray":          {"city": "Estambul",         "country": "Turkey", "papers": ["Fanatik", "Fotomaç"]},
+    "Fenerbahce":           {"city": "Estambul",         "country": "Turkey", "papers": ["Fanatik", "Fotomaç"]},
+    "Besiktas":             {"city": "Estambul",         "country": "Turkey", "papers": ["Fanatik", "Fotomaç"]},
     "Trabzonspor":          {"city": "Trabzon",          "country": "Turkey", "papers": ["Fanatik", "Karadeniz Gazetesi"]},
-    "Başakşehir":           {"city": "Estambul",         "country": "Turkey", "papers": ["Fanatik", "Fotomaç"]},
+    "Basaksehir":           {"city": "Estambul",         "country": "Turkey", "papers": ["Fanatik", "Fotomaç"]},
     "Sivasspor":            {"city": "Sivas",            "country": "Turkey", "papers": ["Fanatik", "Fotomaç"]},
     "Konyaspor":            {"city": "Konya",            "country": "Turkey", "papers": ["Fanatik", "Yeni Konya"]},
     "Kayserispor":          {"city": "Kayseri",          "country": "Turkey", "papers": ["Fanatik", "Yeni Kayseri"]},
+    "Rizespor":             {"city": "Rize",             "country": "Turkey", "papers": ["Fanatik", "Fotomaç"]},
+    "Antalyaspor":          {"city": "Antalya",          "country": "Turkey", "papers": ["Fanatik", "Fotomaç"]},
+    "Gaziantep":            {"city": "Gaziantep",        "country": "Turkey", "papers": ["Fanatik", "Fotomaç"]},
+    "Alanyaspor":           {"city": "Alanya",           "country": "Turkey", "papers": ["Fanatik", "Fotomaç"]},
+    "Kasimpasa":            {"city": "Estambul",         "country": "Turkey", "papers": ["Fanatik", "Fotomaç"]},
+    "Samsunspor":           {"city": "Samsun",           "country": "Turkey", "papers": ["Fanatik", "Fotomaç"]},
+    "Adana Demirspor":      {"city": "Adana",            "country": "Turkey", "papers": ["Fanatik", "Fotomaç"]},
+    "Hatayspor":            {"city": "Hatay",            "country": "Turkey", "papers": ["Fanatik", "Fotomaç"]},
+    "Eyupspor":             {"city": "Estambul",         "country": "Turkey", "papers": ["Fanatik", "Fotomaç"]},
+    "Göztepe":              {"city": "Izmir",            "country": "Turkey", "papers": ["Fanatik", "Fotomaç"]},
+    "Bodrum FK":            {"city": "Bodrum",           "country": "Turkey", "papers": ["Fanatik", "Fotomaç"]},
 
-    # =========================================================================
-    # SCOTTISH PREMIERSHIP (ESCOCIA)
-    # =========================================================================
-    "Celtic":               {"city": "Glasgow",          "country": "Scotland", "papers": ["Daily Record", "The Herald", "BBC Scotland"]},
-    "Rangers":              {"city": "Glasgow",          "country": "Scotland", "papers": ["Daily Record", "The Herald", "BBC Scotland"]},
+    # SCOTTISH PREMIERSHIP (ESCOCIA) 2025-26 — 12 equipos
+    "Celtic":               {"city": "Glasgow",          "country": "Scotland", "papers": ["Daily Record", "The Herald"]},
+    "Rangers":              {"city": "Glasgow",          "country": "Scotland", "papers": ["Daily Record", "The Herald"]},
     "Hearts":               {"city": "Edimburgo",        "country": "Scotland", "papers": ["Edinburgh Evening News", "Daily Record"]},
     "Hibernian":            {"city": "Edimburgo",        "country": "Scotland", "papers": ["Edinburgh Evening News", "Daily Record"]},
     "Aberdeen":             {"city": "Aberdeen",         "country": "Scotland", "papers": ["Press and Journal", "Daily Record"]},
     "Motherwell":           {"city": "Motherwell",       "country": "Scotland", "papers": ["Daily Record", "BBC Scotland"]},
     "St Mirren":            {"city": "Paisley",          "country": "Scotland", "papers": ["Daily Record", "BBC Scotland"]},
     "Dundee":               {"city": "Dundee",           "country": "Scotland", "papers": ["The Courier", "Daily Record"]},
+    "Kilmarnock":           {"city": "Kilmarnock",       "country": "Scotland", "papers": ["Daily Record", "BBC Scotland"]},
+    "St Johnstone":         {"city": "Perth",            "country": "Scotland", "papers": ["The Courier", "Daily Record"]},
+    "Ross County":          {"city": "Dingwall",         "country": "Scotland", "papers": ["Daily Record", "BBC Scotland"]},
+    "Dundee United":        {"city": "Dundee",           "country": "Scotland", "papers": ["The Courier", "Daily Record"]},
 
-    # =========================================================================
-    # BELGIAN PRO LEAGUE (BÉLGICA)
-    # =========================================================================
+    # BELGIAN PRO LEAGUE (BÉLGICA) 2025-26 — 16 equipos
     "Club Brugge":          {"city": "Brujas",           "country": "Belgium", "papers": ["Het Nieuwsblad", "Het Laatste Nieuws"]},
     "Anderlecht":           {"city": "Bruselas",         "country": "Belgium", "papers": ["La Dernière Heure", "Het Laatste Nieuws"]},
     "Gent":                 {"city": "Gante",            "country": "Belgium", "papers": ["Het Nieuwsblad", "Het Laatste Nieuws"]},
@@ -88,20 +88,30 @@ EUROPEAN_TEAMS = {
     "Antwerp":              {"city": "Amberes",          "country": "Belgium", "papers": ["Gazet van Antwerpen", "Het Laatste Nieuws"]},
     "Genk":                 {"city": "Genk",             "country": "Belgium", "papers": ["Het Belang van Limburg", "Het Laatste Nieuws"]},
     "Mechelen":             {"city": "Malinas",          "country": "Belgium", "papers": ["Het Nieuwsblad", "Het Laatste Nieuws"]},
+    "Westerlo":             {"city": "Westerlo",         "country": "Belgium", "papers": ["Het Laatste Nieuws", "Het Nieuwsblad"]},
+    "Cercle Brugge":        {"city": "Brujas",           "country": "Belgium", "papers": ["Het Nieuwsblad", "Het Laatste Nieuws"]},
+    "OH Leuven":            {"city": "Lovaina",          "country": "Belgium", "papers": ["Het Nieuwsblad", "Het Laatste Nieuws"]},
+    "Sint-Truiden":         {"city": "Sint-Truiden",     "country": "Belgium", "papers": ["Het Belang van Limburg", "Het Laatste Nieuws"]},
+    "Charleroi":            {"city": "Charleroi",        "country": "Belgium", "papers": ["La Nouvelle Gazette", "Het Laatste Nieuws"]},
+    "Kortrijk":             {"city": "Kortrijk",         "country": "Belgium", "papers": ["Het Laatste Nieuws", "Het Nieuwsblad"]},
+    "Beerschot":            {"city": "Amberes",          "country": "Belgium", "papers": ["Gazet van Antwerpen", "Het Laatste Nieuws"]},
+    "RWD Molenbeek":        {"city": "Bruselas",         "country": "Belgium", "papers": ["La Dernière Heure", "Het Laatste Nieuws"]},
 
-    # =========================================================================
-    # AUSTRIAN BUNDESLIGA (AUSTRIA)
-    # =========================================================================
+    # AUSTRIAN BUNDESLIGA (AUSTRIA) 2025-26 — 12 equipos
     "Red Bull Salzburg":    {"city": "Salzburgo",        "country": "Austria", "papers": ["Salzburger Nachrichten", "Kronen Zeitung"]},
     "Sturm Graz":           {"city": "Graz",             "country": "Austria", "papers": ["Kleine Zeitung", "Kronen Zeitung"]},
     "Rapid Wien":           {"city": "Viena",            "country": "Austria", "papers": ["Kronen Zeitung", "Der Standard"]},
     "Austria Wien":         {"city": "Viena",            "country": "Austria", "papers": ["Kronen Zeitung", "Der Standard"]},
-    "LASK":                 {"city": "Linz",             "country": "Austria", "papers": ["Oberösterreichische Nachrichten", "Kronen Zeitung"]},
+    "LASK":                 {"city": "Linz",             "country": "Austria", "papers": ["OÖ Nachrichten", "Kronen Zeitung"]},
     "Wolfsberger AC":       {"city": "Wolfsberg",        "country": "Austria", "papers": ["Kleine Zeitung", "Kronen Zeitung"]},
+    "Hartberg":             {"city": "Hartberg",         "country": "Austria", "papers": ["Kleine Zeitung", "Kronen Zeitung"]},
+    "Rheindorf Altach":     {"city": "Altach",           "country": "Austria", "papers": ["Kronen Zeitung", "Vorarlberger Nachrichten"]},
+    "Austria Klagenfurt":   {"city": "Klagenfurt",       "country": "Austria", "papers": ["Kleine Zeitung", "Kronen Zeitung"]},
+    "Blau-Weiß Linz":       {"city": "Linz",             "country": "Austria", "papers": ["OÖ Nachrichten", "Kronen Zeitung"]},
+    "GAK":                  {"city": "Graz",             "country": "Austria", "papers": ["Kleine Zeitung", "Kronen Zeitung"]},
+    "Kapfenberg":           {"city": "Kapfenberg",       "country": "Austria", "papers": ["Kleine Zeitung", "Kronen Zeitung"]},
 
-    # =========================================================================
-    # SWISS SUPER LEAGUE (SUIZA)
-    # =========================================================================
+    # SWISS SUPER LEAGUE (SUIZA) 2025-26 — 10 equipos
     "Young Boys":           {"city": "Berna",            "country": "Switzerland", "papers": ["Berner Zeitung", "Blick"]},
     "Basel":                {"city": "Basilea",          "country": "Switzerland", "papers": ["Basler Zeitung", "Blick"]},
     "Zürich":               {"city": "Zúrich",           "country": "Switzerland", "papers": ["Tages-Anzeiger", "Blick"]},
@@ -110,114 +120,208 @@ EUROPEAN_TEAMS = {
     "Grasshoppers":         {"city": "Zúrich",           "country": "Switzerland", "papers": ["Tages-Anzeiger", "Blick"]},
     "Lausanne":             {"city": "Lausana",          "country": "Switzerland", "papers": ["24 Heures", "Blick"]},
     "Luzern":               {"city": "Lucerna",          "country": "Switzerland", "papers": ["Luzerner Zeitung", "Blick"]},
+    "Sion":                 {"city": "Sion",             "country": "Switzerland", "papers": ["Le Nouvelliste", "Blick"]},
+    "Winterthur":           {"city": "Winterthur",       "country": "Switzerland", "papers": ["Landbote", "Blick"]},
 
-    # =========================================================================
-    # EKSTRAKLASA (POLONIA)
-    # =========================================================================
+    # EKSTRAKLASA (POLONIA) 2025-26 — 18 equipos
     "Legia Warsaw":         {"city": "Varsovia",         "country": "Poland", "papers": ["Gazeta Wyborcza", "Przegląd Sportowy"]},
     "Lech Poznań":          {"city": "Poznań",           "country": "Poland", "papers": ["Głos Wielkopolski", "Przegląd Sportowy"]},
-    "Wisła Kraków":         {"city": "Cracovia",         "country": "Poland", "papers": ["Gazeta Krakowska", "Przegląd Sportowy"]},
     "Raków Częstochowa":    {"city": "Częstochowa",      "country": "Poland", "papers": ["Gazeta Wyborcza", "Przegląd Sportowy"]},
     "Pogoń Szczecin":       {"city": "Szczecin",         "country": "Poland", "papers": ["Kurier Szczeciński", "Przegląd Sportowy"]},
     "Śląsk Wrocław":        {"city": "Wrocław",          "country": "Poland", "papers": ["Gazeta Wrocławska", "Przegląd Sportowy"]},
+    "Wisła Kraków":         {"city": "Cracovia",         "country": "Poland", "papers": ["Gazeta Krakowska", "Przegląd Sportowy"]},
+    "Jagiellonia Białystok":{"city": "Białystok",        "country": "Poland", "papers": ["Kurier Poranny", "Przegląd Sportowy"]},
+    "Cracovia":             {"city": "Cracovia",         "country": "Poland", "papers": ["Gazeta Krakowska", "Przegląd Sportowy"]},
+    "Zagłębie Lubin":       {"city": "Lubin",            "country": "Poland", "papers": ["Przegląd Sportowy", "Gazeta Wyborcza"]},
+    "Piast Gliwice":        {"city": "Gliwice",          "country": "Poland", "papers": ["Dziennik Zachodni", "Przegląd Sportowy"]},
+    "Korona Kielce":        {"city": "Kielce",           "country": "Poland", "papers": ["Echo Dnia", "Przegląd Sportowy"]},
+    "Górnik Zabrze":        {"city": "Zabrze",           "country": "Poland", "papers": ["Dziennik Zachodni", "Przegląd Sportowy"]},
+    "Widzew Łódź":          {"city": "Łódź",             "country": "Poland", "papers": ["Dziennik Łódzki", "Przegląd Sportowy"]},
+    "GKS Katowice":         {"city": "Katowice",         "country": "Poland", "papers": ["Dziennik Zachodni", "Przegląd Sportowy"]},
+    "Stal Mielec":          {"city": "Mielec",           "country": "Poland", "papers": ["Przegląd Sportowy", "Gazeta Wyborcza"]},
+    "Ruch Chorzów":         {"city": "Chorzów",          "country": "Poland", "papers": ["Dziennik Zachodni", "Przegląd Sportowy"]},
+    "Motor Lublin":         {"city": "Lublin",           "country": "Poland", "papers": ["Kurier Lubelski", "Przegląd Sportowy"]},
+    "Puszcza Niepołomice":  {"city": "Niepołomice",      "country": "Poland", "papers": ["Przegląd Sportowy", "Gazeta Wyborcza"]},
 
-    # =========================================================================
-    # CZECH FIRST LEAGUE (REPÚBLICA CHECA)
-    # =========================================================================
+    # CZECH FIRST LEAGUE (REPÚBLICA CHECA) 2025-26 — 16 equipos
     "Slavia Praha":         {"city": "Praga",            "country": "Czech Republic", "papers": ["Sport.cz", "iSport.cz"]},
     "Sparta Praha":         {"city": "Praga",            "country": "Czech Republic", "papers": ["Sport.cz", "iSport.cz"]},
     "Viktoria Plzeň":       {"city": "Plzeň",            "country": "Czech Republic", "papers": ["Sport.cz", "Plzeňský deník"]},
     "Baník Ostrava":        {"city": "Ostrava",          "country": "Czech Republic", "papers": ["Sport.cz", "Moravskoslezský deník"]},
     "Mlada Boleslav":       {"city": "Mladá Boleslav",   "country": "Czech Republic", "papers": ["Sport.cz", "iSport.cz"]},
+    "Bohemians Praha":      {"city": "Praga",            "country": "Czech Republic", "papers": ["Sport.cz", "iSport.cz"]},
+    "Sigma Olomouc":        {"city": "Olomouc",          "country": "Czech Republic", "papers": ["Sport.cz", "Hanácké noviny"]},
+    "Liberec":              {"city": "Liberec",          "country": "Czech Republic", "papers": ["Sport.cz", "Liberecký deník"]},
+    "Hradec Králové":       {"city": "Hradec Králové",   "country": "Czech Republic", "papers": ["Sport.cz", "iSport.cz"]},
+    "Jablonec":             {"city": "Jablonec",         "country": "Czech Republic", "papers": ["Sport.cz", "iSport.cz"]},
+    "Teplice":              {"city": "Teplice",          "country": "Czech Republic", "papers": ["Sport.cz", "Deník"]},
+    "Slovácko":             {"city": "Uherské Hradiště", "country": "Czech Republic", "papers": ["Sport.cz", "iSport.cz"]},
+    "Karviná":              {"city": "Karviná",          "country": "Czech Republic", "papers": ["Sport.cz", "Moravskoslezský deník"]},
+    "České Budějovice":     {"city": "České Budějovice", "country": "Czech Republic", "papers": ["Sport.cz", "Českobudějovický deník"]},
+    "Pardubice":            {"city": "Pardubice",        "country": "Czech Republic", "papers": ["Sport.cz", "iSport.cz"]},
+    "Zlin":                 {"city": "Zlín",             "country": "Czech Republic", "papers": ["Sport.cz", "Deník"]},
 
-    # =========================================================================
-    # SUPERLIGA (DINAMARCA)
-    # =========================================================================
+    # SUPERLIGA (DINAMARCA) 2025-26 — 14 equipos
     "FC Copenhagen":        {"city": "Copenhague",       "country": "Denmark", "papers": ["Ekstra Bladet", "BT Sport"]},
-    "Brøndby":              {"city": "Brøndby",          "country": "Denmark", "papers": ["Ekstra Bladet", "BT Sport"]},
-    "Midtjylland":          {"city": "Herning",          "country": "Denmark", "papers": ["Herning Folkeblad", "BT Sport"]},
-    "Nordsjælland":         {"city": "Farum",            "country": "Denmark", "papers": ["Ekstra Bladet", "BT Sport"]},
-    "Silkeborg":            {"city": "Silkeborg",        "country": "Denmark", "papers": ["Midtjyllands Avis", "BT Sport"]},
-    "AGF":                  {"city": "Aarhus",           "country": "Denmark", "papers": ["Aarhus Stiftstidende", "BT Sport"]},
+    "Brøndby":              {"city": "Brøndby",          "country": "Denmark", "papers": ["BT Sport", "Ekstra Bladet"]},
+    "FC Midtjylland":       {"city": "Herning",          "country": "Denmark", "papers": ["Midtjyllands Avis", "Ekstra Bladet"]},
+    "Silkeborg":            {"city": "Silkeborg",        "country": "Denmark", "papers": ["Midtjyllands Avis", "Ekstra Bladet"]},
+    "AGF":                  {"city": "Aarhus",           "country": "Denmark", "papers": ["Aarhus Stiftstidende", "Ekstra Bladet"]},
+    "Randers FC":           {"city": "Randers",          "country": "Denmark", "papers": ["Randers Amtsavis", "Ekstra Bladet"]},
+    "OB Odense":            {"city": "Odense",           "country": "Denmark", "papers": ["Fyens Stiftstidende", "Ekstra Bladet"]},
+    "Viborg FF":            {"city": "Viborg",           "country": "Denmark", "papers": ["Viborg Stifts Folkeblad", "Ekstra Bladet"]},
+    "Vejle BK":             {"city": "Vejle",            "country": "Denmark", "papers": ["Vejle Amts Folkeblad", "Ekstra Bladet"]},
+    "AaB":                  {"city": "Aalborg",          "country": "Denmark", "papers": ["Nordjyske Medier", "Ekstra Bladet"]},
+    "SønderjyskE":          {"city": "Haderslev",        "country": "Denmark", "papers": ["JydskeVestkysten", "Ekstra Bladet"]},
+    "Lyngby BK":            {"city": "Lyngby",           "country": "Denmark", "papers": ["BT Sport", "Ekstra Bladet"]},
+    "FC Nordsjælland":      {"city": "Farum",            "country": "Denmark", "papers": ["BT Sport", "Ekstra Bladet"]},
+    "Hvidovre IF":          {"city": "Hvidovre",         "country": "Denmark", "papers": ["BT Sport", "Ekstra Bladet"]},
 
-    # =========================================================================
-    # ALLSVENSKAN (SUECIA)
-    # =========================================================================
+    # ALLSVENSKAN (SUECIA) 2025-26 — 16 equipos
     "Malmö FF":             {"city": "Malmö",            "country": "Sweden", "papers": ["Sydsvenskan", "Expressen"]},
     "AIK":                  {"city": "Estocolmo",        "country": "Sweden", "papers": ["Aftonbladet", "Expressen"]},
     "Djurgården":           {"city": "Estocolmo",        "country": "Sweden", "papers": ["Aftonbladet", "Expressen"]},
     "Hammarby":             {"city": "Estocolmo",        "country": "Sweden", "papers": ["Aftonbladet", "Expressen"]},
     "IFK Göteborg":         {"city": "Gotemburgo",       "country": "Sweden", "papers": ["Göteborgs-Posten", "Expressen"]},
     "IF Elfsborg":          {"city": "Borås",            "country": "Sweden", "papers": ["Borås Tidning", "Expressen"]},
+    "Häcken":               {"city": "Gotemburgo",       "country": "Sweden", "papers": ["Göteborgs-Posten", "Expressen"]},
+    "Kalmar FF":            {"city": "Kalmar",           "country": "Sweden", "papers": ["Barometern", "Expressen"]},
+    "IFK Norrköping":       {"city": "Norrköping",       "country": "Sweden", "papers": ["Norrköpings Tidningar", "Expressen"]},
+    "Västerås SK":          {"city": "Västerås",         "country": "Sweden", "papers": ["VLT", "Expressen"]},
+    "Mjällby AIF":          {"city": "Mjällby",          "country": "Sweden", "papers": ["Blekinge Läns Tidning", "Expressen"]},
+    "Degerfors IF":         {"city": "Degerfors",        "country": "Sweden", "papers": ["Expressen", "Aftonbladet"]},
+    "GIF Sundsvall":        {"city": "Sundsvall",        "country": "Sweden", "papers": ["Sundsvalls Tidning", "Expressen"]},
+    "IK Sirius":            {"city": "Uppsala",          "country": "Sweden", "papers": ["Upsala Nya Tidning", "Expressen"]},
+    "Halmstads BK":         {"city": "Halmstad",         "country": "Sweden", "papers": ["Hallandsposten", "Expressen"]},
+    "Brommapojkarna":       {"city": "Estocolmo",        "country": "Sweden", "papers": ["Aftonbladet", "Expressen"]},
 
-    # =========================================================================
-    # ELITESERIEN (NORUEGA)
-    # =========================================================================
+    # ELITESERIEN (NORUEGA) 2025-26 — 16 equipos
     "Rosenborg":            {"city": "Trondheim",        "country": "Norway", "papers": ["Adresseavisen", "VG Sport"]},
     "Molde":                {"city": "Molde",            "country": "Norway", "papers": ["Romsdals Budstikke", "VG Sport"]},
     "Bodø/Glimt":           {"city": "Bodø",             "country": "Norway", "papers": ["Avisa Nordland", "VG Sport"]},
     "Brann":                {"city": "Bergen",           "country": "Norway", "papers": ["Bergens Tidende", "VG Sport"]},
     "Lillestrøm":           {"city": "Lillestrøm",       "country": "Norway", "papers": ["Romerikes Blad", "VG Sport"]},
     "Viking":               {"city": "Stavanger",        "country": "Norway", "papers": ["Stavanger Aftenblad", "VG Sport"]},
+    "Stabæk":               {"city": "Bekkestua",        "country": "Norway", "papers": ["Budstikka", "VG Sport"]},
+    "Strømsgodset":         {"city": "Drammen",          "country": "Norway", "papers": ["Drammens Tidende", "VG Sport"]},
+    "Vålerenga":            {"city": "Oslo",             "country": "Norway", "papers": ["Aftenposten", "VG Sport"]},
+    "Tromsø IL":            {"city": "Tromsø",           "country": "Norway", "papers": ["Nordlys", "VG Sport"]},
+    "Odd":                  {"city": "Skien",            "country": "Norway", "papers": ["Telemarksavisa", "VG Sport"]},
+    "Fredrikstad FK":       {"city": "Fredrikstad",      "country": "Norway", "papers": ["Fredriksstad Blad", "VG Sport"]},
+    "Hamarkameratene":      {"city": "Hamar",            "country": "Norway", "papers": ["Hamar Arbeiderblad", "VG Sport"]},
+    "Sandefjord Fotball":   {"city": "Sandefjord",       "country": "Norway", "papers": ["Sandefjords Blad", "VG Sport"]},
+    "Kristiansund BK":      {"city": "Kristiansund",     "country": "Norway", "papers": ["Tidens Krav", "VG Sport"]},
+    "KFUM Oslo":            {"city": "Oslo",             "country": "Norway", "papers": ["Aftenposten", "VG Sport"]},
 
-    # =========================================================================
-    # SUPER LEAGUE (GRECIA)
-    # =========================================================================
+    # SUPER LEAGUE (GRECIA) 2025-26 — 16 equipos
     "Olympiakos":           {"city": "El Pireo",         "country": "Greece", "papers": ["Sport24", "Sportime"]},
     "Panathinaikos":        {"city": "Atenas",           "country": "Greece", "papers": ["Sport24", "Sportime"]},
     "AEK Athens":           {"city": "Atenas",           "country": "Greece", "papers": ["Sport24", "Sportime"]},
     "PAOK":                 {"city": "Salónica",         "country": "Greece", "papers": ["Makedonia", "Sport24"]},
     "Aris":                 {"city": "Salónica",         "country": "Greece", "papers": ["Makedonia", "Sport24"]},
     "Atromitos":            {"city": "Atenas",           "country": "Greece", "papers": ["Sport24", "Sportime"]},
+    "Volos NFC":            {"city": "Volos",            "country": "Greece", "papers": ["Sport24", "Sportime"]},
+    "OFI Crete":            {"city": "Heraklion",        "country": "Greece", "papers": ["Sport24", "Patris"]},
+    "Asteras Tripolis":     {"city": "Trípoli",          "country": "Greece", "papers": ["Sport24", "Sportime"]},
+    "PAS Lamia":            {"city": "Lamia",            "country": "Greece", "papers": ["Sport24", "Sportime"]},
+    "Panetolikos":          {"city": "Agrinio",          "country": "Greece", "papers": ["Sport24", "Sportime"]},
+    "Levadiakos":           {"city": "Livadia",          "country": "Greece", "papers": ["Sport24", "Sportime"]},
+    "Ionikos":              {"city": "Nikea",            "country": "Greece", "papers": ["Sport24", "Sportime"]},
+    "Kallithea":            {"city": "Kallithea",        "country": "Greece", "papers": ["Sport24", "Sportime"]},
+    "Panserraikos":         {"city": "Serres",           "country": "Greece", "papers": ["Sport24", "Sportime"]},
+    "Panachaiki":           {"city": "Patras",           "country": "Greece", "papers": ["Sport24", "Sportime"]},
 
-    # =========================================================================
-    # SUPERLIGA (SERBIA)
-    # =========================================================================
+    # SUPERLIGA (SERBIA) 2025-26 — 16 equipos
     "Red Star Belgrade":    {"city": "Belgrado",         "country": "Serbia", "papers": ["Sportski žurnal", "Večernje novosti"]},
     "Partizan":             {"city": "Belgrado",         "country": "Serbia", "papers": ["Sportski žurnal", "Večernje novosti"]},
     "FK Vojvodina":         {"city": "Novi Sad",         "country": "Serbia", "papers": ["Dnevnik", "Sportski žurnal"]},
+    "TSC Bačka Topola":     {"city": "Bačka Topola",     "country": "Serbia", "papers": ["Sportski žurnal", "Večernje novosti"]},
+    "Spartak Subotica":     {"city": "Subotica",         "country": "Serbia", "papers": ["Sportski žurnal", "Večernje novosti"]},
+    "FK Čukarički":         {"city": "Belgrado",         "country": "Serbia", "papers": ["Sportski žurnal", "Večernje novosti"]},
+    "Radnički Niš":         {"city": "Niš",              "country": "Serbia", "papers": ["Sportski žurnal", "Večernje novosti"]},
+    "FK Mladost Lučani":    {"city": "Lučani",           "country": "Serbia", "papers": ["Sportski žurnal", "Večernje novosti"]},
+    "FK Napredak":          {"city": "Kruševac",         "country": "Serbia", "papers": ["Sportski žurnal", "Večernje novosti"]},
+    "FK Proleter":          {"city": "Novi Sad",         "country": "Serbia", "papers": ["Dnevnik", "Sportski žurnal"]},
+    "FK Javor":             {"city": "Ivanjica",         "country": "Serbia", "papers": ["Sportski žurnal", "Večernje novosti"]},
+    "FK Kolubara":          {"city": "Lazarevac",        "country": "Serbia", "papers": ["Sportski žurnal", "Večernje novosti"]},
+    "FK IMT Beograd":       {"city": "Belgrado",         "country": "Serbia", "papers": ["Sportski žurnal", "Večernje novosti"]},
+    "FK Radnik Surdulica":  {"city": "Surdulica",        "country": "Serbia", "papers": ["Sportski žurnal", "Večernje novosti"]},
+    "FK Železničar":        {"city": "Pancevo",          "country": "Serbia", "papers": ["Sportski žurnal", "Večernje novosti"]},
+    "FK Backa":             {"city": "Subotica",         "country": "Serbia", "papers": ["Sportski žurnal", "Večernje novosti"]},
 
-    # =========================================================================
-    # UKRANIAN PREMIER LEAGUE
-    # =========================================================================
-    "Shakhtar Donetsk":     {"city": "Donetsk/Kiev",     "country": "Ukraine", "papers": ["Sportarena", "Football.ua"]},
+    # HNL (CROACIA) 2025-26 — 10 equipos
+    "Dinamo Zagreb":        {"city": "Zagreb",           "country": "Croatia", "papers": ["Sportske novosti", "Večernji list"]},
+    "Hajduk Split":         {"city": "Split",            "country": "Croatia", "papers": ["Slobodna Dalmacija", "Sportske novosti"]},
+    "Rijeka":               {"city": "Rijeka",           "country": "Croatia", "papers": ["Novi list", "Sportske novosti"]},
+    "Osijek":               {"city": "Osijek",           "country": "Croatia", "papers": ["Glas Slavonije", "Sportske novosti"]},
+    "Varaždin":             {"city": "Varaždin",         "country": "Croatia", "papers": ["Varaždinske vijesti", "Sportske novosti"]},
+    "Šibenik":              {"city": "Šibenik",          "country": "Croatia", "papers": ["Šibenski list", "Sportske novosti"]},
+    "Lokomotiva Zagreb":    {"city": "Zagreb",           "country": "Croatia", "papers": ["Sportske novosti", "Večernji list"]},
+    "Gorica":               {"city": "Velika Gorica",    "country": "Croatia", "papers": ["Sportske novosti", "Večernji list"]},
+    "Istra 1961":           {"city": "Pula",             "country": "Croatia", "papers": ["Glas Istre", "Sportske novosti"]},
+    "NK Slaven Belupo":     {"city": "Koprivnica",       "country": "Croatia", "papers": ["Glas Podravine", "Sportske novosti"]},
+
+    # UKRAINIAN PREMIER LEAGUE 2025-26 — 12 equipos
+    "Shakhtar Donetsk":     {"city": "Donetsk/Lviv",     "country": "Ukraine", "papers": ["Sportarena", "Football.ua"]},
     "Dynamo Kyiv":          {"city": "Kiev",             "country": "Ukraine", "papers": ["Football.ua", "Sportarena"]},
-    "Metalist":             {"city": "Járkov",           "country": "Ukraine", "papers": ["Football.ua", "Sportarena"]},
+    "Metalist Kharkiv":     {"city": "Járkov",           "country": "Ukraine", "papers": ["Football.ua", "Sportarena"]},
+    "Vorskla Poltava":      {"city": "Poltava",          "country": "Ukraine", "papers": ["Football.ua", "Sportarena"]},
+    "Dnipro-1":             {"city": "Dnipro",           "country": "Ukraine", "papers": ["Football.ua", "Sportarena"]},
+    "Chornomorets Odesa":   {"city": "Odesa",            "country": "Ukraine", "papers": ["Football.ua", "Sportarena"]},
+    "Oleksandria":          {"city": "Oleksandria",      "country": "Ukraine", "papers": ["Football.ua", "Sportarena"]},
+    "Kolos Kovalivka":      {"city": "Kovalivka",        "country": "Ukraine", "papers": ["Football.ua", "Sportarena"]},
+    "Rukh Lviv":            {"city": "Lviv",             "country": "Ukraine", "papers": ["Football.ua", "Sportarena"]},
+    "Kryvbas Kryvyi Rih":   {"city": "Kryvyi Rih",       "country": "Ukraine", "papers": ["Football.ua", "Sportarena"]},
+    "Minaj":                {"city": "Mynai",            "country": "Ukraine", "papers": ["Football.ua", "Sportarena"]},
+    "Veres Rivne":          {"city": "Rivne",            "country": "Ukraine", "papers": ["Football.ua", "Sportarena"]},
 
-    # =========================================================================
-    # ISRAEL PREMIER LEAGUE
-    # =========================================================================
+    # ISRAELI PREMIER LEAGUE 2025-26 — 14 equipos
     "Maccabi Tel Aviv":     {"city": "Tel Aviv",         "country": "Israel", "papers": ["Sport5", "One.co.il"]},
     "Maccabi Haifa":        {"city": "Haifa",            "country": "Israel", "papers": ["Sport5", "One.co.il"]},
     "Hapoel Beer Sheva":    {"city": "Beer Sheva",       "country": "Israel", "papers": ["Sport5", "One.co.il"]},
     "Beitar Jerusalem":     {"city": "Jerusalén",        "country": "Israel", "papers": ["Sport5", "One.co.il"]},
+    "Maccabi Petah Tikva":  {"city": "Petah Tikva",      "country": "Israel", "papers": ["Sport5", "One.co.il"]},
+    "Hapoel Tel Aviv":      {"city": "Tel Aviv",         "country": "Israel", "papers": ["Sport5", "One.co.il"]},
+    "Hapoel Haifa":         {"city": "Haifa",            "country": "Israel", "papers": ["Sport5", "One.co.il"]},
+    "Bnei Yehuda":          {"city": "Tel Aviv",         "country": "Israel", "papers": ["Sport5", "One.co.il"]},
+    "FC Ashdod":            {"city": "Ashdod",           "country": "Israel", "papers": ["Sport5", "One.co.il"]},
+    "Ironi Kiryat Shmona":  {"city": "Kiryat Shmona",    "country": "Israel", "papers": ["Sport5", "One.co.il"]},
+    "Maccabi Netanya":      {"city": "Netanya",          "country": "Israel", "papers": ["Sport5", "One.co.il"]},
+    "Hapoel Jerusalem":     {"city": "Jerusalén",        "country": "Israel", "papers": ["Sport5", "One.co.il"]},
+    "Hapoel Nof HaGalil":   {"city": "Nof HaGalil",      "country": "Israel", "papers": ["Sport5", "One.co.il"]},
+    "Maccabi Bnei Reineh":  {"city": "Reineh",           "country": "Israel", "papers": ["Sport5", "One.co.il"]},
 
-    # =========================================================================
-    # CROACIA HNL
-    # =========================================================================
-    "Dinamo Zagreb":        {"city": "Zagreb",           "country": "Croatia", "papers": ["Sportske novosti", "Večernji list"]},
-    "Hajduk Split":         {"city": "Split",            "country": "Croatia", "papers": ["Slobodna Dalmacija", "Sportske novosti"]},
-    "Rijeka":               {"city": "Rijeka",           "country": "Croatia", "papers": ["Novi list", "Sportske novosti"]},
-
-    # =========================================================================
-    # SCOTLAND / NORTHERN IRELAND
-    # =========================================================================
-    "Linfield":             {"city": "Belfast",          "country": "N.Ireland", "papers": ["Belfast Telegraph", "Irish News"]},
-    "Glentoran":            {"city": "Belfast",          "country": "N.Ireland", "papers": ["Belfast Telegraph", "Irish News"]},
-
-    # =========================================================================
-    # LIGA PROFESIONAL (ARGENTINA) — Interamericana/Mundial
-    # =========================================================================
+    # LIGA PROFESIONAL (ARGENTINA) 2025 — 28 equipos
     "River Plate":          {"city": "Buenos Aires",     "country": "Argentina", "papers": ["Olé", "La Nación Deportes"]},
     "Boca Juniors":         {"city": "Buenos Aires",     "country": "Argentina", "papers": ["Olé", "La Nación Deportes"]},
     "Racing Club":          {"city": "Avellaneda",       "country": "Argentina", "papers": ["Olé", "La Nación Deportes"]},
     "Independiente":        {"city": "Avellaneda",       "country": "Argentina", "papers": ["Olé", "La Nación Deportes"]},
     "San Lorenzo":          {"city": "Buenos Aires",     "country": "Argentina", "papers": ["Olé", "La Nación Deportes"]},
     "Estudiantes":          {"city": "La Plata",         "country": "Argentina", "papers": ["Olé", "El Día"]},
+    "Vélez Sársfield":      {"city": "Buenos Aires",     "country": "Argentina", "papers": ["Olé", "La Nación Deportes"]},
+    "Huracán":              {"city": "Buenos Aires",     "country": "Argentina", "papers": ["Olé", "La Nación Deportes"]},
+    "Lanús":                {"city": "Lanús",            "country": "Argentina", "papers": ["Olé", "La Nación Deportes"]},
+    "Defensa y Justicia":   {"city": "Florencio Varela", "country": "Argentina", "papers": ["Olé", "La Nación Deportes"]},
+    "Talleres":             {"city": "Córdoba",          "country": "Argentina", "papers": ["La Voz", "Olé"]},
+    "Belgrano":             {"city": "Córdoba",          "country": "Argentina", "papers": ["La Voz", "Olé"]},
+    "Atlético Tucumán":     {"city": "Tucumán",          "country": "Argentina", "papers": ["La Gaceta", "Olé"]},
+    "Godoy Cruz":           {"city": "Mendoza",          "country": "Argentina", "papers": ["Los Andes", "Olé"]},
+    "Newell's Old Boys":    {"city": "Rosario",          "country": "Argentina", "papers": ["La Capital", "Olé"]},
+    "Rosario Central":      {"city": "Rosario",          "country": "Argentina", "papers": ["La Capital", "Olé"]},
+    "Banfield":             {"city": "Banfield",         "country": "Argentina", "papers": ["Olé", "La Nación Deportes"]},
+    "Arsenal de Sarandí":   {"city": "Sarandí",          "country": "Argentina", "papers": ["Olé", "La Nación Deportes"]},
+    "Tigre":                {"city": "Tigre",            "country": "Argentina", "papers": ["Olé", "La Nación Deportes"]},
+    "Platense":             {"city": "Buenos Aires",     "country": "Argentina", "papers": ["Olé", "La Nación Deportes"]},
+    "Sarmiento":            {"city": "Junín",            "country": "Argentina", "papers": ["Olé", "La Nación Deportes"]},
+    "Barracas Central":     {"city": "Buenos Aires",     "country": "Argentina", "papers": ["Olé", "La Nación Deportes"]},
+    "Instituto":            {"city": "Córdoba",          "country": "Argentina", "papers": ["La Voz", "Olé"]},
+    "Unión Santa Fe":       {"city": "Santa Fe",         "country": "Argentina", "papers": ["El Litoral", "Olé"]},
+    "Colón":                {"city": "Santa Fe",         "country": "Argentina", "papers": ["El Litoral", "Olé"]},
+    "Gimnasia La Plata":    {"city": "La Plata",         "country": "Argentina", "papers": ["El Día", "Olé"]},
+    "Argentinos Juniors":   {"city": "Buenos Aires",     "country": "Argentina", "papers": ["Olé", "La Nación Deportes"]},
+    "San Martín Tucumán":   {"city": "Tucumán",          "country": "Argentina", "papers": ["La Gaceta", "Olé"]},
 
-    # =========================================================================
-    # BRASILEIRÃO (BRASIL)
-    # =========================================================================
+    # BRASILEIRÃO (BRASIL) 2025 — 20 equipos
     "Flamengo":             {"city": "Río de Janeiro",   "country": "Brazil", "papers": ["O Globo Esporte", "Lance!"]},
     "Palmeiras":            {"city": "São Paulo",        "country": "Brazil", "papers": ["Folha de S.Paulo", "Lance!"]},
     "Fluminense":           {"city": "Río de Janeiro",   "country": "Brazil", "papers": ["O Globo Esporte", "Lance!"]},
@@ -226,4 +330,16 @@ EUROPEAN_TEAMS = {
     "Grêmio":               {"city": "Porto Alegre",     "country": "Brazil", "papers": ["Zero Hora", "Lance!"]},
     "Internacional":        {"city": "Porto Alegre",     "country": "Brazil", "papers": ["Zero Hora", "Lance!"]},
     "Atlético Mineiro":     {"city": "Belo Horizonte",   "country": "Brazil", "papers": ["Estado de Minas", "Lance!"]},
+    "São Paulo FC":         {"city": "São Paulo",        "country": "Brazil", "papers": ["Folha de S.Paulo", "Lance!"]},
+    "Cruzeiro":             {"city": "Belo Horizonte",   "country": "Brazil", "papers": ["Estado de Minas", "Lance!"]},
+    "Botafogo":             {"city": "Río de Janeiro",   "country": "Brazil", "papers": ["O Globo Esporte", "Lance!"]},
+    "Vasco da Gama":        {"city": "Río de Janeiro",   "country": "Brazil", "papers": ["O Globo Esporte", "Lance!"]},
+    "Atlético Paranaense":  {"city": "Curitiba",         "country": "Brazil", "papers": ["Gazeta do Povo", "Lance!"]},
+    "Coritiba":             {"city": "Curitiba",         "country": "Brazil", "papers": ["Gazeta do Povo", "Lance!"]},
+    "Fortaleza":            {"city": "Fortaleza",        "country": "Brazil", "papers": ["O Povo", "Lance!"]},
+    "Ceará":                {"city": "Fortaleza",        "country": "Brazil", "papers": ["O Povo", "Lance!"]},
+    "Sport Recife":         {"city": "Recife",           "country": "Brazil", "papers": ["Jornal do Commercio", "Lance!"]},
+    "Bahia":                {"city": "Salvador",         "country": "Brazil", "papers": ["A Tarde", "Lance!"]},
+    "Goiás":                {"city": "Goiânia",          "country": "Brazil", "papers": ["O Popular", "Lance!"]},
+    "América Mineiro":      {"city": "Belo Horizonte",   "country": "Brazil", "papers": ["Estado de Minas", "Lance!"]},
 }
