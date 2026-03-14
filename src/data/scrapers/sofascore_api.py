@@ -214,9 +214,17 @@ def _extract_referee_from_text(text: str, home: str, away: str) -> Optional[str]
             name = re.sub(r'\s+(el|la|en|de|para|del)\s*$', '', name, flags=re.I).strip()
             parts = name.split()
             if 2 <= len(parts) <= 4 and not any(c.isdigit() for c in name):
-                # Evitar confundir con nombre de equipos
+                # Evitar confundir con nombre de equipos (locales/visitantes o globales)
                 if not _check_alias_match(home, away, name):
-                    return name
+                    # Comprobación global contra todos los equipos conocidos
+                    norm_name = _norm(name)
+                    is_team = False
+                    for team, aliases in TEAM_ALIASES.items():
+                        if norm_name == _norm(team) or any(norm_name == _norm(a) for a in aliases):
+                            is_team = True
+                            break
+                    if not is_team:
+                        return name
     return None
 
 
