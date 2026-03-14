@@ -778,7 +778,7 @@ class LaLigaDataScraper:
         print(f"    -> AVISO: No se pudo obtener árbitro de fuentes web. Usando pool de referencia.")
         
         import hashlib
-        match_id = f"{home}-{away}-{match_date.strftime('%Y%m%d')}"
+        match_id = f"{home}-{away}-{match_date.strftime('%Y%m%d') if match_date else 'nodate'}"
         idx = int(hashlib.md5(match_id.encode()).hexdigest(), 16) % len(LALIGA_REFEREE_POOL)
         fallback = LALIGA_REFEREE_POOL[idx]
         
