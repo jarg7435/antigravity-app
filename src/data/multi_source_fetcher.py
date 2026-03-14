@@ -168,6 +168,17 @@ class MultiSourceFetcher:
     """
 
     def fetch_lineup(self, home: str, away: str, match_date: datetime, league: str) -> Dict:
+        # FUENTE PRIMARIA UNIVERSAL: SofaScore API (funciona sin JS en todas las ligas)
+        try:
+            from src.data.scrapers.sofascore_api import fetch_lineups as sf_lu
+            sf = sf_lu(home, away)
+            if sf and (sf.get("home") or sf.get("away")):
+                print(f"  [SofaScore] ✅ Alineaciones encontradas: {len(sf.get('home',[]))} + {len(sf.get('away',[]))}")
+                sf.setdefault("bajas", [])
+                return sf
+        except Exception as e:
+            print(f"  [SofaScore] fetch_lineup error: {e}")
+        # Liga-specific scraper como segundo intento
         """
         Fetches probable lineup for a match.
         
@@ -203,6 +214,16 @@ class MultiSourceFetcher:
         return result
 
     def fetch_referee(self, home: str, away: str, match_date: datetime, league: str) -> Dict:
+        # FUENTE PRIMARIA UNIVERSAL: SofaScore API
+        try:
+            from src.data.scrapers.sofascore_api import fetch_referee as sf_ref
+            sf = sf_ref(home, away)
+            if sf and sf.get("name"):
+                print(f"  [SofaScore] ✅ Árbitro encontrado: {sf['name']}")
+                return sf
+        except Exception as e:
+            print(f"  [SofaScore] fetch_referee error: {e}")
+        # Liga-specific scraper como segundo intento
         """
         Fetches assigned referee for a match.
         
