@@ -355,21 +355,36 @@ if st.session_state.get("review_study"):
                         else:
                             st.markdown("🔗 Consulta manualmente en [RFEF](https://www.rfef.es/noticias/arbitros/designaciones) · [SofaScore](https://www.sofascore.com)")
                         st.markdown("✏️ **Introduce el árbitro manualmente:**")
-                        manual_ref = st.text_input(
-                            "Nombre del árbitro",
-                            placeholder="Ej: Jesús Gil Manzano",
-                            key=f"manual_ref_{rs['match_id']}"
-                        )
-                        if manual_ref and st.button("💾 Guardar árbitro", key=f"save_ref_{rs['match_id']}"):
-                            if pred_rs and hasattr(pred_rs, "referee_name"):
-                                pred_rs.referee_name = manual_ref
-                                db_manager.save_prediction(pred_rs)
-                                rs["prediction"] = pred_rs
-                                st.session_state.review_study = rs
-                            st.session_state[f"ref_rs_{rs['match_id']}"] = {
-                                "name": manual_ref, "_is_fallback": False, "source": "Manual"
-                            }
-                            st.success(f"✅ Árbitro guardado: {manual_ref}")
+                        with st.form(key=f"ref_form_{rs['match_id']}", clear_on_submit=True):
+                            manual_ref = st.text_input(
+                                "Nombre del árbitro",
+                                placeholder="Ej: Daniele Orsato",
+                                key=f"manual_ref_input_{rs['match_id']}"
+                            )
+                            saved = st.form_submit_button("💾 Guardar árbitro",
+                                                          use_container_width=True,
+                                                          type="primary")
+                            if saved and manual_ref and manual_ref.strip():
+                                from src.data.referee_database import enrich_referee
+                                new_ref = {
+                                    "name": manual_ref.strip(),
+                                    "strictness": RefereeStrictness.MEDIUM,
+                                    "avg_cards": 4.3,
+                                    "source": "Introducido manualmente",
+                                    "_is_fallback": False,
+                                }
+                                try:
+                                    new_ref = enrich_referee(new_ref)
+                                except Exception:
+                                    pass
+                                if pred_rs and hasattr(pred_rs, "referee_name"):
+                                    pred_rs.referee_name = manual_ref.strip()
+                                    db_manager.save_prediction(pred_rs)
+                                    rs["prediction"] = pred_rs
+                                    st.session_state.review_study = rs
+                                st.session_state[f"ref_rs_{rs['match_id']}"] = new_ref
+                                st.success(f"✅ Árbitro guardado: {manual_ref.strip()}")
+                                st.rerun()
                 except Exception as e:
                     st.warning(f"Error buscando árbitro: {e}")
                     st.markdown("🔗 Consulta en [RFEF](https://www.rfef.es/noticias/arbitros/designaciones) · [SofaScore](https://www.sofascore.com)")
@@ -485,20 +500,39 @@ if home_team and away_team:
         c_ref1, c_ref2 = st.columns([2, 1])
         # Build referee object with auto-fetched data
         if st.session_state.fetched_ref and not is_fallback:
-            ref_name = st.session_state.fetched_ref["name"]
-            v_link = st.session_state.fetched_ref.get("verification_link")
-            
+            ref_name  = st.session_state.fetched_ref.get("name", "?")
+            v_link    = st.session_state.fetched_ref.get("verification_link") or                         st.session_state.fetched_ref.get("verification_url", "")
+            avg_c     = st.session_state.fetched_ref.get("avg_cards", "?")
+            avg_r     = st.session_state.fetched_ref.get("avg_reds", "?")
+            pen_rate  = st.session_state.fetched_ref.get("penalty_rate", "?")
+            profile   = st.session_state.fetched_ref.get("profile", "")
+            strict    = st.session_state.fetched_ref.get("strictness")
+
+            strict_color = "#f87171" if str(strict) in ["HIGH","RefereeStrictness.HIGH","Estricto"]                       else ("#4ade80" if str(strict) in ["LOW","RefereeStrictness.LOW","Permisivo"]                       else "#fbbf24")
+            strict_txt = "🔴 ESTRICTO" if str(strict) in ["HIGH","RefereeStrictness.HIGH","Estricto"]                     else ("🟢 PERMISIVO" if str(strict) in ["LOW","RefereeStrictness.LOW","Permisivo"]                     else "🟡 MODERADO")
+
             with c_ref1:
-                v_html = f' <a href="{v_link}" target="_blank" style="color: #00ff00; text-decoration: none; font-size: 0.8rem;">[🛡️ Verificar]</a>' if v_link else ""
-                st.markdown(f'<h4 style="color: #fdffcc; margin-top: 5px;">👨‍⚖️ Árbitro: {ref_name}{v_html} <span style="font-size: 0.8rem; color: #00ff00;">✅ ({ref_source})</span></h4>', unsafe_allow_html=True)
+                v_html = f' <a href="{v_link}" target="_blank" style="color:#60a5fa;font-size:0.8rem;">[🔗 Verificar]</a>' if v_link else ""
+                st.markdown(
+                    f'<div style="background:#1e293b;border-radius:8px;padding:10px 14px;border-left:4px solid {strict_color};">' +
+                    f'<div style="color:#ffffff;font-size:1.0rem;font-weight:800;">👨‍⚖️ {ref_name}{v_html}</div>' +
+                    f'<div style="color:{strict_color};font-size:0.82rem;font-weight:700;">{strict_txt} · Fuente: {ref_source}</div>' +
+                    (f'<div style="color:#e2e8f0;font-size:0.78rem;margin-top:4px;">' +
+                     f'🟨 Media tarjetas: <b>{avg_c}</b>/partido · '
+                     f'🟥 Rojas: <b>{avg_r}</b>/partido · '
+                     f'⚽ Penaltis: <b>{pen_rate}</b>/10 partidos</div>' if avg_c != "?" else "") +
+                    (f'<div style="color:#94a3b8;font-size:0.75rem;margin-top:3px;font-style:italic;">{profile}</div>' if profile else "") +
+                    '</div>',
+                    unsafe_allow_html=True
+                )
             with c_ref2:
                 if st.button("🔄 Re-buscar", use_container_width=True, key="rebuscar_ref"):
                     st.session_state.fetched_ref = None
                     st.rerun()
             
             selected_ref = Referee(
-                name=ref_name, 
-                strictness=st.session_state.fetched_ref["strictness"],
+                name=ref_name,
+                strictness=st.session_state.fetched_ref.get("strictness", RefereeStrictness.MEDIUM),
                 verification_link=v_link
             )
         else:
@@ -526,15 +560,19 @@ if home_team and away_team:
                 else:
                     st.markdown('<h4 style="color: #fdffcc; margin-top: 5px;">👨‍⚖️ Árbitro: Pendiente...</h4>', unsafe_allow_html=True)
                 
-                # 👇 NUEVO: campo de entrada manual
-                manual_ref = st.text_input(
-                    "✍️ Nombre del árbitro (manual)",
-                    placeholder="Ej: Jesús Gil Manzano",
-                    key="manual_ref_input"
-                )
-                if manual_ref and len(manual_ref.split()) >= 2:
-                    if st.button("✅ Confirmar Árbitro Manual", key="confirm_manual_ref"):
-                        st.session_state.fetched_ref = {
+                # Campo manual con form para evitar pérdida de datos en rerun
+                with st.form(key="manual_ref_form", clear_on_submit=True):
+                    manual_ref = st.text_input(
+                        "✍️ Árbitro (introduce el nombre)",
+                        placeholder="Ej: Jesús Gil Manzano",
+                        key="manual_ref_input"
+                    )
+                    submitted = st.form_submit_button("✅ Confirmar árbitro manual",
+                                                      use_container_width=True,
+                                                      type="primary")
+                    if submitted and manual_ref and manual_ref.strip():
+                        from src.data.referee_database import enrich_referee
+                        new_ref = {
                             "name": manual_ref.strip(),
                             "strictness": RefereeStrictness.MEDIUM,
                             "avg_cards": 4.3,
@@ -542,12 +580,17 @@ if home_team and away_team:
                             "_is_fallback": False,
                             "verification_link": None
                         }
-                        st.toast(f"👨‍⚖️ Árbitro confirmado: {manual_ref.strip()}", icon="⚖️")
+                        # Buscar en BD local para enriquecer
+                        try:
+                            new_ref = enrich_referee(new_ref)
+                        except Exception:
+                            pass
+                        st.session_state.fetched_ref = new_ref
                         st.rerun()
 
             with c_ref2:
                 if st.button("🔍 Buscar Árbitro Auto", use_container_width=True):
-                    with st.spinner("Buscando en 5 fuentes..."):
+                    with st.spinner("Buscando en fuentes oficiales..."):
                         l_fetcher = LineupFetcher(data_provider)
                         ref_data = l_fetcher.fetch_match_referee(
                             home_team.name, away_team.name, selected_date, selected_league
