@@ -1,5 +1,6 @@
 from src.models.base import Match, Team, Player, NodeRole, PlayerStatus
 from src.data.knowledge_base import KnowledgeBase
+from src.logic.blindaje_ia import BlindajeIA
 
 class BPAEngine:
     """
@@ -8,6 +9,7 @@ class BPAEngine:
     
     def __init__(self):
         self.kb = KnowledgeBase()
+        self.blindaje = BlindajeIA()
     
     # Node Weights defined in Phase 2
     WEIGHTS = {
@@ -24,13 +26,16 @@ class BPAEngine:
     FACTOR_BAD_WEATHER = 0.90 # Applied generally if conditions are bad
     FACTOR_MOTIVATION_HIGH = 1.15
 
-    def calculate_match_bpa(self, match: Match) -> dict:
+    def calculate_match_bpa(self, match: Match, press_modifiers: dict = None) -> dict:
         """
         Calculates BPA for both teams in a match.
-        Returns: {'home_bpa': float, 'away_bpa': float, 'details': dict}
+        pres_modifiers: {'home': float, 'away': float} coming from ExternalAnalyst.
         """
-        bpa_home = self._calculate_team_bpa(match.home_team, is_home=True, conditions=match.conditions)
-        bpa_away = self._calculate_team_bpa(match.away_team, is_home=False, conditions=match.conditions)
+        h_mod = press_modifiers.get('home', 1.0) if press_modifiers else 1.0
+        a_mod = press_modifiers.get('away', 1.0) if press_modifiers else 1.0
+        
+        bpa_home = self._calculate_team_bpa(match.home_team, is_home=True, conditions=match.conditions, press_mod=h_mod)
+        bpa_away = self._calculate_team_bpa(match.away_team, is_home=False, conditions=match.conditions, press_mod=a_mod)
         
         return {
             "home_bpa": round(bpa_home, 4),
@@ -38,7 +43,7 @@ class BPAEngine:
             "advantage": self._determine_advantage(bpa_home, bpa_away)
         }
 
-    def _calculate_team_bpa(self, team: Team, is_home: bool, conditions) -> float:
+    def _calculate_team_bpa(self, team: Team, is_home: bool, conditions, **kwargs) -> float:
         total_score = 0.0
         
         for player in team.players:
@@ -67,14 +72,19 @@ class BPAEngine:
         h2h_bias = getattr(team, 'h2h_bias', 1.0)
         context_factor *= h2h_bias
         
-        # New: Knowledge Base Bias
+        # New: Knowledge Base Bias (aplicado como porcentaje, no suma directa)
         kb_bias = self.kb.get_team_factor(team.name, "LOCAL" if is_home else "VISITANTE")
-        context_factor += kb_bias
+        context_factor *= (1.0 + kb_bias)
 
         if team.motivation_level > 1.0:
             context_factor *= self.FACTOR_MOTIVATION_HIGH
             
         if conditions:
+            # Convert dict to MatchConditions if needed (e.g. loaded from Supabase JSON)
+            if isinstance(conditions, dict):
+                from src.models.base import MatchConditions
+                conditions = MatchConditions(**{k: v for k, v in conditions.items()
+                                                if k in MatchConditions.model_fields})
             # Enhanced weather check: Tactical mismatch
             # Example: Tiki-Taka suffers more in heavy rain
             if conditions.rain_mm > 5:
@@ -86,7 +96,19 @@ class BPAEngine:
             if conditions.wind_kmh > 30:
                 context_factor *= self.FACTOR_BAD_WEATHER
 
-        return total_score * context_factor
+        # Factor C: Blindaje IA Confidence
+        # This is a match-level/team-level penalty based on Elite Sources
+        # Assuming we can access the match object or just the team contextual data
+        # For full integration, we'll assume Factor C is calculated upfront
+        # or we calculate it here if Match is provided (backwards compat)
+        
+        # If we have any confidence factor reported in team metadata
+        factor_c = getattr(team, 'factor_c', 1.0)
+        
+        # Press Intelligence Factor (Sentiment)
+        press_mod = kwargs.get('press_mod', 1.0)
+        
+        return total_score * context_factor * factor_c * press_mod
 
     def _get_status_value(self, status: PlayerStatus) -> float:
         if status == PlayerStatus.TITULAR:
