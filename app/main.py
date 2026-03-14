@@ -1069,15 +1069,15 @@ with st.sidebar:
                                         )
                                         if new_lineup.get("home") or new_lineup.get("away"):
                                             from src.models.base import Player, PlayerPosition, PlayerStatus, NodeRole
-                                            roles = [NodeRole.PORTERO, NodeRole.DEFENSA, NodeRole.DEFENSA,
-                                                     NodeRole.DEFENSA, NodeRole.DEFENSA, NodeRole.MEDIOCAMPISTA,
-                                                     NodeRole.MEDIOCAMPISTA, NodeRole.MEDIOCAMPISTA,
-                                                     NodeRole.DELANTERO, NodeRole.DELANTERO, NodeRole.DELANTERO]
+                                            roles = [NodeRole.KEEPER, NodeRole.DEFENSIVE, NodeRole.DEFENSIVE,
+                                                     NodeRole.DEFENSIVE, NodeRole.DEFENSIVE, NodeRole.CREATOR,
+                                                     NodeRole.CREATOR, NodeRole.CREATOR,
+                                                     NodeRole.FINALIZER, NodeRole.FINALIZER, NodeRole.FINALIZER]
                                             def _to_players(names, tname):
                                                 return [Player(
                                                     id=f"{tname}_{i}", name=n, team_name=tname,
                                                     position=PlayerPosition.MIDFIELDER,
-                                                    node_role=roles[i] if i < len(roles) else NodeRole.MEDIOCAMPISTA,
+                                                    node_role=roles[i] if i < len(roles) else NodeRole.CREATOR,
                                                     status=PlayerStatus.TITULAR, rating_last_5=7.5
                                                 ) for i, n in enumerate(names[:11])]
                                             upd_home = data_provider.get_team_data(s["home_team"])
