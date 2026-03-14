@@ -29,8 +29,12 @@ except ImportError:
             self.classes_ = [0, 1, 2]
             self.is_trained = False
         def fit(self, X, y): self.is_trained = True; return self
-        def predict(self, X): return np.zeros(len(X))
-        def predict_proba(self, X): return np.array([[0.33, 0.33, 0.34]] * len(X))
+        def predict(self, X): 
+            if X is None: return np.zeros(1)
+            return np.zeros(len(X))
+        def predict_proba(self, X): 
+            count = 1 if X is None else len(X)
+            return np.array([[0.33, 0.33, 0.34]] * count)
         def get_params(self, deep=True): return {}
         def set_params(self, **params): return self
         @property
@@ -99,17 +103,34 @@ class MLEngine:
             "cv_accuracy_std": round(scores.std(), 4)
         }
 
-    def predict_probabilities(self, match_features: pd.DataFrame) -> Dict[str, float]:
-        """Produce probabilidades promediadas de los modelos Ensemble."""
+    def predict_probabilities(self, match_features: pd.DataFrame, league: str = "Unknown") -> Dict[str, float]:
+        """Produce probabilidades promediadas de los modelos Ensemble con pesos dinámicos por liga."""
         if not self.is_trained:
             # Fallback balanceado si no hay entrenamiento
             return {"LOCAL": 0.35, "EMPATE": 0.30, "VISITANTE": 0.35}
             
+        if match_features is None:
+            # Reverte to fallback if no features provided even if trained
+            return {"LOCAL": 0.35, "EMPATE": 0.30, "VISITANTE": 0.35}
+
         rf_probs = self.rf_model.predict_proba(match_features)[0]
         xgb_probs = self.xgb_model.predict_proba(match_features)[0]
         
-        # Ensamble por promedio pesado (XGBoost suele ser más preciso)
-        avg_probs = (rf_probs * 0.6 + xgb_probs * 0.4) 
+        # Pesos dinámicos por liga (Ensemble 2.0)
+        # Ligas más "estadísticas" (Premier) dan más peso a XGBoost. 
+        # Ligas más tácticas/defensivas (Serie A) dan más peso a RF para robustez.
+        league_weights = {
+            "Premier League (Inglaterra)": (0.3, 0.7), # (RF, XGB)
+            "La Liga (España)": (0.5, 0.5),
+            "Serie A (Italia)": (0.7, 0.3),
+            "Ligue 1 (Francia)": (0.6, 0.4),
+            "Bundesliga (Alemania)": (0.4, 0.6)
+        }
+        
+        w_rf, w_xgb = league_weights.get(league, (0.5, 0.5))
+        
+        # Ensamble por promedio pesado
+        avg_probs = (rf_probs * w_rf + xgb_probs * w_xgb) 
         
         return {
             "LOCAL": round(avg_probs[1], 4),
