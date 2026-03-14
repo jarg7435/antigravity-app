@@ -57,6 +57,12 @@ class Team(BaseModel):
     avg_possession: float = 50.0
     form_last_5: List[str] = []
     motivation_level: float = 1.0
+    factor_c: float = 1.0
+    
+    # Fatigue & Stress Metrics (Ensemble 2.0)
+    recent_workload: List[Dict[str, Any]] = [] # [{"date": "2026-03-10", "type": "Champions", "minutes_played": 900}] 
+    travel_km: float = 0.0 # Cumulative travel in last 7 days
+    days_rest: int = 5 
 
 class MatchConditions(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="ignore")
@@ -78,18 +84,22 @@ class Referee(BaseModel):
     name: str = "Árbitro Desconocido"
     strictness: RefereeStrictness = RefereeStrictness.MEDIUM
     avg_cards: float = 4.5
+    avg_yellows: float = 4.2
+    avg_reds: float = 0.12
+    penalty_rate: float = 1.0
+    verification_link: Optional[str] = None
 
 class Match(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="ignore")
     
     id: str
-    home_team: Any # Flexible type for Team model
-    away_team: Any # Flexible type for Team model
-    date: Any # Can be datetime or date, handles Pydantic v2 quirks
+    home_team: Team 
+    away_team: Team 
+    date: datetime 
     kickoff_time: str = "21:00"
     competition: str = "Unknown"
-    conditions: Optional[Any] = None
-    referee: Optional[Any] = None
+    conditions: Optional[MatchConditions] = None
+    referee: Optional[Referee] = None
     lineup_confirmed: bool = False
     referee_confirmed: bool = False
     
@@ -97,6 +107,8 @@ class Match(BaseModel):
     wyscout_id: Optional[str] = None
     opta_id: Optional[str] = None
     market_odds: Dict[str, float] = {} # e.g. {"1": 1.95, "X": 3.40, "2": 4.10}
+    external_analysis_summary: str = ""
+    factor_c: float = 1.0
 
 class PredictionResult(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="ignore")
@@ -114,6 +126,7 @@ class PredictionResult(BaseModel):
     poisson_matrix: Dict[str, float] = {} # e.g. {"1-0": 0.12, "2-0": 0.08}
     
     total_goals_expected: float
+    total_goals_range: str = "0-0"
     both_teams_to_score_prob: float
     score_prediction: str = "0-0"
     
@@ -127,6 +140,8 @@ class PredictionResult(BaseModel):
     predicted_shots_on_target: str = "0-0"
     
     confidence_score: float = 0.0 # 0-1 metrics
+    factor_c: float = 1.0 # Blindaje IA Confidence Factor
+    elite_reports: List[Dict] = [] # Reports from Elite sources
     external_analysis_summary: str = ""
     referee_name: str = "Autodetectado"
 
