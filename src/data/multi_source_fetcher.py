@@ -194,7 +194,8 @@ class MultiSourceFetcher:
         """
         print(f"\n[MultiSourceFetcher] LINEUP: {home} vs {away} | {league}")
         scraper = _get_scraper(league)
-        result = scraper.fetch_lineup(home, away, match_date)
+        _safe_date = match_date if match_date else datetime.now()
+        result = scraper.fetch_lineup(home, away, _safe_date)
         
         # Ensure all expected keys exist
         result.setdefault('home', [])
@@ -239,7 +240,8 @@ class MultiSourceFetcher:
         """
         print(f"\n[MultiSourceFetcher] REFEREE: {home} vs {away} | {league}")
         scraper = _get_scraper(league)
-        result = scraper.fetch_referee(home, away, match_date)
+        _safe_date2 = match_date if match_date else datetime.now()
+        result = scraper.fetch_referee(home, away, _safe_date2)
         
         result.setdefault('source', 'Desconocida')
         result.setdefault('verification_link', None)
