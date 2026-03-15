@@ -1,171 +1,133 @@
 """
-worldfootball_scraper.py — Scraper para WorldFootball.net
-=========================================================
-Fuente especializada en árbitros y estadísticas históricas.
-Utiliza Playwright (js_scraper) para saltar bloqueos 403.
+worldfootball_scraper.py — WorldFootball.net para árbitros e historial
+======================================================================
+Especializado en árbitros con estadísticas históricas.
 """
-import re
-import unicodedata
-from typing import Dict, List, Optional
+import requests
 from bs4 import BeautifulSoup
-from src.data.scrapers.js_scraper import get_html_with_js, is_available as js_available
+from typing import Dict, List, Optional
+from datetime import datetime
+import re
 
-# Mapeo de ligas LAGEMA -> WorldFootball slugs
-LEAGUE_SLUGS = {
-    "La Liga":          "esp-primera-division",
-    "Premier League":   "eng-premier-league",
-    "Serie A":          "ita-serie-a",
-    "Bundesliga":       "bundesliga",
-    "Ligue 1":          "fra-ligue-1",
-    "Champions League": "clu",
-    "Europa League":    "uel",
-    "Eredivisie":       "ned-eredivisie",
-    "Primeira Liga":    "por-primeira-liga",
-    "Denmark":          "den-superliga",
-    "Austria":          "aut-bundesliga",
-    "Poland":           "pol-ekstraklasa",
-    "Sweden":           "swe-allsvenskan",
-    "Norway":           "nor-eliteserien",
-    "Croatia":          "cro-1-hnl",
-    "Czech Liga":       "cze-1-fotbalova-liga",
-    "Hungary":          "hun-nb-i",
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
 }
 
-def _norm(text: str) -> str:
-    """Normalización básica."""
-    return "".join(
-        c for c in unicodedata.normalize('NFD', text.lower())
-        if unicodedata.category(c) != 'Mn'
-    ).strip()
+LEAGUE_PATHS = {
+    "La Liga":        "esp-primera-division",
+    "Premier League": "eng-premier-league",
+    "Bundesliga":     "bundesliga",
+    "Serie A":        "ita-serie-a",
+    "Ligue 1":        "fra-ligue-1",
+    "Champions League": "champions-league",
+}
 
-def _match_team(query: str, target: str) -> bool:
-    q = _norm(query)
-    t = _norm(target)
-    if q in t or t in q:
-        return True
-    # Probar con partes del nombre (e.g. "Salzburg" en "Red Bull Salzburg")
-    q_words = [w for w in q.split() if len(w) > 4]
-    if q_words and any(w in t for w in q_words):
-        return True
-    return False
 
-def _is_team_name(name: str, home: str, away: str) -> bool:
-    """Evita falsos positivos donde un equipo es detectado como árbitro."""
-    n = _norm(name)
-    h = _norm(home)
-    a = _norm(away)
-    return n in h or h in n or n in a or a in n
+def _slugify(name: str) -> str:
+    """Convierte nombre a slug para WorldFootball."""
+    s = name.lower().strip()
+    s = re.sub(r'[áàä]', 'a', s)
+    s = re.sub(r'[éèë]', 'e', s)
+    s = re.sub(r'[íìï]', 'i', s)
+    s = re.sub(r'[óòö]', 'o', s)
+    s = re.sub(r'[úùü]', 'u', s)
+    s = re.sub(r'ñ', 'n', s)
+    s = re.sub(r'[^a-z0-9\s-]', '', s)
+    s = re.sub(r'\s+', '-', s).strip('-')
+    return s
 
-def fetch_referee_worldfootball(home: str, away: str, league: str, season: str = "2025-2026") -> Dict:
-    """
-    Busca el árbitro de un partido en WorldFootball.net usando Playwright.
-    """
-    slug = LEAGUE_SLUGS.get(league)
-    if not slug:
-        print(f"    [WF] Liga no soportada: {league}")
-        return {"name": None, "_is_fallback": True}
 
-    # URL de la jornada actual/calendario completo
-    # Patrón: https://www.worldfootball.net/all_matches/{slug}-{season}/
-    url = f"https://www.worldfootball.net/all_matches/{slug}-{season}/"
-    
-    print(f"    [WF] Buscando árbitro en: {url}")
-    
-    html = None
-    if js_available():
-        html = get_html_with_js(url, wait_for="networkidle", timeout_ms=20000)
-    
-    if not html:
-        print(f"    [WF] No se pudo obtener HTML (Playwright fail o no disponible)")
-        return {"name": None, "_is_fallback": True}
-
+def fetch_referee(home: str, away: str, league: str = "") -> Optional[Dict]:
+    """Busca árbitro en WorldFootball.net."""
     try:
-        soup = BeautifulSoup(html, 'html.parser')
-        # Las tablas de partidos suelen tener filas con los equipos y el árbitro al final o en un link
-        # Buscamos la fila que contiene a ambos equipos
-        for row in soup.find_all('tr'):
-            text = row.get_text()
-            if _match_team(home, text) and _match_team(away, text):
-                # El árbitro suele estar en la última columna o en un enlace con "referee_summary"
-                ref_link = row.find('a', href=re.compile(r'/referee_summary/'))
-                if ref_link:
-                    name = ref_link.get_text().strip()
-                    if name and not _is_team_name(name, home, away):
-                        print(f"    [WF] Árbitro encontrado: {name}")
-                        return {
-                            "name": name,
-                            "source": "WorldFootball.net",
-                            "verification_link": f"https://www.worldfootball.net{ref_link['href']}",
-                            "_is_fallback": False
-                        }
-                
-                # A veces el nombre está en texto plano al final
+        league_path = LEAGUE_PATHS.get(league, "")
+        home_slug = _slugify(home)
+        away_slug = _slugify(away)
+
+        urls_to_try = []
+        if league_path:
+            urls_to_try.append(
+                f"https://www.worldfootball.net/report/{league_path}-{datetime.now().year}-{datetime.now().year+1}/{home_slug}-{away_slug}/"
+            )
+        # Búsqueda general
+        search_url = f"https://www.worldfootball.net/teams/{home_slug}/"
+        urls_to_try.append(search_url)
+
+        for url in urls_to_try:
+            try:
+                r = requests.get(url, headers=HEADERS, timeout=8)
+                if r.status_code != 200:
+                    continue
+                soup = BeautifulSoup(r.text, 'html.parser')
+
+                # Buscar árbitro en tabla de info del partido
+                for row in soup.find_all('tr'):
+                    cells = row.find_all('td')
+                    if len(cells) >= 2:
+                        label = cells[0].get_text().strip().lower()
+                        if 'arbitro' in label or 'referee' in label or 'schiedsrichter' in label:
+                            ref_name = cells[1].get_text().strip()
+                            if len(ref_name.split()) >= 2:
+                                return {
+                                    "name": ref_name,
+                                    "source": "WorldFootball.net",
+                                    "verification_link": url,
+                                    "_is_fallback": False
+                                }
+            except Exception:
+                continue
+
+    except Exception as e:
+        print(f"[WorldFootball] referee error: {e}")
+    return None
+
+
+def fetch_referee_stats(referee_name: str) -> Dict:
+    """
+    Obtiene estadísticas históricas del árbitro desde WorldFootball.
+    Devuelve avg_cards, avg_yellows, avg_reds si los encuentra.
+    """
+    stats = {}
+    try:
+        slug = _slugify(referee_name)
+        url = f"https://www.worldfootball.net/referee/{slug}/"
+        r = requests.get(url, headers=HEADERS, timeout=8)
+        if r.status_code != 200:
+            return stats
+
+        soup = BeautifulSoup(r.text, 'html.parser')
+
+        # Buscar tabla de estadísticas
+        for table in soup.find_all('table'):
+            headers_row = table.find('tr')
+            if not headers_row:
+                continue
+            headers = [th.get_text().strip().lower() for th in headers_row.find_all(['th','td'])]
+
+            for row in table.find_all('tr')[1:]:
                 cells = row.find_all('td')
-                if len(cells) > 5:
-                    potential_ref = cells[-1].get_text().strip()
-                    if len(potential_ref.split()) >= 2 and not any(x in potential_ref.lower() for x in ["report", "info"]):
-                        if not _is_team_name(potential_ref, home, away):
-                            print(f"    [WF] Árbitro encontrado (texto): {potential_ref}")
-                            return {
-                                "name": potential_ref,
-                                "source": "WorldFootball.net",
-                                "verification_link": url,
-                                "_is_fallback": False
-                            }
-        
-        print(f"    [WF] Partido no encontrado en la lista de {league}")
-    except Exception as e:
-        print(f"    [WF] Error parseando: {e}")
+                if len(cells) < 3:
+                    continue
+                row_data = {headers[i]: cells[i].get_text().strip()
+                           for i in range(min(len(headers), len(cells)))}
 
-    return {"name": None, "_is_fallback": True}
-
-def fetch_referee_stats(ref_name: str) -> Dict:
-    """
-    Obtiene estadísticas extendidas de un árbitro desde su perfil en WorldFootball.
-    """
-    # Slug de búsqueda: nombres separados por guión
-    slug = _norm(ref_name).replace(' ', '-')
-    url = f"https://www.worldfootball.net/referee_summary/{slug}/"
-    
-    print(f"    [WF] Buscando stats en: {url}")
-    
-    html = None
-    if js_available():
-        html = get_html_with_js(url, wait_for="networkidle")
-    
-    if not html:
-        return {}
-
-    try:
-        soup = BeautifulSoup(html, 'html.parser')
-        # Buscar la tabla de "Referee summary"
-        stats = {}
-        # WorldFootball tiene tablas con columnas: Competition, Season, Matches, Yellow, Second Yellow, Red, Penalty
-        # Buscamos la fila de "Total" o la temporada actual
-        table = soup.find('table', class_='standard_tabelle')
-        if table:
-            rows = table.find_all('tr')
-            for row in rows:
-                if "Total" in row.get_text():
-                    cols = row.find_all('td')
-                    if len(cols) >= 7:
-                        stats = {
-                            "matches": cols[2].get_text().strip(),
-                            "yellow": cols[3].get_text().strip(),
-                            "yellow_red": cols[4].get_text().strip(),
-                            "red": cols[5].get_text().strip(),
-                            "penalty": cols[6].get_text().strip()
-                        }
-                        # Calcular promedios
+                # Buscar columnas de tarjetas
+                for key in headers:
+                    if 'gelb' in key or 'yellow' in key or 'amarilla' in key:
                         try:
-                            m = int(stats["matches"])
-                            if m > 0:
-                                stats["avg_yellow"] = round(int(stats["yellow"]) / m, 2)
-                                stats["avg_red"] = round((int(stats["red"]) + int(stats["yellow_red"])) / m, 2)
-                        except:
+                            stats['avg_yellows'] = float(row_data[key].replace(',','.'))
+                        except Exception:
                             pass
-                        break
-        return stats
+                    if 'rot' in key or 'red' in key or 'roja' in key:
+                        try:
+                            stats['avg_reds'] = float(row_data[key].replace(',','.'))
+                        except Exception:
+                            pass
+
+        if 'avg_yellows' in stats:
+            stats['avg_cards'] = stats.get('avg_yellows', 0) + stats.get('avg_reds', 0)
+
     except Exception as e:
-        print(f"    [WF] Error stats: {e}")
-        return {}
+        print(f"[WorldFootball] stats error for {referee_name}: {e}")
+    return stats
