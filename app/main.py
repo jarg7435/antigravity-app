@@ -87,7 +87,6 @@ def get_services(version: str = "6.70.0 (Global Generic)"):
     import src.logic.predictors
     import src.logic.bpa_engine
     import src.logic.external_analyst
-    import src.logic.ml_engine
     import src.data.mock_provider
     import src.data.bankroll_manager
     import src.data.db_manager
@@ -96,7 +95,6 @@ def get_services(version: str = "6.70.0 (Global Generic)"):
     importlib.reload(src.logic.poisson_engine)
     importlib.reload(src.logic.bpa_engine)
     importlib.reload(src.logic.external_analyst)
-    importlib.reload(src.logic.ml_engine)
     importlib.reload(src.logic.predictors)
     importlib.reload(src.data.mock_provider)
     importlib.reload(src.data.bankroll_manager)
@@ -535,10 +533,6 @@ if home_team and away_team:
             selected_ref = Referee(
                 name=ref_name,
                 strictness=st.session_state.fetched_ref.get("strictness", RefereeStrictness.MEDIUM),
-                avg_cards=float(st.session_state.fetched_ref.get("avg_cards", 4.5)),
-                avg_yellows=float(st.session_state.fetched_ref.get("avg_yellows", 4.2)),
-                avg_reds=float(st.session_state.fetched_ref.get("avg_reds", 0.12)),
-                penalty_rate=float(st.session_state.fetched_ref.get("penalty_rate", 1.0)),
                 verification_link=v_link
             )
         else:
@@ -623,11 +617,7 @@ if home_team and away_team:
             if is_fallback:
                 selected_ref = Referee(
                     name=st.session_state.fetched_ref.get("name", "Por Confirmar"),
-                    strictness=st.session_state.fetched_ref.get("strictness", RefereeStrictness.MEDIUM),
-                    avg_cards=float(st.session_state.fetched_ref.get("avg_cards", 4.5)),
-                    avg_yellows=float(st.session_state.fetched_ref.get("avg_yellows", 4.2)),
-                    avg_reds=float(st.session_state.fetched_ref.get("avg_reds", 0.12)),
-                    penalty_rate=float(st.session_state.fetched_ref.get("penalty_rate", 1.0))
+                    strictness=st.session_state.fetched_ref.get("strictness", RefereeStrictness.MEDIUM)
                 )
             else:
                 selected_ref = Referee(name="Por Detectar", strictness=RefereeStrictness.MEDIUM)
@@ -1071,15 +1061,15 @@ with st.sidebar:
                                         )
                                         if new_lineup.get("home") or new_lineup.get("away"):
                                             from src.models.base import Player, PlayerPosition, PlayerStatus, NodeRole
-                                            roles = [NodeRole.KEEPER, NodeRole.DEFENSIVE, NodeRole.DEFENSIVE,
-                                                     NodeRole.DEFENSIVE, NodeRole.DEFENSIVE, NodeRole.CREATOR,
-                                                     NodeRole.CREATOR, NodeRole.CREATOR,
-                                                     NodeRole.FINALIZER, NodeRole.FINALIZER, NodeRole.FINALIZER]
+                                            roles = [NodeRole.PORTERO, NodeRole.DEFENSA, NodeRole.DEFENSA,
+                                                     NodeRole.DEFENSA, NodeRole.DEFENSA, NodeRole.MEDIOCAMPISTA,
+                                                     NodeRole.MEDIOCAMPISTA, NodeRole.MEDIOCAMPISTA,
+                                                     NodeRole.DELANTERO, NodeRole.DELANTERO, NodeRole.DELANTERO]
                                             def _to_players(names, tname):
                                                 return [Player(
                                                     id=f"{tname}_{i}", name=n, team_name=tname,
                                                     position=PlayerPosition.MIDFIELDER,
-                                                    node_role=roles[i] if i < len(roles) else NodeRole.CREATOR,
+                                                    node_role=roles[i] if i < len(roles) else NodeRole.MEDIOCAMPISTA,
                                                     status=PlayerStatus.TITULAR, rating_last_5=7.5
                                                 ) for i, n in enumerate(names[:11])]
                                             upd_home = data_provider.get_team_data(s["home_team"])
@@ -1406,11 +1396,14 @@ if st.session_state.get("run_retrolearn"):
                     import re as _re
 
                     def _check_range(pred_str, real_val):
-                        """Mismo parseo que semáforos: toma solo los 2 primeros números."""
+                        """Parsea rango sumando home+away para obtener total."""
                         s = str(pred_str or "")
                         nums = [int(n) for n in _re.findall(r"\d+", s)]
                         if not nums: return None, None, None
-                        if len(nums) >= 2: lo, hi = nums[0], nums[1]
+                        if len(nums) >= 4:
+                            _c=[nums[0]+nums[2],nums[1]+nums[3],nums[0]+nums[3],nums[1]+nums[2]]
+                            lo, hi = min(_c), max(_c)
+                        elif len(nums) >= 2: lo, hi = nums[0], nums[1]
                         else: lo = hi = nums[0]
                         return lo, hi, lo <= real_val <= hi
 
