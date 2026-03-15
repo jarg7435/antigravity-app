@@ -587,9 +587,12 @@ class DataManager:
                 # Córners
                 def parse_range(s):
                     nums = re.findall(r"\d+", str(s or ""))
+                    if not nums: return None, None
+                    if len(nums) >= 4:
+                        c=[int(nums[0])+int(nums[2]),int(nums[1])+int(nums[3]),int(nums[0])+int(nums[3]),int(nums[1])+int(nums[2])]
+                        return min(c), max(c)
                     if len(nums) >= 2: return int(nums[0]), int(nums[1])
-                    if len(nums) == 1: return int(nums[0]), int(nums[0])
-                    return None, None
+                    return int(nums[0]), int(nums[0])
 
                 for key, pred_key, real_val in [
                     ("Córners",  "predicted_corners", real_corners),
