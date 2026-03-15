@@ -152,6 +152,29 @@ class MultiSourceFetcher:
         safe_date = match_date if match_date else datetime.now()
         sofa_link = None
 
+        # 0. Claude API con web_search (si API key disponible — más fiable que scrapers)
+        #    Prioridad cuando el partido es en <48h (árbitro ya publicado)
+        try:
+            hours_to_match = 999
+            try:
+                hours_to_match = (safe_date - datetime.now()).total_seconds() / 3600
+            except Exception:
+                pass
+            if hours_to_match < 48:
+                from src.data.scrapers.sofascore_api import fetch_referee_via_claude
+                claude_name = fetch_referee_via_claude(home, away, league)
+                if claude_name and _is_valid_referee_name(claude_name):
+                    print(f"  [Claude API] ✅ {claude_name}")
+                    result = {
+                        "name": claude_name,
+                        "source": "Claude API (búsqueda web)",
+                        "verification_link": f"https://www.sofascore.com",
+                        "_is_fallback": False
+                    }
+                    return self._enrich_and_return(result)
+        except Exception as e:
+            print(f"  [Claude API] referee error: {e}")
+
         # 1. SofaScore API (más fiable cuando tiene el dato)
         try:
             from src.data.scrapers.sofascore_api import fetch_referee as sf_ref
