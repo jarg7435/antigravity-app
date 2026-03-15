@@ -340,19 +340,23 @@ def fetch_lineups(home: str, away: str) -> Optional[Dict]:
 
 def fetch_referee_via_claude(home: str, away: str, league: str = "") -> Optional[str]:
     """
-    Usa Claude API con web_search para encontrar el árbitro.
-    Mismo método que external_analyst — usa ANTHROPIC_API_KEY si está disponible.
+    Usa Claude API con web_search — busca como un usuario en Google.
+    Requiere ANTHROPIC_API_KEY en secrets de Streamlit.
     """
-    import os, requests as _req, json, re as _re
+    import os, requests as _req, re as _re
+    from datetime import datetime as _dt
+
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
+        print("  [Claude] Sin ANTHROPIC_API_KEY")
         return None
     try:
+        today = _dt.now().strftime("%d/%m/%Y")
+        # Prompt directo — igual que buscar en Google
         prompt = (
-            f"Busca en internet quién es el árbitro designado para el partido "
-            f"{home} vs {away} ({league}). "
-            f"Responde SOLO con el nombre completo del árbitro, sin explicaciones. "
-            f"Ejemplo de respuesta: 'Jesús Gil Manzano'"
+            f"Busca en internet: árbitro {home} {away} hoy {today}\n\n"
+            f"Dame ÚNICAMENTE el nombre completo del árbitro. "
+            f"Solo el nombre, sin explicación. Ejemplo: Martínez Munuera"
         )
         resp = _req.post(
             "https://api.anthropic.com/v1/messages",
@@ -363,25 +367,44 @@ def fetch_referee_via_claude(home: str, away: str, league: str = "") -> Optional
             },
             json={
                 "model": "claude-haiku-4-5-20251001",
-                "max_tokens": 100,
+                "max_tokens": 50,
                 "tools": [{"type": "web_search_20250305", "name": "web_search"}],
                 "messages": [{"role": "user", "content": prompt}]
             },
-            timeout=25
+            timeout=30
         )
         if resp.status_code != 200:
-            print(f"  [Claude] API error {resp.status_code}")
+            print(f"  [Claude] API error {resp.status_code}: {resp.text[:100]}")
             return None
+
         data = resp.json()
+        # Recoger todo el texto de la respuesta
+        full_text = ""
         for block in data.get("content", []):
             if block.get("type") == "text":
-                text = block.get("text", "").strip()
-                # Limpiar respuesta — debe ser solo un nombre
-                text = _re.sub(r"['\"\n]", "", text).strip()
-                parts = text.split()
-                if 2 <= len(parts) <= 4 and not any(c.isdigit() for c in text):
-                    print(f"  [Claude] ✅ Árbitro encontrado: {text}")
-                    return text
+                full_text += block.get("text", "")
+
+        full_text = full_text.strip()
+        print(f"  [Claude] Respuesta: '{full_text[:80]}'")
+
+        # Limpiar y extraer nombre
+        clean = _re.sub(r'[\*\'".,;:\n\r]', ' ', full_text).strip()
+        words = clean.split()
+
+        # Buscar secuencia de palabras capitalizadas (nombre propio)
+        name_parts = []
+        for w in words[:8]:
+            if len(w) > 1 and w[0].isupper():
+                name_parts.append(w)
+            elif name_parts:
+                break
+        if 2 <= len(name_parts) <= 4:
+            name = " ".join(name_parts)
+            print(f"  [Claude] ✅ Árbitro: {name}")
+            return name
+        # Fallback: usar texto limpio si es corto
+        if 2 <= len(words) <= 4:
+            return clean
     except Exception as e:
-        print(f"  [Claude] referee error: {e}")
+        print(f"  [Claude] error: {e}")
     return None
