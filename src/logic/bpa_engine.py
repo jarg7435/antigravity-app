@@ -126,21 +126,6 @@ class BPAEngine:
             }
         }
 
-    # MANTENER: Método original para compatibilidad hacia atrás
-    def _calculate_team_bpa(self, team: Team, is_home: bool, conditions, **kwargs) -> float:
-        """
-        Método legacy - mantiene compatibilidad con código antiguo.
-        Redirige a la nueva implementación v2.
-        """
-        return self._calculate_team_bpa_v2(
-            team=team,
-            is_home=is_home,
-            conditions=conditions,
-            press_mod=kwargs.get('press_mod', 1.0),
-            lineup_uncertainty=0.0,
-            validation=None
-        )
-
     def _validate_lineup_roles(
         self, 
         team: Team, 
@@ -209,7 +194,6 @@ class BPAEngine:
         total_score = 0.0
         active_players = 0
         
-        # Calcular score base solo de jugadores disponibles
         for player in team.players:
             if player.node_role == NodeRole.NONE:
                 continue
@@ -235,39 +219,30 @@ class BPAEngine:
         if validation:
             total_score *= (1.0 - validation.get("penalty", 0))
         
-        # Factores contextuales
         context_factor = self.FACTOR_HOME if is_home else self.FACTOR_AWAY
         
-        # Factor de descanso
         days_rest = getattr(team, 'days_rest', 5)
         if days_rest < 3:
             context_factor *= 0.88
         elif days_rest < 4:
             context_factor *= 0.92
             
-        # Factor H2H
         h2h_bias = getattr(team, 'h2h_bias', 1.0)
         context_factor *= max(0.9, min(1.1, h2h_bias))
         
-        # Knowledge Base
         try:
             kb_bias = self.kb.get_team_factor(team.name, "LOCAL" if is_home else "VISITANTE")
             context_factor *= (1.0 + max(-0.1, min(0.1, kb_bias)))
         except Exception:
             pass
         
-        # Motivación
         if getattr(team, 'motivation_level', 1.0) > 1.0:
             context_factor *= self.FACTOR_MOTIVATION_HIGH
             
-        # Condiciones climáticas
         if conditions:
             context_factor = self._apply_weather_factors(context_factor, conditions, team)
         
-        # Blindaje IA
         factor_c = getattr(team, 'factor_c', 1.0)
-        
-        # Aplicar incertidumbre de alineación
         uncertainty_factor = 1.0 - (lineup_uncertainty * 0.5)
         
         final_bpa = total_score * context_factor * factor_c * press_mod * uncertainty_factor
@@ -275,7 +250,6 @@ class BPAEngine:
         return max(0.2, min(0.9, final_bpa))
 
     def _apply_weather_factors(self, base_factor: float, conditions, team: Team) -> float:
-        """Aplica factores climáticos específicos."""
         factor = base_factor
         
         if isinstance(conditions, dict):
@@ -300,7 +274,6 @@ class BPAEngine:
         return factor
 
     def _get_status_value(self, status: PlayerStatus) -> float:
-        """Valor numérico del estado del jugador."""
         status_map = {
             PlayerStatus.TITULAR: 1.0,
             PlayerStatus.DUDA: 0.5,
@@ -310,7 +283,6 @@ class BPAEngine:
         return status_map.get(status, 0.25)
 
     def _determine_advantage(self, bpa_home: float, bpa_away: float) -> str:
-        """Determina el tipo de ventaja basado en diferencial."""
         diff = bpa_home - bpa_away
         abs_diff = abs(diff)
         
@@ -332,9 +304,6 @@ class BPAEngine:
         press_modifiers: Optional[Dict] = None,
         lineup_data: Optional[Dict] = None
     ) -> Dict:
-        """
-        Método de compatibilidad que siempre retorna resultado válido.
-        """
         try:
             uncertainty = lineup_data.get('uncertainty_penalty', 0.25) if lineup_data else 0.25
             return self.calculate_match_bpa(match, press_modifiers, uncertainty, lineup_data)

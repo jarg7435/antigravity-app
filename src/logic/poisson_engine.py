@@ -1,6 +1,5 @@
 """
 PoissonEngine v4.1 — Distribución de Probabilidad con Freshness Integration
-============================================================================
 """
 
 import math
@@ -89,17 +88,14 @@ class PoissonEngine:
         missing_key_players_home: int = 0,
         missing_key_players_away: int = 0
     ):
-        # Validar liga
         if league_avg_goals <= 0.5:
             league_avg_goals = 1.35
 
-        # Obtener stats
         h_xg = getattr(home_team, 'avg_xg_season', 0)
         h_xg_c = getattr(home_team, 'avg_xg_conceded_season', 0)
         a_xg = getattr(away_team, 'avg_xg_season', 0)
         a_xg_c = getattr(away_team, 'avg_xg_conceded_season', 0)
         
-        # Fallback a ratings
         h_rating = self._get_team_rating(home_team)
         a_rating = self._get_team_rating(away_team)
         
@@ -112,17 +108,14 @@ class PoissonEngine:
         if a_xg_c <= 0.1:
             a_xg_c = max(0.5, league_avg_goals - (a_rating - self.DEFAULT_RATING) * 0.3)
 
-        # Fuerzas relativas
         home_attack = h_xg / league_avg_goals
         away_defense = a_xg_c / league_avg_goals
         away_attack = a_xg / league_avg_goals
         home_defense = h_xg_c / league_avg_goals
 
-        # Lambdas base
         home_lambda = home_attack * away_defense * league_avg_goals * self.HOME_ADVANTAGE_FACTOR
         away_lambda = away_attack * home_defense * league_avg_goals * self.AWAY_DISADVANTAGE_FACTOR
 
-        # Ajuste BPA suavizado
         bpa_diff = home_bpa - away_bpa
         freshness_confidence = self._get_freshness_confidence(lineup_freshness)
         bpa_impact = math.tanh(bpa_diff * 1.5) * self.BPA_IMPACT_MAX * freshness_confidence
@@ -130,11 +123,9 @@ class PoissonEngine:
         home_lambda *= (1.0 + bpa_impact)
         away_lambda *= (1.0 - bpa_impact * 0.7)
 
-        # Ajuste por bajas
         home_lambda *= (0.92 ** missing_key_players_home)
         away_lambda *= (0.92 ** missing_key_players_away)
 
-        # Clamping adaptativo
         if freshness_confidence < 0.5:
             home_min, home_max = 0.6, 2.5
             away_min, away_max = 0.5, 2.0

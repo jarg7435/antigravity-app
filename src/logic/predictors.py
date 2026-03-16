@@ -2,7 +2,6 @@
 Predictor v4.1 — Motor Híbrido con Freshness Awareness
 ======================================================
 Integra LineupFetcher, BPAEngine v4.1, y LearningEngine.
-COMPATIBILIDAD: Mantiene import original 'from src.logic.bpa_engine import BPAEngine'
 """
 
 import math
@@ -10,7 +9,7 @@ import logging
 from typing import Dict, List, Optional, Tuple
 
 from src.models.base import Match, PredictionResult
-from src.logic.bpa_engine import BPAEngine  # Mismo import, nueva implementación
+from src.logic.bpa_engine import BPAEngine
 from src.logic.external_analyst import ExternalAnalyst
 from src.logic.poisson_engine import PoissonEngine
 from src.logic.ml_engine import MLEngine
@@ -23,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 class Predictor:
     """
-    Motor predictivo híbrido v4.1 con Freshness Awareness.
+    Motor predictivo híbrido v4.1.
     """
     
     WEIGHT_CONFIG = {
@@ -43,27 +42,16 @@ class Predictor:
         self.learning = LearningEngine(self.bpa_engine)
         logger.info("Predictor v4.1 inicializado")
 
-    def predict_match(
-        self, 
-        match: Match, 
-        lineup_data: Optional[Dict] = None
-    ) -> PredictionResult:
-        """
-        Genera predicción completa con metadatos de calidad.
-        """
-        # Extraer metadatos de alineación
+    def predict_match(self, match: Match, lineup_data: Optional[Dict] = None) -> PredictionResult:
         freshness = self._extract_freshness(lineup_data)
         uncertainty_penalty = lineup_data.get('uncertainty_penalty', 0.25) if lineup_data else 0.25
         
-        logger.info(f"Prediciendo {match.home_team.name} vs {match.away_team.name} | "
-                   f"Freshness: {freshness}")
+        logger.info(f"Prediciendo {match.home_team.name} vs {match.away_team.name} | Freshness: {freshness}")
 
-        # 1. Inteligencia Externa
         intel = self.external_analyst.get_detailed_intelligence(match, freshness)
         analysis_text = intel.get("report", "Sin análisis externo")
         press_impact = intel.get("impact", {'home': 1.0, 'away': 1.0})
 
-        # 2. BPA con nuevos parámetros
         bpa_res = self.bpa_engine.calculate_match_bpa(
             match,
             press_modifiers=press_impact,
@@ -72,7 +60,6 @@ class Predictor:
         )
         bpa_h, bpa_a = bpa_res['home_bpa'], bpa_res['away_bpa']
 
-        # 3. Poisson
         h_lambda, a_lambda = self.poisson.estimate_lambdas(
             match.home_team,
             match.away_team,
@@ -84,11 +71,9 @@ class Predictor:
         p_matrix = self.poisson.predict_score_matrix(h_lambda, a_lambda, max_goals=6)
         p_home, p_draw, p_away = self.poisson.calculate_match_probabilities(h_lambda, a_lambda)
 
-        # 4. ML con features
         ml_features = self._extract_ml_features(match, bpa_res, h_lambda, a_lambda, lineup_data)
         ml_probs = self._get_ml_probabilities(ml_features, match.competition)
 
-        # 5. Fusión Híbrida Adaptativa
         weights = self.WEIGHT_CONFIG.get(freshness, self.WEIGHT_CONFIG['fallback'])
         
         effective_bpa_weight = weights['bpa'] * (1 - uncertainty_penalty)
@@ -119,7 +104,6 @@ class Predictor:
             ml_probs.get('VISITANTE', 0.33) * adjusted_weights['ml']
         )
 
-        # Normalización segura
         total = final_home + final_draw + final_away
         if total == 0 or not (0.5 < total < 2.0):
             logger.error(f"Normalización inválida: {total}")
@@ -130,20 +114,17 @@ class Predictor:
         norm_draw = final_draw / total
         norm_away = final_away / total
 
-        # 6. Mercados secundarios
         stats = self.external_analyst.calculate_stat_markets(
             match, bpa_h, bpa_a, h_lambda=h_lambda, a_lambda=a_lambda
         )
 
         score_pred = max(p_matrix, key=p_matrix.get) if p_matrix else "0-0"
 
-        # 7. Confianza
         confidence = self._calc_confidence_v2(
             norm_home, norm_away, bpa_res, p_home, p_away,
             uncertainty_penalty, freshness
         )
 
-        # 8. Construir resultado
         pred = PredictionResult(
             match_id=match.id,
             bpa_home=bpa_h,
