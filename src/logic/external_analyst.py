@@ -111,13 +111,21 @@ class ExternalAnalyst:
     def _get_papers(self, team_name: str) -> List[str]:
         return self._get_context(team_name)["papers"]
 
-    def get_detailed_intelligence(self, match: Match, freshness: str = "confirmed") -> Dict:
+    def get_detailed_intelligence(self, match: Match, freshness: Optional[str] = None) -> Dict:
         """
-        VERSIÓN CORREGIDA: Ahora acepta el parámetro freshness.
+        VERSIÓN CORREGIDA: Ahora acepta el parámetro freshness como opcional.
         
+        Args:
+            match: Objeto Match
+            freshness: String opcional ('live', 'confirmed', 'predicted', 'fallback', 'stale')
+            
         Returns:
             Dict con 'report' (texto) y 'impact' (multiplicadores numéricos)
         """
+        # Si no se pasa freshness, usar default
+        if freshness is None:
+            freshness = "confirmed"
+            
         # Ajustar confianza según freshness de alineación
         confidence_factor = self._get_freshness_confidence(freshness)
         
