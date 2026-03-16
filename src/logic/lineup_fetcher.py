@@ -1,246 +1,564 @@
-from typing import List, Dict
+"""
+lineup_fetcher.py — LAGEMA JARG74 Ecosistema 4.0
+================================================
+Sistema profesional de obtención de alineaciones con:
+- Freshness Score (validación temporal de datos)
+- Uncertainty Penalty (penalización por calidad de datos)
+- Cascada multi-fuente con verificación de integridad
+- Logging completo para LearningEngine
+
+Prioridad: P0-Crítico. Sin alineaciones frescas, todo el ecosistema colapsa.
+"""
+
+from typing import List, Dict, Optional, Literal
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from enum import Enum
 import time
-from datetime import datetime
+import logging
+
 from src.data.interface import DataProvider
 from src.data.auto_lineup_fetcher import AutoLineupFetcher
 from src.data.referee_source_mapper import RefereeSourceMapper
 from src.data.multi_source_fetcher import MultiSourceFetcher
 
+# Configuración de logging profesional
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s | %(levelname)-8s | %(message)s',
+    datefmt='%H:%M:%S'
+)
+logger = logging.getLogger(__name__)
+
+
+class LineupFreshness(Enum):
+    """
+    Sistema de clasificación temporal de alineaciones.
+    Determina la confianza que podemos tener en los datos.
+    """
+    LIVE = "live"                    # < 1h del partido, fuente oficial
+    CONFIRMED = "confirmed"          # 1-24h, prensa verificada múltiple
+    PREDICTED = "predicted"          # >24h o modelos estadísticos
+    FALLBACK = "fallback"            # Sin datos fiables (último partido histórico)
+    STALE = "stale"                  # Datos obsoletos (>7 días o cambio de entrenador)
+    
+    def get_uncertainty_penalty(self) -> float:
+        """Retorna el penalty de incertidumbre para el BPA."""
+        penalties = {
+            LineupFreshness.LIVE: 0.0,        # Sin penalty
+            LineupFreshness.CONFIRMED: 0.08,   # ±8% incertidumbre
+            LineupFreshness.PREDICTED: 0.15,   # ±15% incertidumbre  
+            LineupFreshness.FALLBACK: 0.25,    # ±25% incertidumbre
+            LineupFreshness.STALE: 0.35        # ±35% incertidumbre (casi inútil)
+        }
+        return penalties.get(self, 0.25)
+
+
+@dataclass
+class LineupResult:
+    """
+    Estructura tipada y validada para resultados de alineación.
+    Garantiza que todos los consumidores tengan metadatos completos.
+    """
+    home: List[str]
+    away: List[str]
+    bajas_detectadas: List[str]
+    source: str
+    count: int
+    status: str
+    is_official: bool
+    freshness: LineupFreshness
+    uncertainty_penalty: float
+    timestamp: datetime
+    match_datetime: Optional[datetime] = None
+    verification_link: Optional[str] = None
+    metadata: Dict = None
+    
+    def __post_init__(self):
+        if self.metadata is None:
+            self.metadata = {}
+    
+    def to_dict(self) -> Dict:
+        """Conversión segura para compatibilidad con código legacy."""
+        return {
+            'home': self.home,
+            'away': self.away,
+            'bajas_detectadas': self.bajas_detectadas,
+            'source': self.source,
+            'count': self.count,
+            'status': self.status,
+            'is_official': self.is_official,
+            'freshness': self.freshness.value,
+            'uncertainty_penalty': self.uncertainty_penalty,
+            'timestamp': self.timestamp.isoformat(),
+            'match_datetime': self.match_datetime.isoformat() if self.match_datetime else None,
+            'verification_link': self.verification_link,
+            'metadata': self.metadata
+        }
+
+
+class LineupQualityValidator:
+    """
+    Validador independiente de calidad de alineaciones.
+    Separa la lógica de validación de la obtención de datos.
+    """
+    
+    # Umbrales de configuración (ajustables según liga)
+    LIVE_THRESHOLD_HOURS = 1.0
+    CONFIRMED_THRESHOLD_HOURS = 24.0
+    STALE_THRESHOLD_DAYS = 7
+    
+    @classmethod
+    def calculate_freshness(
+        cls,
+        fetch_timestamp: datetime,
+        match_datetime: datetime,
+        source_type: str,
+        is_official: bool,
+        has_cross_validation: bool = False
+    ) -> LineupFreshness:
+        """
+        Determina la frescura de los datos basado en múltiples factores.
+        
+        Args:
+            fetch_timestamp: Cuándo se obtuvieron los datos
+            match_datetime: Cuándo es el partido
+            source_type: Identificador de la fuente (elite, official, fallback, etc)
+            is_official: Si viene de fuente oficial (RFEF, Premier, etc)
+            has_cross_validation: Si hay confirmación de 2+ fuentes independientes
+        """
+        if not match_datetime:
+            logger.warning("Sin fecha de partido, marcando como FALLBACK")
+            return LineupFreshness.FALLBACK
+        
+        time_to_match = match_datetime - fetch_timestamp
+        hours_until_match = time_to_match.total_seconds() / 3600
+        
+        # LIVE: Menos de 1 hora y fuente oficial
+        if hours_until_match <= cls.LIVE_THRESHOLD_HOURS and is_official:
+            return LineupFreshness.LIVE
+            
+        # CONFIRMED: Menos de 24h + (oficial O cruzado con prensa)
+        if hours_until_match <= cls.CONFIRMED_THRESHOLD_HOURS:
+            if is_official or has_cross_validation:
+                return LineupFreshness.CONFIRMED
+        
+        # PREDICTED: Datos históricos o modelados, pero recientes (< 7 días)
+        if hours_until_match <= (cls.STALE_THRESHOLD_DAYS * 24):
+            if source_type in ['historical', 'predicted', 'statistical']:
+                return LineupFreshness.PREDICTED
+            # Si es fallback pero reciente
+            return LineupFreshness.FALLBACK
+        
+        # STALE: Datos muy antiguos o sin contexto temporal
+        return LineupFreshness.STALE
+    
+    @classmethod
+    def validate_lineup_integrity(cls, home: List[str], away: List[str]) -> Dict:
+        """
+        Valida que las alineaciones tengan sentido fútbolístico básico.
+        """
+        issues = []
+        warnings = []
+        
+        # Validación básica de tamaño
+        home_count = len(home) if home else 0
+        away_count = len(away) if away else 0
+        
+        if home_count == 0 and away_count == 0:
+            issues.append("Sin datos de ambos equipos")
+        elif home_count == 0:
+            issues.append("Sin datos equipo local")
+        elif away_count == 0:
+            issues.append("Sin datos equipo visitante")
+        
+        # Validación de tamaño típico (11 titulares, pero aceptamos 7-14 por flexibilidad)
+        if home_count > 0 and not (7 <= home_count <= 14):
+            warnings.append(f"Local: {home_count} jugadores (esperado 7-14)")
+        if away_count > 0 and not (7 <= away_count <= 14):
+            warnings.append(f"Visitante: {away_count} jugadores (esperado 7-14)")
+        
+        # Validación de duplicados
+        if home and len(home) != len(set(home)):
+            issues.append("Jugadores duplicados en local")
+        if away and len(away) != len(set(away)):
+            issues.append("Jugadores duplicados en visitante")
+        
+        # Validación de solapamiento (mismo jugador en ambos equipos = error grave)
+        if home and away:
+            overlap = set(h.lower() for h in home) & set(a.lower() for a in away)
+            if overlap:
+                issues.append(f"Jugadores en ambos equipos: {overlap}")
+        
+        return {
+            'is_valid': len(issues) == 0,
+            'issues': issues,
+            'warnings': warnings,
+            'home_count': home_count,
+            'away_count': away_count
+        }
+
+
 class LineupFetcher:
     """
     Fetches official lineups and referee data from elite multi-source pipeline.
-    Uses MultiSourceFetcher to apply league-specific cascade:
-      Elite Source (FutbolFantasy / PremierInjuries / etc.)
-      → Official Committee (RFEF / Premier / AIA / DFB / FFF)
-      → BeSoccer cross-validation
-      → Fallback Pool (last resort, clearly flagged)
+    Versión 4.0: Con Freshness Score y validación de calidad integrada.
     """
     
     def __init__(self, data_provider: DataProvider):
         self.data_provider = data_provider
         self.auto_fetcher = AutoLineupFetcher(data_provider)
         self.ms_fetcher = MultiSourceFetcher()
+        self.validator = LineupQualityValidator()
+        logger.info("LineupFetcher v4.0 inicializado con sistema Freshness Score")
 
     def fetch_confirmed_lineup(self, team_name: str, match_time: str) -> List[str]:
         """
-        Simulates network call to get confirmed lineup 1 hour before match_time.
-        Returns list of player names.
+        [LEGACY] Mantiene compatibilidad con código anterior.
+        Recomendado: Usar fetch_smart_lineup() en su lugar.
         """
+        logger.warning("Usando método legacy fetch_confirmed_lineup. Considere migrar.")
         print(f"[*] Checking lineups 1 hour before {match_time}...")
-        # Simulate Network Latency
-        time.sleep(1.0) 
+        time.sleep(1.0)
         
-        # In this demo, we assume our internal DB has the ground truth for confirmed lineups
         team = self.data_provider.get_team_data(team_name)
-        return [p.name for p in team.players[:11]]
+        return [p.name for p in team.players[:11]] if team and team.players else []
 
-    def fetch_smart_lineup(self, home_team_name: str, away_team_name: str, match_datetime: datetime, league: str) -> Dict:
+    def _safe_fallback(self, source_msg: str, home_team_name: str, away_team_name: str, 
+                       match_datetime: datetime) -> LineupResult:
         """
-        Smart fetch strategy using multi-source pipeline:
-        - Always tries elite/official sources first (MultiSourceFetcher)
-        - Falls back to internal DB (last match) if all web sources fail
-        - Exposes 'bajas_detectadas' for BPA penalization
+        Fallback controlado con metadatos completos y timestamp.
+        NUNCA retorna datos sin contexto de frescura.
         """
-        def _safe_fallback(source_msg: str) -> Dict:
-            """Returns a safe fallback result using internal DB lineups."""
-            try:
-                # Import here to avoid circular dependencies if any
-                home_last = self.data_provider.get_last_match_lineup(home_team_name)
-                away_last = self.data_provider.get_last_match_lineup(away_team_name)
-            except Exception as e:
-                print(f"DEBUG: Fallback error: {e}")
-                home_last, away_last = [], []
-            
-            return {
-                'home': home_last,
-                'away': away_last,
-                'bajas_detectadas': [],
-                'source': f"{source_msg} (Última conocida)",
-                'count': len(home_last) + len(away_last),
-                'status': 'fallback',
-                'is_official': False
-            }
-
-        try:
-            # Ensure match_datetime is a proper datetime object
-            if not hasattr(match_datetime, 'hour'):
-                from datetime import datetime as dt
-                match_datetime = dt.combine(match_datetime, dt.min.time())
-
-            now = datetime.now()
-            try:
-                time_until_match = match_datetime - now
-                hours_until_match = time_until_match.total_seconds() / 3600
-            except Exception:
-                hours_until_match = 20.0  # Assume far away if calc fails
-
-            if hours_until_match > 1.0:
-                print(f"INFO: Fetching advance lineup data via MultiSourceFetcher...")
-                try:
-                    ms_result = self.ms_fetcher.fetch_lineup(home_team_name, away_team_name, match_datetime, league)
-                    if ms_result.get('home') or ms_result.get('away'):
-                        return {
-                            'home': ms_result['home'],
-                            'away': ms_result['away'],
-                            'bajas_detectadas': ms_result.get('bajas', []),
-                            'source': ms_result.get('source', 'MultiSourceFetcher'),
-                            'count': len(ms_result['home']) + len(ms_result['away']),
-                            'status': 'predicted_multi_source',
-                            'is_official': not ms_result.get('_is_fallback', False),
-                            'verification_link': ms_result.get('verification_link')
-                        }
-                except Exception as e:
-                    print(f"INFO: MultiSourceFetcher falló: {e}")
-
-                print(f"INFO: Usando BD interna para {home_team_name} vs {away_team_name}.")
-                return _safe_fallback('BD Interna (alineación tipo)')
-
-            else:
-                print(f"FETCH: Dentro de 1h. Obteniendo alineaciones oficiales para {league}...")
-                try:
-                    ms_result = self.ms_fetcher.fetch_lineup(home_team_name, away_team_name, match_datetime, league)
-                    if ms_result.get('home') or ms_result.get('away'):
-                        ms_result['is_official'] = True
-                        ms_result['status'] = 'confirmed'
-                        ms_result['count'] = len(ms_result['home']) + len(ms_result['away'])
-                        ms_result.setdefault('bajas_detectadas', ms_result.get('bajas', []))
-                        return ms_result
-                except Exception as e:
-                    print(f"FETCH: MultiSource falló: {e}")
-
-                try:
-                    res = self.auto_fetcher.fetch_lineups_auto(home_team_name, away_team_name, match_datetime, league)
-                    if res.get('count', 0) > 5:
-                        res['is_official'] = True
-                        res.setdefault('bajas_detectadas', [])
-                        return res
-                except Exception as e:
-                    print(f"FETCH: AutoFetcher falló: {e}")
-
-                return _safe_fallback('BD Interna (fuentes web no disponibles)')
-
-        except Exception as e:
-            print(f"ERROR en fetch_smart_lineup: {e}")
-            return _safe_fallback(f'BD Interna (error recuperado: {str(e)[:50]})')
-
-    def fetch_match_referee(self, home_team: str, away_team: str, match_date: datetime, league: str) -> dict:
-        """
-        Fetches the assigned referee via multi-source pipeline.
-        Cascade per league: Elite Source → Official Committee → BeSoccer → Fallback Pool
-        Always returns verification_link and _is_fallback flag.
-        """
-        print(f"[MultiSource] Buscando árbitro para {league}: {home_team} vs {away_team}")
+        logger.warning(f"Activando fallback: {source_msg}")
         
-        # 1. Primary: MultiSourceFetcher (cascades elite → official → fallback)
+        try:
+            home_last = self.data_provider.get_last_match_lineup(home_team_name)
+            away_last = self.data_provider.get_last_match_lineup(away_team_name)
+            
+            # Verificar antigüedad del fallback
+            last_match_date = self.data_provider.get_last_match_date(home_team_name)
+            days_since_last = 999
+            
+            if last_match_date and isinstance(last_match_date, datetime):
+                days_since_last = (datetime.now() - last_match_date).days
+            
+            freshness = LineupFreshness.STALE if days_since_last > 30 else LineupFreshness.FALLBACK
+            
+        except Exception as e:
+            logger.error(f"Error en fallback: {e}")
+            home_last, away_last = [], []
+            freshness = LineupFreshness.STALE
+        
+        return LineupResult(
+            home=home_last,
+            away=away_last,
+            bajas_detectadas=[],
+            source=f"{source_msg} (Fallback)",
+            count=len(home_last) + len(away_last),
+            status='fallback',
+            is_official=False,
+            freshness=freshness,
+            uncertainty_penalty=freshness.get_uncertainty_penalty(),
+            timestamp=datetime.now(),
+            match_datetime=match_datetime,
+            metadata={'fallback_reason': source_msg, 'days_since_last_match': days_since_last if 'days_since_last' in locals() else None}
+        )
+
+    def fetch_smart_lineup(self, home_team_name: str, away_team_name: str, 
+                          match_datetime: datetime, league: str) -> Dict:
+        """
+        Estrategia inteligente de obtención con Freshness Score y validación.
+        
+        Retorna Dict (para compatibilidad legacy) pero internamente usa LineupResult.
+        """
+        logger.info(f"Iniciando fetch_smart_lineup: {home_team_name} vs {away_team_name}")
+        
+        # Normalización robusta de fecha
+        if not isinstance(match_datetime, datetime):
+            try:
+                if hasattr(match_datetime, 'hour'):
+                    match_datetime = datetime.combine(match_datetime, datetime.min.time())
+                else:
+                    match_datetime = datetime.now() + timedelta(days=1)
+                    logger.warning(f"Fecha inválida, usando mañana como default: {match_datetime}")
+            except Exception as e:
+                logger.error(f"Error normalizando fecha: {e}")
+                return self._safe_fallback("Error fecha inválida", home_team_name, 
+                                         away_team_name, match_datetime).to_dict()
+
+        now = datetime.now()
+        time_until_match = match_datetime - now
+        hours_until_match = time_until_match.total_seconds() / 3600
+
+        # =================================================================
+        # ESTRATEGIA: Más de 1 hora del partido (Pre-partido)
+        # =================================================================
+        if hours_until_match > 1.0:
+            logger.info(f"Modo PRE-PARTIDO ({hours_until_match:.1f}h hasta el match)")
+            
+            # Intento 1: MultiSourceFetcher (Elite → Official)
+            try:
+                ms_result = self.ms_fetcher.fetch_lineup(
+                    home_team_name, away_team_name, match_datetime, league
+                )
+                
+                if ms_result and (ms_result.get('home') or ms_result.get('away')):
+                    # Validar integridad antes de procesar
+                    integrity = self.validator.validate_lineup_integrity(
+                        ms_result.get('home', []), 
+                        ms_result.get('away', [])
+                    )
+                    
+                    if not integrity['is_valid']:
+                        logger.warning(f"Integridad cuestionable: {integrity['issues']}")
+                    
+                    # Calcular freshness
+                    is_fallback = ms_result.get('_is_fallback', False)
+                    source_type = 'fallback' if is_fallback else 'elite'
+                    
+                    freshness = self.validator.calculate_freshness(
+                        fetch_timestamp=datetime.now(),
+                        match_datetime=match_datetime,
+                        source_type=source_type,
+                        is_official=not is_fallback,
+                        has_cross_validation=ms_result.get('cross_validated', False)
+                    )
+                    
+                    result = LineupResult(
+                        home=ms_result.get('home', []),
+                        away=ms_result.get('away', []),
+                        bajas_detectadas=ms_result.get('bajas', []),
+                        source=ms_result.get('source', 'MultiSourceFetcher'),
+                        count=len(ms_result.get('home', [])) + len(ms_result.get('away', [])),
+                        status='predicted_multi_source',
+                        is_official=not is_fallback,
+                        freshness=freshness,
+                        uncertainty_penalty=freshness.get_uncertainty_penalty(),
+                        timestamp=datetime.now(),
+                        match_datetime=match_datetime,
+                        verification_link=ms_result.get('verification_link'),
+                        metadata={
+                            'integrity_check': integrity,
+                            'is_fallback_source': is_fallback
+                        }
+                    )
+                    
+                    logger.info(f"✅ MultiSource exitoso. Freshness: {freshness.value}, "
+                              f"Penalty: {result.uncertainty_penalty}")
+                    return result.to_dict()
+                    
+            except Exception as e:
+                logger.error(f"MultiSourceFetcher falló: {e}")
+            
+            # Intento 2: Fallback a BD interna con metadata clara
+            logger.info("Usando BD interna (alineación tipo/previa)")
+            return self._safe_fallback('BD Interna (alineación tipo)', 
+                                     home_team_name, away_team_name, 
+                                     match_datetime).to_dict()
+
+        # =================================================================
+        # ESTRATEGIA: Dentro de 1 hora (Live/Confirmado)
+        # =================================================================
+        else:
+            logger.info(f"Modo LIVE/CONFIRMADO ({hours_until_match:.1f}h hasta el match)")
+            
+            # Intento 1: MultiSourceFetcher (prioridad máxima a oficiales)
+            try:
+                ms_result = self.ms_fetcher.fetch_lineup(
+                    home_team_name, away_team_name, match_datetime, league
+                )
+                
+                if ms_result and (ms_result.get('home') or ms_result.get('away')):
+                    is_fallback = ms_result.get('_is_fallback', False)
+                    
+                    # En modo live, solo aceptamos no-fallback o confirmed
+                    if not is_fallback:
+                        freshness = LineupFreshness.LIVE if hours_until_match <= 0.5 else LineupFreshness.CONFIRMED
+                        
+                        result = LineupResult(
+                            home=ms_result['home'],
+                            away=ms_result['away'],
+                            bajas_detectadas=ms_result.get('bajas', []),
+                            source=ms_result.get('source', 'Official'),
+                            count=len(ms_result['home']) + len(ms_result['away']),
+                            status='confirmed',
+                            is_official=True,
+                            freshness=freshness,
+                            uncertainty_penalty=freshness.get_uncertainty_penalty(),
+                            timestamp=datetime.now(),
+                            match_datetime=match_datetime,
+                            verification_link=ms_result.get('verification_link'),
+                            metadata={'source_tier': 'official_live'}
+                        )
+                        
+                        logger.info(f"✅ Alineación LIVE confirmada. Freshness: {freshness.value}")
+                        return result.to_dict()
+                    else:
+                        logger.warning("MultiSource retornó fallback en modo live, intentando AutoFetcher...")
+                        
+            except Exception as e:
+                logger.error(f"MultiSource en modo live falló: {e}")
+
+            # Intento 2: AutoLineupFetcher (respaldo)
+            try:
+                res = self.auto_fetcher.fetch_lineups_auto(
+                    home_team_name, away_team_name, match_datetime, league
+                )
+                
+                if res and res.get('count', 0) >= 11:  # Mínimo 11 jugadores total
+                    integrity = self.validator.validate_lineup_integrity(
+                        res.get('home', []), res.get('away', [])
+                    )
+                    
+                    if integrity['is_valid']:
+                        freshness = LineupFreshness.CONFIRMED if hours_until_match <= 0.5 else LineupFreshness.PREDICTED
+                        
+                        result = LineupResult(
+                            home=res.get('home', []),
+                            away=res.get('away', []),
+                            bajas_detectadas=res.get('bajas_detectadas', []),
+                            source='AutoLineupFetcher',
+                            count=res['count'],
+                            status='confirmed',
+                            is_official=True,
+                            freshness=freshness,
+                            uncertainty_penalty=freshness.get_uncertainty_penalty(),
+                            timestamp=datetime.now(),
+                            match_datetime=match_datetime,
+                            metadata={'integrity_check': integrity}
+                        )
+                        
+                        logger.info(f"✅ AutoFetcher exitoso. Freshness: {freshness.value}")
+                        return result.to_dict()
+                    else:
+                        logger.warning(f"AutoFetcher integridad fallida: {integrity['issues']}")
+                        
+            except Exception as e:
+                logger.error(f"AutoFetcher falló: {e}")
+
+            # Último recurso: Fallback explícito
+            logger.error("Todas las fuentes fallaron en modo live. Usando fallback de emergencia.")
+            return self._safe_fallback('BD Interna (fuentes web no disponibles)', 
+                                     home_team_name, away_team_name,
+                                     match_datetime).to_dict()
+
+    def fetch_match_referee(self, home_team: str, away_team: str, 
+                           match_date: datetime, league: str) -> dict:
+        """
+        Obtiene árbitro con cascada multi-fuente y verificación de prensa.
+        """
+        logger.info(f"[MultiSource] Buscando árbitro: {home_team} vs {away_team}")
+        
+        # 1. Primary: MultiSourceFetcher
         result = self.ms_fetcher.fetch_referee(home_team, away_team, match_date, league)
         
-        # 2. If it's La Liga, we can try a secondary search in "Prensa Deportiva" (Marca/As/MundoDeportivo)
-        # as the user requested specifically "confirmar arbitraje y prensa deportiva".
-        if league.lower() in ['la liga', 'primera', 'laliga'] and result.get('_is_fallback'):
-            print(f"  [Prensa] Intentando verificación en prensa deportiva para La Liga...")
-            try:
-                # This would ideally be a dedicated scraper, but for now we use the mapper's fallback
-                # which has been updated to include more elite sources.
-                press_ref = self.ms_fetcher.fetch_referee_press(home_team, away_team, league)
-                if press_ref and "To be determined" not in press_ref.get('name', ''):
-                    result = press_ref
-                    print(f"  [Prensa] ✅ Confirmado por prensa: {result['name']}")
-            except Exception:
-                pass
-
-        # 3. If still fallback, try old RefereeSourceMapper as secondary
-        if result.get('_is_fallback'):
+        # 2. Para La Liga: verificación adicional en prensa deportiva
+        if league and league.lower() in ['la liga', 'primera', 'laliga', 'laliga santander']:
+            if result.get('_is_fallback') or not result.get('name'):
+                logger.info("[Prensa] Intentando verificación en prensa deportiva...")
+                try:
+                    press_ref = self.ms_fetcher.fetch_referee_press(home_team, away_team, league)
+                    if press_ref and press_ref.get('name') and "To be determined" not in press_ref.get('name', ''):
+                        result = press_ref
+                        result['verified_by_press'] = True
+                        logger.info(f"[Prensa] ✅ Confirmado: {result['name']}")
+                except Exception as e:
+                    logger.debug(f"Prensa fetch falló: {e}")
+        
+        # 3. Fallback a RefereeSourceMapper legacy
+        if result.get('_is_fallback') or not result.get('name'):
             try:
                 old_scraper = RefereeSourceMapper.get_scraper(league)
                 old_result = old_scraper.fetch_referee(home_team, away_team, match_date)
-                if old_result.get('name') and old_result.get('name') not in ['Por Detectar']:
+                if old_result and old_result.get('name') and old_result.get('name') not in ['Por Detectar', 'TBD', '']:
                     old_result.setdefault('_is_fallback', False)
                     result = old_result
-            except Exception:
-                pass
+                    logger.info(f"[Legacy] Árbitro encontrado: {result['name']}")
+            except Exception as e:
+                logger.debug(f"Legacy scraper falló: {e}")
         
+        # Logging final
         flag = "[POOL-FALLBACK]" if result.get('_is_fallback') else "[VERIFICADO]"
-        print(f"  {flag} Árbitro: {result['name']} | Fuente: {result.get('source', 'Unknown')}")
+        logger.info(f"{flag} Árbitro: {result.get('name', 'No asignado')} | "
+                   f"Fuente: {result.get('source', 'Unknown')}")
+        
+        # Garantizar campos mínimos
+        result.setdefault('name', 'No asignado')
+        result.setdefault('source', 'Unknown')
+        result.setdefault('_is_fallback', True)
+        result.setdefault('verification_link', None)
         
         return result
 
     def fetch_injuries(self, league: str) -> Dict:
-        """Fetch injury report for a league."""
-        return self.auto_fetcher.fetch_injuries_auto(league)
+        """Obtiene reporte de lesiones para una liga."""
+        logger.info(f"Obteniendo lesiones para: {league}")
+        try:
+            return self.auto_fetcher.fetch_injuries_auto(league) or {}
+        except Exception as e:
+            logger.error(f"Error obteniendo lesiones: {e}")
+            return {}
 
     def fetch_from_url(self, url: str, home_team_name: str, away_team_name: str) -> dict:
         """
-        Scrapes a sports site for lineups using requests and BeautifulSoup.
+        Scraping de URL externa con validación de integridad.
+        [Mantiene compatibilidad con versión anterior pero agrega validación]
         """
         import requests
         from bs4 import BeautifulSoup
         import re
         
-        print(f"📡 Accessing: {url} ...")
+        logger.info(f"📡 Scraping URL: {url}")
         
         extracted_names = set()
         
         try:
-            # 1. Fetch Content
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
             resp = requests.get(url, headers=headers, timeout=10)
             resp.raise_for_status()
             html = resp.text
             soup = BeautifulSoup(html, 'html.parser')
             
-            # --- FIX: Handle Redirect to Main Page / Multiple Matches ---
-            # If we are on the main lineups page, we need to find the specific match ID and fetch via AJAX
+            # Manejo de redirección a página principal
             page_title = soup.title.string if soup.title else ""
             if "Football Lineups" in page_title or len(soup.find_all(class_='lineup-row')) > 5:
-                print(f"  ⚠️ Redirected to main page. Searching for match: {home_team_name} vs {away_team_name}...")
+                logger.warning("Detectada redirección a página principal, buscando match ID...")
                 
-                # Normalize names for search (simple check)
                 home_simple = home_team_name.split()[0] if home_team_name else ""
                 away_simple = away_team_name.split()[0] if away_team_name else ""
                 
-                # Find the match container
-                # We look for a container that has both team names
                 found_id = None
-                
-                # Regex search in HTML to be robust
-                # Look for home team, then away team (or vice-versa), then reply_click
-                # This is a bit expensive but robust
-                import re
-                
-                # Pattern: Team1 ... Team2 ... reply_click(ID) (or Team2 ... Team1)
-                # We limit the distance to avoid false positives from different matches
-                
-                # Try finding the row first
                 rows = soup.find_all(class_='lineup-row')
+                
                 for row in rows:
                     row_text = row.get_text()
                     if home_simple in row_text and away_simple in row_text:
-                        # Found the row, now get the ID
                         link = row.find('a', class_='view-lineups')
                         if link and link.get('id'):
                             found_id = link.get('id')
-                            print(f"  ✅ Found match ID: {found_id}")
+                            logger.info(f"Match ID encontrado: {found_id}")
                             break
-                            
+                
                 if found_id:
                     ajax_url = f"https://www.sportsgambler.com/lineups/lineups-load2.php?id={found_id}"
-                    print(f"  🔄 Fetching AJAX content: {ajax_url}")
+                    logger.info(f"Fetching AJAX: {ajax_url}")
                     resp_ajax = requests.get(ajax_url, headers=headers, timeout=10)
                     if resp_ajax.status_code == 200:
                         html = resp_ajax.text
                         soup = BeautifulSoup(html, 'html.parser')
                     else:
-                        print(f"  ❌ AJAX fetch failed: {resp_ajax.status_code}")
+                        logger.error(f"AJAX falló: {resp_ajax.status_code}")
                 else:
-                    print("  ❌ Could not find match on main page.")
-            
-            # 2. Extract Names (Multiple Strategies)
-            
-            # Strategy A: Links containing 'jugadores/' or 'player/' (Updated for AJAX content)
+                    logger.error("No se encontró match ID en página principal")
+
+            # Extracción de nombres (múltiples estrategias)
+            # Estrategia A: Links de jugadores
             for a in soup.find_all('a', href=True):
                 href = a['href'].lower()
                 if 'jugadores/' in href or 'player/' in href:
-                    # Try text first, then slug
                     name = a.get_text().strip()
                     if name and len(name.split()) > 1:
                         extracted_names.add(name)
@@ -249,157 +567,212 @@ class LineupFetcher:
                         if len(slug) > 3:
                             extracted_names.add(slug)
 
-            # Strategy B: Images with alt tags (common in lineup grids)
+            # Estrategia B: Alt tags de imágenes
             for img in soup.find_all('img', alt=True):
                 alt = img['alt'].strip()
                 if alt and len(alt.split()) > 1:
-                    # Filter out non-player info
                     if not any(x in alt.lower() for x in ["escudo", "logo", "estadio", "entrenador"]):
                         extracted_names.add(alt)
 
-            # Strategy C: Raw text with regex (Fallback)
-            # Find names like "Iago Aspas", "L. Messi"
-            # This is risky but can work if scraping fails
+            # Estrategia C: Regex fallback
             raw_regex = re.findall(r'>\s*([A-Z][a-z]+(?:\s[A-Z][a-z]+)+)\s*<', html)
             for name in raw_regex:
                 extracted_names.add(name)
 
-            # Strategy D: Spans with class 'player-name' (Common in AJAX loaded lineups)
+            # Estrategia D: Spans específicos
             for span in soup.find_all('span', class_='player-name'):
                 name = span.get_text().strip()
                 if name and len(name.split()) > 1:
                     extracted_names.add(name)
 
         except Exception as e:
-            return {"error": f"Scraping failed: {str(e)}", "home": [], "away": []}
+            logger.error(f"Scraping falló: {e}")
+            return {
+                "error": f"Scraping failed: {str(e)}", 
+                "home": [], 
+                "away": [],
+                "freshness": LineupFreshness.STALE.value,
+                "uncertainty_penalty": LineupFreshness.STALE.get_uncertainty_penalty()
+            }
 
-        # 3. Smart Sorting (Map found names to Rosters)
+        # Clasificación fuzzy contra roster conocido
         found_home = []
         found_away = []
         
-        team_home = self.data_provider.get_team_data(home_team_name)
-        team_away = self.data_provider.get_team_data(away_team_name)
-        
-        def fuzzy_match(scraped_name, roster):
-            # Token-based match with high precision
+        try:
+            team_home = self.data_provider.get_team_data(home_team_name)
+            team_away = self.data_provider.get_team_data(away_team_name)
+        except Exception as e:
+            logger.error(f"Error obteniendo datos de equipos: {e}")
+            team_home, team_away = None, None
+
+        def fuzzy_match(scraped_name: str, roster) -> Optional[str]:
+            if not roster or not scraped_name:
+                return None
+                
             scraped_tokens = set(scraped_name.lower().split())
-            if not scraped_tokens: return None
+            if not scraped_tokens:
+                return None
             
-            for p in roster:
-                p_tokens = set(p.name.lower().split())
-                # If all tokens of the roster name are in the scraped name, or vice versa
+            for p in roster.players if hasattr(roster, 'players') else roster:
+                player_name = p.name if hasattr(p, 'name') else str(p)
+                p_tokens = set(player_name.lower().split())
+                
                 if p_tokens.issubset(scraped_tokens) or scraped_tokens.issubset(p_tokens):
-                    return p.name
-                # Partial match (e.g. "Aspas" match "Iago Aspas")
+                    return player_name
                 if len(scraped_tokens.intersection(p_tokens)) >= 1:
-                    # Extra check for common surnames
-                    return p.name
+                    return player_name
             return None
 
-        # Process Home
+        # Procesar home
         if team_home:
             for scraped in extracted_names:
-                match = fuzzy_match(scraped, team_home.players)
+                match = fuzzy_match(scraped, team_home)
                 if match and match not in found_home:
                     found_home.append(match)
                     
-        # Process Away
+        # Procesar away
         if team_away:
             for scraped in extracted_names:
-                match = fuzzy_match(scraped, team_away.players)
+                match = fuzzy_match(scraped, team_away)
                 if match and match not in found_away:
                     found_away.append(match)
         
-        # 4. Result Verification
+        # Validación de integridad
+        integrity = self.validator.validate_lineup_integrity(found_home, found_away)
+        
         if not found_home and not found_away:
-
-             
-             return {"error": "No se detectaron jugadores conocidos en el enlace.", "home": [], "away": []}
-             
+            return {
+                "error": "No se detectaron jugadores conocidos en el enlace.",
+                "home": [],
+                "away": [],
+                "freshness": LineupFreshness.STALE.value,
+                "uncertainty_penalty": LineupFreshness.STALE.get_uncertainty_penalty(),
+                "integrity": integrity
+            }
+        
+        # Determinar freshness basado en calidad
+        freshness = (LineupFreshness.CONFIRMED if integrity['is_valid'] and len(found_home) >= 7 and len(found_away) >= 7 
+                    else LineupFreshness.PREDICTED)
+        
         return {
             "home": sorted(found_home),
             "away": sorted(found_away),
             "source": url,
-            "count": len(found_home) + len(found_away)
+            "count": len(found_home) + len(found_away),
+            "freshness": freshness.value,
+            "uncertainty_penalty": freshness.get_uncertainty_penalty(),
+            "integrity": integrity,
+            "timestamp": datetime.now().isoformat()
         }
 
-    def extract_from_image(self, image_bytes: bytes, home_team_name: str, away_team_name: str) -> dict:
+    def extract_from_image(self, image_bytes: bytes, home_team_name: str, 
+                          away_team_name: str) -> dict:
         """
-        Processes an image (bytes) to extract player names using OCR.
+        OCR de imagen con validación de integridad y metadatos completos.
         """
-        import pytesseract
-        from PIL import Image
-        import io
-        import re
+        try:
+            import pytesseract
+            from PIL import Image
+            import io
+        except ImportError:
+            logger.error("pytesseract o PIL no instalados")
+            return {
+                "error": "OCR dependencies not installed",
+                "home": [],
+                "away": [],
+                "freshness": LineupFreshness.STALE.value
+            }
         
-        print(f"📸 Processing image for {home_team_name} vs {away_team_name}...")
+        logger.info(f"📸 Procesando imagen OCR: {home_team_name} vs {away_team_name}")
         
         try:
-            # 1. Load Image
             img = Image.open(io.BytesIO(image_bytes))
-            
-            # 2. OCR Extraction
             text = pytesseract.image_to_string(img, lang='spa+eng')
             
-            # 3. Text Cleaning & Name Extraction
             lines = text.split('\n')
             extracted_names = set()
             
             for line in lines:
                 clean = line.strip()
-                # Basic name filter: at least 2 words, no numbers/symbols
                 if len(clean.split()) >= 2 and re.match(r'^[A-Z][a-z\u00C0-\u017F]+(?:\s[A-Z][a-z\u00C0-\u017F]+)+$', clean):
                     extracted_names.add(clean)
                 else:
-                    # Fallback: look for names within line
                     matches = re.findall(r'([A-Z][a-z\u00C0-\u017F]+(?:\s[A-Z][a-z\u00C0-\u017F]+)+)', clean)
                     for m in matches:
                         extracted_names.add(m)
 
             if not extracted_names:
-                # Last resort: just get all words and try fuzzy matching later
                 words = re.findall(r'\b[A-Z][a-z\u00C0-\u017F]+\b', text)
                 extracted_names = set(words)
 
         except Exception as e:
-            return {"error": f"OCR failed: {str(e)}. Asegúrate de que Tesseract está instalado.", "home": [], "away": []}
+            logger.error(f"OCR falló: {e}")
+            return {
+                "error": f"OCR failed: {str(e)}",
+                "home": [],
+                "away": [],
+                "freshness": LineupFreshness.STALE.value
+            }
 
-        # 4. Sorting with Existing Logic
+        # Clasificación fuzzy (mismo método que fetch_from_url)
         found_home = []
         found_away = []
         
-        team_home = self.data_provider.get_team_data(home_team_name)
-        team_away = self.data_provider.get_team_data(away_team_name)
-        
+        try:
+            team_home = self.data_provider.get_team_data(home_team_name)
+            team_away = self.data_provider.get_team_data(away_team_name)
+        except Exception as e:
+            logger.error(f"Error obteniendo equipos: {e}")
+            team_home, team_away = None, None
+
         def fuzzy_match(scraped_name, roster):
+            if not roster:
+                return None
             scraped_tokens = set(scraped_name.lower().split())
-            if not scraped_tokens: return None
-            for p in roster:
-                p_tokens = set(p.name.lower().split())
+            if not scraped_tokens:
+                return None
+            for p in (roster.players if hasattr(roster, 'players') else roster):
+                player_name = p.name if hasattr(p, 'name') else str(p)
+                p_tokens = set(player_name.lower().split())
                 if p_tokens.issubset(scraped_tokens) or scraped_tokens.issubset(p_tokens):
-                    return p.name
+                    return player_name
                 if len(scraped_tokens.intersection(p_tokens)) >= 1:
-                    return p.name
+                    return player_name
             return None
 
         if team_home:
             for scraped in extracted_names:
-                match = fuzzy_match(scraped, team_home.players)
+                match = fuzzy_match(scraped, team_home)
                 if match and match not in found_home:
                     found_home.append(match)
                     
         if team_away:
             for scraped in extracted_names:
-                match = fuzzy_match(scraped, team_away.players)
+                match = fuzzy_match(scraped, team_away)
                 if match and match not in found_away:
                     found_away.append(match)
         
+        integrity = self.validator.validate_lineup_integrity(found_home, found_away)
+        
         if not found_home and not found_away:
-             return {"error": "No se reconocieron nombres de jugadores conocidos en la imagen.", "home": [], "away": []}
-             
+            return {
+                "error": "No se reconocieron jugadores conocidos en la imagen.",
+                "home": [],
+                "away": [],
+                "freshness": LineupFreshness.STALE.value,
+                "uncertainty_penalty": LineupFreshness.STALE.get_uncertainty_penalty()
+            }
+        
+        freshness = LineupFreshness.CONFIRMED if integrity['is_valid'] else LineupFreshness.PREDICTED
+        
         return {
             "home": sorted(found_home),
             "away": sorted(found_away),
             "count": len(found_home) + len(found_away),
-            "method": "OCR"
+            "freshness": freshness.value,
+            "uncertainty_penalty": freshness.get_uncertainty_penalty(),
+            "integrity": integrity,
+            "method": "OCR",
+            "timestamp": datetime.now().isoformat()
         }
