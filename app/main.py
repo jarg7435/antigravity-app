@@ -209,53 +209,97 @@ if st.session_state.get("review_study"):
                     new_lu = lf_rv.fetch_smart_lineup(
                         home_name_rs, away_name_rs, _match_date, _match_comp
                     )
+                    
                     # Si la web no devuelve datos, usar BD interna como fallback real
                     if not new_lu.get("home") and not new_lu.get("away"):
                         upd_h = data_provider.get_team_data(home_name_rs)
                         upd_a = data_provider.get_team_data(away_name_rs)
                         new_lu = {
-                            "home": [p.name for p in upd_h.players[:11]],
-                            "away": [p.name for p in upd_a.players[:11]],
+                            "home": [p.name for p in upd_h.players[:11]] if upd_h and upd_h.players else [],
+                            "away": [p.name for p in upd_a.players[:11]] if upd_a and upd_a.players else [],
                             "is_official": False,
-                            "source": "BD Interna (alineación tipo del último partido conocido)"
+                            "source": "BD Interna (alineación tipo del último partido conocido)",
+                            "freshness": "fallback",
+                            "uncertainty_penalty": 0.25
                         }
 
                     if new_lu.get("home") or new_lu.get("away"):
                         upd_h = data_provider.get_team_data(home_name_rs)
                         upd_a = data_provider.get_team_data(away_name_rs)
+                        
+                        # Validar que los equipos existen
+                        if not upd_h or not upd_a:
+                            st.error("Error: No se pudieron cargar los datos de los equipos desde el proveedor.")
+                            st.stop()
+                        
                         if new_lu.get("home"):
                             upd_h.players = _build_players(new_lu["home"], home_name_rs)
                         if new_lu.get("away"):
                             upd_a.players = _build_players(new_lu["away"], away_name_rs)
+                        
                         if match_rs:
                             # Convertir dict→Match si viene de Supabase
                             if isinstance(match_rs, dict):
                                 from src.models.base import Match
                                 try:
                                     match_rs = Match.model_validate(match_rs)
-                                except Exception:
-                                    pass
+                                except Exception as e:
+                                    st.error(f"Error validando datos del partido: {e}")
+                                    st.stop()
+                            
                             if hasattr(match_rs, "home_team"):
                                 match_rs.home_team = upd_h
                                 match_rs.away_team = upd_a
-                            new_pred_rs = predictor.predict_match(match_rs)
+                            
+                            # =================================================================
+                            # CORRECCIÓN CRÍTICA: Llamada al predictor con Freshness Score
+                            # =================================================================
+                            # Extraer freshness y quality del resultado de lineup
+                            lineup_freshness = new_lu.get('freshness', 'fallback')
+                            lineup_quality = {
+                                'is_official': new_lu.get('is_official', False),
+                                'uncertainty_penalty': new_lu.get('uncertainty_penalty', 0.25),
+                                'integrity_issues': new_lu.get('integrity', {}).get('issues', []) if isinstance(new_lu.get('integrity'), dict) else []
+                            }
+                            
+                            # Nueva predicción con pesos dinámicos
+                            new_pred_rs = predictor.predict_match(
+                                match_rs, 
+                                lineup_freshness=lineup_freshness,
+                                lineup_quality=lineup_quality
+                            )
                             new_pred_rs.match_id = rs["match_id"]
+                            
+                            # Guardar en BD
                             db_manager.save_prediction(new_pred_rs)
                             db_manager.save_match(match_rs)
                             rs["prediction"] = new_pred_rs
                             st.session_state.review_study = rs
-                        is_official = new_lu.get("is_official", False)
-                        source = new_lu.get("source", "Desconocida")
+                            
+                            # =================================================================
+                            # FIN CORRECCIÓN
+                            # =================================================================
+                        
+                        # Determinar tag de calidad para mostrar al usuario
+                        is_official = new_lu.get('is_official', False)
+                        source = new_lu.get('source', 'Desconocida')
+                        freshness = new_lu.get('freshness', 'unknown')
+                        
                         if is_official:
                             tag_rs = "✅ Alineación OFICIAL confirmada"
                             color = "green"
-                        elif "SofaScore" in source or "FutbolFantasy" in source:
-                            tag_rs = f"📊 Alineación probable ({source})"
+                        elif freshness == 'confirmed':
+                            tag_rs = f"📊 Alineación confirmada por prensa ({source})"
                             color = "blue"
+                        elif freshness in ['predicted', 'fallback']:
+                            tag_rs = f"⚠️ Alineación estimada ({source}) — confirma 1-2h antes"
+                            color = "orange"
                         else:
                             tag_rs = f"⚠️ Alineación tipo BD interna — confirma 1-2h antes del partido"
                             color = "orange"
+                            
                         st.success(f"🔄 Alineación cargada · {tag_rs}")
+                        
                         # Mostrar jugadores detectados
                         c1, c2 = st.columns(2)
                         with c1:
@@ -266,11 +310,22 @@ if st.session_state.get("review_study"):
                             st.markdown(f"**✈️ {away_name_rs}**")
                             for p in new_lu.get("away", []):
                                 st.markdown(f"• {p}")
+                        
+                        # Mostrar indicador de calidad si no es oficial
+                        if not is_official:
+                            penalty = new_lu.get('uncertainty_penalty', 0.25)
+                            st.info(f"ℹ️ **Calidad de datos:** {freshness.upper()} | "
+                                   f"Incertidumbre: ±{penalty*100:.0f}% | "
+                                   f"El BPA ha sido ajustado automáticamente.")
+                        
                         st.rerun()
                     else:
                         st.error("No se pudo cargar ninguna alineación.")
+                        
                 except Exception as e:
-                    st.error(f"Error alineación: {e}")
+                    st.error(f"Error alineación: {str(e)}")
+                    import traceback
+                    st.error(f"Detalle técnico: {traceback.format_exc()}")
 
     # ── Botón 2: Prensa ───────────────────────────────────────────────────
     with col_b:
@@ -773,7 +828,26 @@ if home_team and away_team:
             with st.spinner("Analizando..."):
                 val_h = validator.validate_lineup(home_team, c_home)
                 val_a = validator.validate_lineup(away_team, c_away)
-                pred = predictor.predict_match(selected_match)
+                
+                # =================================================================
+                # CORRECCIÓN: Usar freshness de alineaciones si está disponible
+                # =================================================================
+                freshness = 'fallback'
+                lineup_quality = {}
+                if st.session_state.lineups_confirmed and st.session_state.fetched_lineups:
+                    freshness = st.session_state.fetched_lineups.get('freshness', 'fallback')
+                    lineup_quality = {
+                        'is_official': st.session_state.fetched_lineups.get('is_official', False),
+                        'uncertainty_penalty': st.session_state.fetched_lineups.get('uncertainty_penalty', 0.25)
+                    }
+                
+                pred = predictor.predict_match(
+                    selected_match,
+                    lineup_freshness=freshness,
+                    lineup_quality=lineup_quality
+                )
+                # =================================================================
+                
                 st.session_state.last_pred = pred
                 st.session_state.last_val = (val_h, val_a)
             # Indicador del estado del motor ML
@@ -1080,7 +1154,22 @@ with st.sidebar:
                                                 upd_away.players = _to_players(new_lineup["away"], s["away_team"])
                                             match_obj_r.home_team = upd_home
                                             match_obj_r.away_team = upd_away
-                                            new_pred = predictor.predict_match(match_obj_r)
+                                            
+                                            # =================================================================
+                                            # CORRECCIÓN: Usar freshness en reanálisis desde sidebar
+                                            # =================================================================
+                                            freshness = new_lineup.get('freshness', 'fallback')
+                                            lineup_quality = {
+                                                'is_official': new_lineup.get('is_official', False),
+                                                'uncertainty_penalty': new_lineup.get('uncertainty_penalty', 0.25)
+                                            }
+                                            new_pred = predictor.predict_match(
+                                                match_obj_r,
+                                                lineup_freshness=freshness,
+                                                lineup_quality=lineup_quality
+                                            )
+                                            # =================================================================
+                                            
                                             new_pred.match_id = s["match_id"]
                                             db_manager.save_prediction(new_pred)
                                             db_manager.save_match(match_obj_r)
@@ -1113,9 +1202,26 @@ with st.sidebar:
                                             match_obj_p,
                                             press_modifiers=intel["impact"]
                                         )
-                                        pred_p.win_prob_home = round(bpa_r["home_bpa"] / (bpa_r["home_bpa"] + bpa_r["away_bpa"] + 0.3), 3)
-                                        pred_p.win_prob_away = round(bpa_r["away_bpa"] / (bpa_r["home_bpa"] + bpa_r["away_bpa"] + 0.3), 3)
-                                        pred_p.draw_prob = round(1 - pred_p.win_prob_home - pred_p.win_prob_away, 3)
+                                        
+                                        # =================================================================
+                                        # CORRECCIÓN: Cálculo seguro de probabilidades desde BPA
+                                        # =================================================================
+                                        bpa_home_safe = float(bpa_r.get("home_bpa", 0.5))
+                                        bpa_away_safe = float(bpa_r.get("away_bpa", 0.5))
+                                        
+                                        # Evitar división por cero
+                                        if bpa_home_safe == 0 and bpa_away_safe == 0:
+                                            bpa_home_safe, bpa_away_safe = 0.5, 0.5
+                                        
+                                        denominator = bpa_home_safe + bpa_away_safe + 0.3
+                                        if denominator == 0:
+                                            denominator = 1.3
+                                        
+                                        pred_p.win_prob_home = round(bpa_home_safe / denominator, 3)
+                                        pred_p.win_prob_away = round(bpa_away_safe / denominator, 3)
+                                        pred_p.draw_prob = round(max(0.05, 1 - pred_p.win_prob_home - pred_p.win_prob_away), 3)
+                                        # =================================================================
+                                        
                                         db_manager.save_prediction(pred_p)
                                         via = "🤖 Claude API" if os.environ.get("ANTHROPIC_API_KEY") else "📡 Google News RSS"
                                         st.toast(f"📰 Prensa actualizada · {via}", icon="✅")
