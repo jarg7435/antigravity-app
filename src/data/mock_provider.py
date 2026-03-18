@@ -2,7 +2,7 @@
 mock_provider.py — LAGEMA JARG74 Ecosistema 4.0
 ================================================
 Proveedor de datos con equipos OFICIALES temporada 2025/2026.
-Actualización: Equipos actualizados según clasificaciones 2024/2025 y ascensos/descensos.
+Actualización: Marzo 2026 - CORREGIDO según clasificaciones reales de las imágenes.
 
 Prioridad: P0-Crítico. Datos de temporada incorrectos invalidan análisis.
 """
@@ -26,58 +26,53 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # MAPEO OFICIAL DE EQUIPOS TEMPORADA 2025/2026
 # =============================================================================
-# ACTUALIZACIÓN MARZO 2026: Equipos confirmados según clasificaciones 2024/2025
+# ACTUALIZACIÓN MARZO 2026: Corregido según imágenes de clasificaciones reales
 
 OFFICIAL_TEAMS = {
     # --- LA LIGA ESPAÑA (20 equipos 2025/2026) ---
-    # Temporada 2025/26: 18 equipos de 2024/25 + 2 ascendidos (CD Mirandés, Real Oviedo)
-    # Descendidos: Espanyol, Leganes (a Segunda)
+    # Según imagen IMG_0297 - Temporada actual 2025/26
     "La Liga": [
         "Alaves", "Athletic Club", "Atletico Madrid", "Barcelona", "Celta",
-        "Getafe", "Girona", "Las Palmas", "Mallorca", "Osasuna",
-        "Rayo Vallecano", "Real Betis", "Real Madrid", "Real Sociedad", "CD Mirandés",
-        "Real Oviedo", "Sevilla", "Valencia", "Valladolid", "Villarreal"
+        "Elche", "Espanyol", "Getafe", "Girona", "Levante",
+        "Mallorca", "Osasuna", "Rayo Vallecano", "Real Betis", "Real Madrid",
+        "Real Oviedo", "Real Sociedad", "Sevilla", "Valencia", "Villarreal"
     ],
 
     # --- PREMIER LEAGUE INGLATERRA (20 equipos 2025/2026) ---
-    # Ascendidos: Leeds United, Burnley, Sheffield United (de Championship)
-    # Descendidos: Luton Town (a Championship), otros 2 por confirmar según tabla
+    # Según imagen IMG_0299
     "Premier League": [
         "Arsenal", "Aston Villa", "Bournemouth", "Brentford", "Brighton",
         "Burnley", "Chelsea", "Crystal Palace", "Everton", "Fulham",
-        "Liverpool", "Manchester City", "Manchester Utd", "Newcastle",
-        "Nottingham Forest", "Sheffield Utd", "Tottenham", "West Ham",
-        "Wolves", "Leeds United"
+        "Leeds United", "Liverpool", "Manchester City", "Manchester Utd", 
+        "Newcastle", "Nottingham Forest", "Sunderland", "Tottenham",
+        "West Ham", "Wolves"
     ],
 
     # --- BUNDESLIGA ALEMANIA (18 equipos 2025/2026) ---
-    # Ascendidos: 1. FC Köln, SSV Jahn Regensburg (de 2. Bundesliga)
-    # Descendidos: Holstein Kiel, VfL Bochum (a 2. Bundesliga)
+    # Según imagen IMG_0296
     "Bundesliga": [
         "Augsburg", "Bayer Leverkusen", "Bayern Munich", "Borussia Dortmund",
-        "Eintracht Frankfurt", "Freiburg", "Heidenheim", "Hoffenheim",
-        "Mainz", "Mgladbach", "RB Leipzig", "Stuttgart", "Union Berlin",
-        "Werder Bremen", "Wolfsburg", "1. FC Köln", "SSV Jahn Regensburg", "Hertha Berlin"
+        "Eintracht Frankfurt", "Freiburg", "Hamburg", "Heidenheim", "Hoffenheim",
+        "Mainz", "Mgladbach", "RB Leipzig", "St. Pauli", "Stuttgart", 
+        "Union Berlin", "Werder Bremen", "Wolfsburg", "1. FC Köln"
     ],
 
     # --- SERIE A ITALIA (20 equipos 2025/2026) ---
-    # Ascendidos: US Sassuolo, Spezia Calcio (de Serie B)
-    # Descendidos: Empoli, Monza (a Serie B)
+    # Según imagen IMG_0300
     "Serie A": [
-        "AC Milan", "Atalanta", "Bologna", "Cagliari", "Fiorentina",
-        "Genoa", "Inter Milan", "Juventus", "Lazio", "Lecce",
-        "Napoli", "Roma", "Torino", "Udinese", "Verona",
-        "Como", "Parma", "Venezia", "US Sassuolo", "Spezia Calcio"
+        "AC Milan", "Atalanta", "Bologna", "Cagliari", "Como",
+        "Cremonese", "Fiorentina", "Genoa", "Inter Milan", "Juventus",
+        "Lazio", "Lecce", "Monza", "Napoli", "Parma",
+        "Roma", "Sassuolo", "Torino", "Udinese", "Venezia"
     ],
 
     # --- LIGUE 1 FRANCIA (18 equipos 2025/2026) ---
-    # Ascendidos: FC Metz, FC Lorient (de Ligue 2)
-    # Descendidos: Le Havre, Saint-Etienne (a Ligue 2)
+    # Según imagen IMG_0298
     "Ligue 1": [
-        "Angers", "Auxerre", "Brest", "Lens", "Lille",
-        "Lyon", "Marseille", "Monaco", "Montpellier", "Nantes",
-        "Nice", "PSG", "Reims", "Rennes", "Strasbourg",
-        "Toulouse", "FC Metz", "FC Lorient"
+        "Angers", "Auxerre", "Brest", "Le Havre", "Lens",
+        "Lille", "Lorient", "Lyon", "Marseille", "Monaco",
+        "Nantes", "Nice", "Paris FC", "PSG", "Rennes",
+        "Saint-Etienne", "Strasbourg", "Toulouse"
     ],
 
     # --- EREDIVISIE HOLANDA (18 equipos) ---
@@ -96,7 +91,7 @@ OFFICIAL_TEAMS = {
         "Vitoria Guimaraes", "Vizela", "Estrela Amadora"
     ],
 
-    # --- CHAMPIONS LEAGUE (nuevo formato 2024/25+) ---
+    # --- CHAMPIONS LEAGUE ---
     "Champions League": [
         "Arsenal", "Aston Villa", "Atalanta", "Barcelona", "Bayern Munich",
         "Benfica", "Bologna", "Borussia Dortmund", "Brest", "Celtic",
@@ -268,6 +263,7 @@ TEAM_NAME_ALIASES = {
     "Brighton and Hove Albion": "Brighton",
     "Leeds United": "Leeds United",
     "Leeds Utd": "Leeds United",
+    "Sunderland AFC": "Sunderland",
 
     # La Liga
     "Barcelona": "Barcelona",
@@ -286,8 +282,6 @@ TEAM_NAME_ALIASES = {
     "Espanyol": "Espanyol",
     "RCD Espanyol": "Espanyol",
     "Girona FC": "Girona",
-    "CD Leganes": "Leganes",
-    "Leganés": "Leganes",
     "RCD Mallorca": "Mallorca",
     "Osasuna": "Osasuna",
     "CA Osasuna": "Osasuna",
@@ -297,11 +291,10 @@ TEAM_NAME_ALIASES = {
     "Sevilla FC": "Sevilla",
     "Valencia CF": "Valencia",
     "Villarreal CF": "Villarreal",
-    "Las Palmas": "Las Palmas",
-    "UD Las Palmas": "Las Palmas",
-    "Real Valladolid": "Valladolid",
-    "CD Mirandés": "CD Mirandés",
-    "Mirandés": "CD Mirandés",
+    "Elche CF": "Elche",
+    "Elche": "Elche",
+    "Levante UD": "Levante",
+    "Levante": "Levante",
     "Real Oviedo": "Real Oviedo",
     "Oviedo": "Real Oviedo",
 
@@ -328,36 +321,32 @@ TEAM_NAME_ALIASES = {
     "1. FC Köln": "1. FC Köln",
     "FC Köln": "1. FC Köln",
     "Köln": "1. FC Köln",
+    "Colonia": "1. FC Köln",
     "FSV Mainz 05": "Mainz",
-    "VfL Bochum": "Bochum",
-    "SV Darmstadt 98": "Darmstadt",
-    "SSV Jahn Regensburg": "SSV Jahn Regensburg",
-    "Jahn Regensburg": "SSV Jahn Regensburg",
-    "Regensburg": "SSV Jahn Regensburg",
-    "Hertha BSC": "Hertha Berlin",
-    "Hertha Berlin": "Hertha Berlin",
+    "Hamburger SV": "Hamburg",
+    "Hamburg": "Hamburg",
+    "FC St. Pauli": "St. Pauli",
+    "St. Pauli": "St. Pauli",
 
     # Serie A
     "Milan": "AC Milan",
+    "AC Milan": "AC Milan",
     "Internazionale": "Inter Milan",
     "Inter": "Inter Milan",
     "FC Internazionale Milano": "Inter Milan",
     "AS Roma": "Roma",
     "SS Lazio": "Lazio",
     "SSC Napoli": "Napoli",
+    "Napoles": "Napoli",
     "Juventus FC": "Juventus",
     "Atalanta BC": "Atalanta",
     "Bologna FC 1909": "Bologna",
+    "Bolonia": "Bologna",
     "Cagliari Calcio": "Cagliari",
-    "Empoli FC": "Empoli",
     "ACF Fiorentina": "Fiorentina",
-    "Frosinone Calcio": "Frosinone",
     "Genoa CFC": "Genoa",
     "US Lecce": "Lecce",
     "AC Monza": "Monza",
-    "US Salernitana 1919": "Salernitana",
-    "US Sassuolo": "US Sassuolo",
-    "Sassuolo": "US Sassuolo",
     "Torino FC": "Torino",
     "Udinese Calcio": "Udinese",
     "Hellas Verona": "Verona",
@@ -367,18 +356,23 @@ TEAM_NAME_ALIASES = {
     "Parma": "Parma",
     "Venezia FC": "Venezia",
     "Venezia": "Venezia",
-    "Spezia Calcio": "Spezia Calcio",
-    "Spezia": "Spezia Calcio",
+    "US Sassuolo": "Sassuolo",
+    "Sassuolo": "Sassuolo",
+    "Cremonese": "Cremonese",
+    "US Cremonese": "Cremonese",
 
     # Ligue 1
     "Paris Saint-Germain": "PSG",
     "Paris SG": "PSG",
     "Paris Saint-Germain FC": "PSG",
     "Olympique Marseille": "Marseille",
+    "Marsella": "Marseille",
     "OM": "Marseille",
     "Olympique Lyonnais": "Lyon",
+    "Lyon": "Lyon",
     "OL": "Lyon",
     "OGC Nice": "Nice",
+    "Niza": "Nice",
     "AS Monaco": "Monaco",
     "AS Monaco FC": "Monaco",
     "Stade Brestois 29": "Brest",
@@ -390,16 +384,17 @@ TEAM_NAME_ALIASES = {
     "Stade de Reims": "Reims",
     "Stade Rennais FC": "Rennes",
     "RC Strasbourg Alsace": "Strasbourg",
+    "Estrasburgo": "Strasbourg",
     "Toulouse FC": "Toulouse",
-    "Le Havre AC": "Havre",
+    "Le Havre AC": "Le Havre",
     "AC Ajaccio": "Ajaccio",
     "Angers SCO": "Angers",
     "AJ Auxerre": "Auxerre",
     "AS Saint-Étienne": "Saint-Etienne",
-    "FC Metz": "FC Metz",
-    "Metz": "FC Metz",
-    "FC Lorient": "FC Lorient",
-    "Lorient": "FC Lorient",
+    "Saint-Etienne": "Saint-Etienne",
+    "FC Lorient": "Lorient",
+    "Lorient": "Lorient",
+    "Paris FC": "Paris FC",
 
     # Otras ligas europeas
     "Sporting Lisbon": "Sporting CP",
@@ -452,7 +447,7 @@ class TeamData:
 class MockDataProvider:
     """
     Proveedor de datos con validación estricta de equipos por competición.
-    Temporada 2025/2026: 20 equipos en La Liga, 20 en Premier, 18 en Bundesliga, etc.
+    Temporada 2025/2026: Equipos actualizados según imágenes de clasificaciones reales.
     """
 
     def __init__(self):
