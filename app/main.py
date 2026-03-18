@@ -8,7 +8,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import streamlit as st
 
-# LAGEMA JARG74 - VERSION 6.70.1 - GLOBAL GENERIC RELEASE
+# LAGEMA JARG74 - VERSION 6.70.2 - GLOBAL GENERIC RELEASE
 # Código de acceso desde variable de entorno (seguro para GitHub/Streamlit Cloud)
 # En Streamlit Cloud: Settings → Secrets → ACCESS_CODE = "tu_codigo"
 # En local: crea un archivo .env con ACCESS_CODE=tu_codigo
@@ -79,7 +79,7 @@ if os.path.exists(css_path):
 
 # Initialize Services
 @st.cache_resource
-def get_services(version: str = "6.70.0 (Global Generic)"):
+def get_services(version: str = "6.70.2 (Global Generic)"):
     # NUCLEAR RELOAD: Ensure Streamlit Cloud sees disk changes
     import importlib
     import src.models.base
@@ -119,7 +119,7 @@ def get_services(version: str = "6.70.0 (Global Generic)"):
     return data_provider, db_manager, bpa_engine, predictor, validator, bankroll_manager, report_engine
 
 # --- SERVICE INITIALIZATION ---
-CURRENT_VERSION = "6.70.0"
+CURRENT_VERSION = "6.70.2"
 data_provider, db_manager, bpa_engine, predictor, validator, bankroll_manager, report_engine = get_services(CURRENT_VERSION)
 
 # --- MAIN LAYOUT ---
@@ -480,6 +480,12 @@ selected_league = st.selectbox(
     key="match_competition"
 )
 
+# CORRECCIÓN CRÍTICA: Validar que los equipos no sean iguales
+if home_team and away_team:
+    if home_team.name == away_team.name:
+        st.error("❌ **ERROR**: No puedes seleccionar el mismo equipo como local y visitante. Por favor, selecciona equipos diferentes para realizar el análisis.")
+        st.stop()
+
 if home_team and away_team:
         # Match ID
         m_id = f"{home_team.name[:3]}_{away_team.name[:3]}_{selected_date.strftime('%Y%m%d')}"
@@ -634,13 +640,26 @@ if home_team and away_team:
         except:
             full_match_datetime = datetime.now()
 
-        selected_match = Match(
-            id=m_id, home_team=home_team, away_team=away_team, 
-            date=full_match_datetime, kickoff_time=selected_time, competition=selected_league,
-            conditions=MatchConditions(temperature=15, rain_mm=0, wind_kmh=10, humidity_percent=60),
-            referee=selected_ref,
-            market_odds={"1": 2.10, "X": 3.40, "2": 4.50}
-        )
+        # CORRECCIÓN: Crear copias independientes de los equipos para evitar problemas de referencia
+        try:
+            # Crear copias profundas simples de los equipos
+            home_team_copy = home_team.model_copy(deep=True) if hasattr(home_team, 'model_copy') else home_team
+            away_team_copy = away_team.model_copy(deep=True) if hasattr(away_team, 'model_copy') else away_team
+            
+            selected_match = Match(
+                id=m_id, 
+                home_team=home_team_copy, 
+                away_team=away_team_copy, 
+                date=full_match_datetime, 
+                kickoff_time=selected_time, 
+                competition=selected_league,
+                conditions=MatchConditions(temperature=15, rain_mm=0, wind_kmh=10, humidity_percent=60),
+                referee=selected_ref,
+                market_odds={"1": 2.10, "X": 3.40, "2": 4.50}
+            )
+        except Exception as match_error:
+            st.error(f"❌ Error al crear el partido: {match_error}")
+            st.stop()
 
         # --- REAL-TIME CONFIRMATION ---
         st.divider()
@@ -824,7 +843,7 @@ if home_team and away_team:
                     label="📄 Descargar Reporte Técnico (.md)",
                     data=report_md,
                     file_name=f"report_{home_team.name[:3]}_{away_team.name[:3]}.md",
-                    mime="text/text/markdown",
+                    mime="text/markdown",
                     use_container_width=True
                 )
             except Exception as e:
