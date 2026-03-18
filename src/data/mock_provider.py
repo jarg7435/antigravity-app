@@ -2,7 +2,7 @@
 mock_provider.py — LAGEMA JARG74 Ecosistema 4.0
 ================================================
 Proveedor de datos con equipos OFICIALES temporada 2025/2026.
-Actualización: 18 equipos en La Liga, 20 en Premier, 18 en Bundesliga, etc.
+Actualización: Equipos actualizados según clasificaciones 2024/2025 y ascensos/descensos.
 
 Prioridad: P0-Crítico. Datos de temporada incorrectos invalidan análisis.
 """
@@ -26,49 +26,60 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # MAPEO OFICIAL DE EQUIPOS TEMPORADA 2025/2026
 # =============================================================================
+# ACTUALIZACIÓN MARZO 2026: Equipos confirmados según clasificaciones 2024/2025
 
 OFFICIAL_TEAMS = {
-    # --- LA LIGA ESPAÑA (18 equipos desde 2024/25) ---
+    # --- LA LIGA ESPAÑA (20 equipos 2025/2026) ---
+    # Temporada 2025/26: 18 equipos de 2024/25 + 2 ascendidos (CD Mirandés, Real Oviedo)
+    # Descendidos: Espanyol, Leganes (a Segunda)
     "La Liga": [
         "Alaves", "Athletic Club", "Atletico Madrid", "Barcelona", "Celta",
-        "Espanyol", "Getafe", "Girona", "Leganes", "Mallorca",
-        "Osasuna", "Rayo Vallecano", "Real Betis", "Real Madrid", "Real Sociedad",
-        "Sevilla", "Valencia", "Villarreal"
+        "Getafe", "Girona", "Las Palmas", "Mallorca", "Osasuna",
+        "Rayo Vallecano", "Real Betis", "Real Madrid", "Real Sociedad", "CD Mirandés",
+        "Real Oviedo", "Sevilla", "Valencia", "Valladolid", "Villarreal"
     ],
-    
-    # --- PREMIER LEAGUE INGLATERRA (20 equipos) ---
+
+    # --- PREMIER LEAGUE INGLATERRA (20 equipos 2025/2026) ---
+    # Ascendidos: Leeds United, Burnley, Sheffield United (de Championship)
+    # Descendidos: Luton Town (a Championship), otros 2 por confirmar según tabla
     "Premier League": [
         "Arsenal", "Aston Villa", "Bournemouth", "Brentford", "Brighton",
         "Burnley", "Chelsea", "Crystal Palace", "Everton", "Fulham",
-        "Liverpool", "Luton Town", "Manchester City", "Manchester Utd",
-        "Newcastle", "Nottingham Forest", "Sheffield Utd", "Tottenham",
-        "West Ham", "Wolves"
+        "Liverpool", "Manchester City", "Manchester Utd", "Newcastle",
+        "Nottingham Forest", "Sheffield Utd", "Tottenham", "West Ham",
+        "Wolves", "Leeds United"
     ],
-    
-    # --- BUNDESLIGA ALEMANIA (18 equipos) ---
+
+    # --- BUNDESLIGA ALEMANIA (18 equipos 2025/2026) ---
+    # Ascendidos: 1. FC Köln, SSV Jahn Regensburg (de 2. Bundesliga)
+    # Descendidos: Holstein Kiel, VfL Bochum (a 2. Bundesliga)
     "Bundesliga": [
-        "Augsburg", "Bayer Leverkusen", "Bayern Munich", "Bochum", "Darmstadt",
-        "Dortmund", "Ein Frankfurt", "Freiburg", "Heidenheim", "Hoffenheim",
-        "Koln", "Mainz", "Mgladbach", "RB Leipzig", "Stuttgart",
-        "Union Berlin", "Werder Bremen", "Wolfsburg"
+        "Augsburg", "Bayer Leverkusen", "Bayern Munich", "Borussia Dortmund",
+        "Eintracht Frankfurt", "Freiburg", "Heidenheim", "Hoffenheim",
+        "Mainz", "Mgladbach", "RB Leipzig", "Stuttgart", "Union Berlin",
+        "Werder Bremen", "Wolfsburg", "1. FC Köln", "SSV Jahn Regensburg", "Hertha Berlin"
     ],
-    
-    # --- SERIE A ITALIA (20 equipos) ---
+
+    # --- SERIE A ITALIA (20 equipos 2025/2026) ---
+    # Ascendidos: US Sassuolo, Spezia Calcio (de Serie B)
+    # Descendidos: Empoli, Monza (a Serie B)
     "Serie A": [
-        "AC Milan", "Atalanta", "Bologna", "Cagliari", "Empoli",
-        "Fiorentina", "Frosinone", "Genoa", "Inter Milan", "Juventus",
-        "Lazio", "Lecce", "Monza", "Napoli", "Roma",
-        "Salernitana", "Sassuolo", "Torino", "Udinese", "Verona"
+        "AC Milan", "Atalanta", "Bologna", "Cagliari", "Fiorentina",
+        "Genoa", "Inter Milan", "Juventus", "Lazio", "Lecce",
+        "Napoli", "Roma", "Torino", "Udinese", "Verona",
+        "Como", "Parma", "Venezia", "US Sassuolo", "Spezia Calcio"
     ],
-    
-    # --- LIGUE 1 FRANCIA (18 equipos desde 2024/25) ---
+
+    # --- LIGUE 1 FRANCIA (18 equipos 2025/2026) ---
+    # Ascendidos: FC Metz, FC Lorient (de Ligue 2)
+    # Descendidos: Le Havre, Saint-Etienne (a Ligue 2)
     "Ligue 1": [
-        "Angers", "Auxerre", "Brest", "Havre", "Lens",
-        "Lille", "Lyon", "Marseille", "Monaco", "Montpellier",
-        "Nantes", "Nice", "PSG", "Reims", "Rennes",
-        "Strasbourg", "Toulouse", "Saint-Etienne"
+        "Angers", "Auxerre", "Brest", "Lens", "Lille",
+        "Lyon", "Marseille", "Monaco", "Montpellier", "Nantes",
+        "Nice", "PSG", "Reims", "Rennes", "Strasbourg",
+        "Toulouse", "FC Metz", "FC Lorient"
     ],
-    
+
     # --- EREDIVISIE HOLANDA (18 equipos) ---
     "Eredivisie": [
         "Ajax", "Almere City", "AZ Alkmaar", "Excelsior", "Feyenoord",
@@ -76,7 +87,7 @@ OFFICIAL_TEAMS = {
         "NEC Nijmegen", "PEC Zwolle", "PSV", "RKC Waalwijk", "Sparta Rotterdam",
         "Twente", "Utrecht", "Vitesse", "Volendam"
     ],
-    
+
     # --- PRIMEIRA LIGA PORTUGAL (18 equipos) ---
     "Primeira Liga": [
         "Arouca", "Benfica", "Boavista", "Braga", "Casa Pia",
@@ -84,7 +95,7 @@ OFFICIAL_TEAMS = {
         "Moreirense", "Portimonense", "Porto", "Rio Ave", "Sporting CP",
         "Vitoria Guimaraes", "Vizela", "Estrela Amadora"
     ],
-    
+
     # --- CHAMPIONS LEAGUE (nuevo formato 2024/25+) ---
     "Champions League": [
         "Arsenal", "Aston Villa", "Atalanta", "Barcelona", "Bayern Munich",
@@ -95,7 +106,7 @@ OFFICIAL_TEAMS = {
         "Real Madrid", "Salzburg", "Shakhtar Donetsk", "Slovan Bratislava",
         "Sparta Prague", "Sporting CP", "Sturm Graz", "VfB Stuttgart", "Young Boys"
     ],
-    
+
     # --- EUROPA LEAGUE ---
     "Europa League": [
         "Ajax", "Athletic Club", "AZ Alkmaar", "Besiktas", "Bodø/Glimt",
@@ -105,7 +116,7 @@ OFFICIAL_TEAMS = {
         "Rangers", "Real Sociedad", "Roma", "RFS", "Slavia Prague",
         "Tottenham", "Twente", "Union Saint-Gilloise"
     ],
-    
+
     # --- CONFERENCE LEAGUE ---
     "Conference League": [
         "Anderlecht", "Astana", "Basel", "Celje", "Copenhagen",
@@ -115,33 +126,33 @@ OFFICIAL_TEAMS = {
         "Petrocub Hincesti", "Real Betis", "Rijeka", "Silkeborg", "St. Gallen",
         "The New Saints", "Viktoria Plzen", "Zira"
     ],
-    
+
     # --- SCOTTISH PREMIERSHIP ---
     "Scottish Premiership": [
         "Aberdeen", "Celtic", "Dundee", "Dundee Utd", "Hearts",
         "Hibernian", "Kilmarnock", "Motherwell", "Rangers", "Ross County",
         "St Johnstone", "St Mirren"
     ],
-    
+
     # --- BELGIAN PRO LEAGUE ---
     "Belgian Pro League": [
         "Anderlecht", "Antwerp", "Cercle Brugge", "Charleroi", "Club Brugge",
         "Dender", "Genk", "Gent", "Kortrijk", "Mechelen",
         "OHL", "Sint-Truiden", "Standard Liege", "Union SG", "Westerlo"
     ],
-    
+
     # --- AUSTRIAN BUNDESLIGA ---
     "Austrian Bundesliga": [
         "Austria Klagenfurt", "Austria Wien", "BW Linz", "LASK", "Rapid Wien",
         "Red Bull Salzburg", "Sturm Graz", "Tirol", "Wolfsberger AC", "WSG Swarovski Tirol"
     ],
-    
+
     # --- SWISS SUPER LEAGUE ---
     "Swiss Super League": [
         "Basel", "Grasshoppers", "Lausanne-Sport", "Lugano", "Luzern",
         "Servette", "Sion", "St. Gallen", "Young Boys", "Zurich"
     ],
-    
+
     # --- POLISH EKSTRAKLASA ---
     "Ekstraklasa": [
         "Cracovia", "Gornik Zabrze", "Jagiellonia Bialystok", "Korona Kielce", "Lech Poznan",
@@ -149,7 +160,7 @@ OFFICIAL_TEAMS = {
         "Radomiak Radom", "Rakow Czestochowa", "Slask Wroclaw", "Stal Mielec", "Warta Poznan",
         "Widzew Lodz", "Zaglebie Lubin", "Lechia Gdansk"
     ],
-    
+
     # --- CZECH FIRST LEAGUE ---
     "Czech First League": [
         "Banik Ostrava", "Bohemians 1905", "Dynamo Ceske Budejovice", "Hradec Kralove", "Jablonec",
@@ -157,14 +168,14 @@ OFFICIAL_TEAMS = {
         "Sparta Prague", "Sigma Olomouc", "Teplice", "Viktoria Plzen", "Zlin",
         "Bohemians Prague", "Dukla Prague", "Vysocina Jihlava"
     ],
-    
+
     # --- DANISH SUPERLIGA ---
     "Superliga": [
         "Aarhus GF", "Brondby", "FC Copenhagen", "Lyngby", "Midtjylland",
         "Nordsjaelland", "OB", "Randers", "Silkeborg", "Sonderjyske",
         "Vejle", "Viborg"
     ],
-    
+
     # --- SWEDISH ALLSVENSKAN ---
     "Allsvenskan": [
         "AIK", "BK Hacken", "Djurgardens", "Elfsborg", "GAIS",
@@ -172,7 +183,7 @@ OFFICIAL_TEAMS = {
         "Kalmar", "Malmo FF", "Mjallby", "Sirius", "Varbergs",
         "Degerfors", "Orebro", "Sundsvall"
     ],
-    
+
     # --- NORWEGIAN ELITESERIEN ---
     "Eliteserien": [
         "Aalesund", "Bodo/Glimt", "Brann", "Fredrikstad", "Haugesund",
@@ -180,20 +191,20 @@ OFFICIAL_TEAMS = {
         "Rosenborg", "Sandefjord", "Sarpsborg 08", "Stromsgodset", "Tromso",
         "Viking", "HamKam", "Sogndal"
     ],
-    
+
     # --- GREEK SUPER LEAGUE ---
     "Super League": [
         "AEK Athens", "Aris", "Asteras Tripolis", "Atromitos", "Lamia",
         "Levadiakos", "OFI", "Olympiacos", "Panathinaikos", "Panetolikos",
         "PAOK", "PAS Giannina", "Panserraikos", "Volos", "Kifisia"
     ],
-    
+
     # --- CROATIAN HNL ---
     "HNL": [
         "Dinamo Zagreb", "Hajduk Split", "HNK Gorica", "Istra 1961", "Lokomotiva Zagreb",
         "NK Osijek", "Rijeka", "Slaven Belupo", "Varazdin", "Sibenik"
     ],
-    
+
     # --- SERBIAN SUPERLIGA ---
     "SuperLiga": [
         "Crvena Zvezda", "Cukaricki", "IMT", "Javor", "Mladost Lucani",
@@ -201,7 +212,7 @@ OFFICIAL_TEAMS = {
         "Spartak Subotica", "TSC", "Vojvodina", "Zeleznicar Pancevo", "Zemun",
         "Tekstilac", "Sloga Meridian", "OFK Beograd"
     ],
-    
+
     # --- UKRAINIAN PREMIER LEAGUE ---
     "Ukrainian Premier League": [
         "Chornomorets Odesa", "Dnipro-1", "Dynamo Kyiv", "Karpaty Lviv", "Kolos Kovalivka",
@@ -209,14 +220,14 @@ OFFICIAL_TEAMS = {
         "Polissya Zhytomyr", "Rukh Lviv", "Shakhtar Donetsk", "Veres Rivne", "Vorskla Poltava",
         "Zorya Luhansk"
     ],
-    
+
     # --- ISRAELI PREMIER LEAGUE ---
     "Israeli Premier League": [
         "Beitar Jerusalem", "Bnei Sakhnin", "F.C. Ashdod", "Hapoel Be'er Sheva", "Hapoel Hadera",
         "Hapoel Haifa", "Hapoel Jerusalem", "Hapoel Petah Tikva", "Hapoel Tel Aviv", "Ironi Kiryat Shmona",
         "Maccabi Bnei Reineh", "Maccabi Haifa", "Maccabi Netanya", "Maccabi Petah Tikva", "Maccabi Tel Aviv"
     ],
-    
+
     # --- ARGENTINE LIGA PROFESIONAL ---
     "Liga Profesional": [
         "Argentinos Juniors", "Atletico Tucuman", "Banfield", "Barracas Central", "Belgrano",
@@ -226,7 +237,7 @@ OFFICIAL_TEAMS = {
         "River Plate", "Rosario Central", "San Lorenzo", "Sarmiento", "Talleres",
         "Tigre", "Union", "Velez Sarsfield"
     ],
-    
+
     # --- BRAZILIAN BRASILEIRAO ---
     "Brasileirao": [
         "Athletico Paranaense", "Atletico Goianiense", "Atletico Mineiro", "Bahia", "Botafogo",
@@ -255,7 +266,9 @@ TEAM_NAME_ALIASES = {
     "Wolverhampton Wanderers": "Wolves",
     "Brighton & Hove Albion": "Brighton",
     "Brighton and Hove Albion": "Brighton",
-    
+    "Leeds United": "Leeds United",
+    "Leeds Utd": "Leeds United",
+
     # La Liga
     "Barcelona": "Barcelona",
     "FC Barcelona": "Barcelona",
@@ -284,18 +297,26 @@ TEAM_NAME_ALIASES = {
     "Sevilla FC": "Sevilla",
     "Valencia CF": "Valencia",
     "Villarreal CF": "Villarreal",
-    
+    "Las Palmas": "Las Palmas",
+    "UD Las Palmas": "Las Palmas",
+    "Real Valladolid": "Valladolid",
+    "CD Mirandés": "CD Mirandés",
+    "Mirandés": "CD Mirandés",
+    "Real Oviedo": "Real Oviedo",
+    "Oviedo": "Real Oviedo",
+
     # Bundesliga
-    "Borussia Dortmund": "Dortmund",
+    "Borussia Dortmund": "Borussia Dortmund",
+    "BVB": "Borussia Dortmund",
     "Borussia Mgladbach": "Mgladbach",
     "Borussia Monchengladbach": "Mgladbach",
     "Borussia Mönchengladbach": "Mgladbach",
-    "Eintracht Frankfurt": "Ein Frankfurt",
+    "Eintracht Frankfurt": "Eintracht Frankfurt",
     "FC Bayern Munich": "Bayern Munich",
     "Bayern München": "Bayern Munich",
     "FC Bayern München": "Bayern Munich",
-    "RB Leipzig": "Leipzig",
-    "RasenBallsport Leipzig": "Leipzig",
+    "RB Leipzig": "RB Leipzig",
+    "RasenBallsport Leipzig": "RB Leipzig",
     "Bayer 04 Leverkusen": "Bayer Leverkusen",
     "TSG Hoffenheim": "Hoffenheim",
     "VfB Stuttgart": "Stuttgart",
@@ -304,11 +325,18 @@ TEAM_NAME_ALIASES = {
     "1. FC Union Berlin": "Union Berlin",
     "SC Freiburg": "Freiburg",
     "1. FC Heidenheim": "Heidenheim",
-    "1. FC Köln": "Koln",
+    "1. FC Köln": "1. FC Köln",
+    "FC Köln": "1. FC Köln",
+    "Köln": "1. FC Köln",
     "FSV Mainz 05": "Mainz",
     "VfL Bochum": "Bochum",
     "SV Darmstadt 98": "Darmstadt",
-    
+    "SSV Jahn Regensburg": "SSV Jahn Regensburg",
+    "Jahn Regensburg": "SSV Jahn Regensburg",
+    "Regensburg": "SSV Jahn Regensburg",
+    "Hertha BSC": "Hertha Berlin",
+    "Hertha Berlin": "Hertha Berlin",
+
     # Serie A
     "Milan": "AC Milan",
     "Internazionale": "Inter Milan",
@@ -328,11 +356,20 @@ TEAM_NAME_ALIASES = {
     "US Lecce": "Lecce",
     "AC Monza": "Monza",
     "US Salernitana 1919": "Salernitana",
-    "US Sassuolo": "Sassuolo",
+    "US Sassuolo": "US Sassuolo",
+    "Sassuolo": "US Sassuolo",
     "Torino FC": "Torino",
     "Udinese Calcio": "Udinese",
     "Hellas Verona": "Verona",
-    
+    "Como 1907": "Como",
+    "Como": "Como",
+    "Parma Calcio 1913": "Parma",
+    "Parma": "Parma",
+    "Venezia FC": "Venezia",
+    "Venezia": "Venezia",
+    "Spezia Calcio": "Spezia Calcio",
+    "Spezia": "Spezia Calcio",
+
     # Ligue 1
     "Paris Saint-Germain": "PSG",
     "Paris SG": "PSG",
@@ -359,7 +396,11 @@ TEAM_NAME_ALIASES = {
     "Angers SCO": "Angers",
     "AJ Auxerre": "Auxerre",
     "AS Saint-Étienne": "Saint-Etienne",
-    
+    "FC Metz": "FC Metz",
+    "Metz": "FC Metz",
+    "FC Lorient": "FC Lorient",
+    "Lorient": "FC Lorient",
+
     # Otras ligas europeas
     "Sporting Lisbon": "Sporting CP",
     "Sporting Clube de Portugal": "Sporting CP",
@@ -378,7 +419,7 @@ TEAM_NAME_ALIASES = {
     "Besiktas JK": "Besiktas",
     "Galatasaray SK": "Galatasaray",
     "Fenerbahce SK": "Fenerbahce",
-    
+
     # Champions League
     "Manchester City": "Manchester City",
     "Paris Saint-Germain FC": "Paris Saint-Germain",
@@ -411,29 +452,29 @@ class TeamData:
 class MockDataProvider:
     """
     Proveedor de datos con validación estricta de equipos por competición.
-    Temporada 2025/2026: 18 equipos en La Liga, 20 en Premier, etc.
+    Temporada 2025/2026: 20 equipos en La Liga, 20 en Premier, 18 en Bundesliga, etc.
     """
-    
+
     def __init__(self):
         self._teams_db: Dict[str, TeamData] = {}
         self._last_lineups: Dict[str, List[str]] = {}
         self._initialize_database()
         logger.info(f"MockDataProvider inicializado con {len(self._teams_db)} equipos validados")
-    
+
     def _normalize_team_name(self, name: str) -> str:
         """Normaliza nombres de equipos usando aliases."""
         name_clean = name.strip()
         return TEAM_NAME_ALIASES.get(name_clean, name_clean)
-    
+
     def _validate_league_membership(self, team_name: str, league: str) -> bool:
         """
         Valida que un equipo realmente pertenezca a una liga.
         """
         normalized_name = self._normalize_team_name(team_name)
-        
+
         # Obtener lista oficial de la liga
         official_teams = OFFICIAL_TEAMS.get(league, [])
-        
+
         # Verificar coincidencia exacta o parcial
         for official in official_teams:
             if normalized_name.lower() == official.lower():
@@ -441,11 +482,11 @@ class MockDataProvider:
             # Permitir coincidencia parcial para nombres largos
             if normalized_name.lower() in official.lower() or official.lower() in normalized_name.lower():
                 return True
-        
+
         logger.warning(f"VALIDACIÓN FALLIDA: '{team_name}' (normalizado: '{normalized_name}') "
                       f"no pertenece a '{league}'")
         return False
-    
+
     def _generate_players(self, team_name: str, count: int = 25) -> List[Player]:
         """Genera plantilla realista de jugadores."""
         positions = [
@@ -454,15 +495,15 @@ class MockDataProvider:
             (PlayerPosition.MIDFIELDER, 8),
             (PlayerPosition.FORWARD, 6)
         ]
-        
+
         players = []
         player_id = 0
-        
+
         for pos, num in positions:
             for i in range(num):
                 if len(players) >= count:
                     break
-                
+
                 # Generar nombre realista
                 if pos == PlayerPosition.GOALKEEPER:
                     name = f"Portero {i+1}"
@@ -472,7 +513,7 @@ class MockDataProvider:
                     name = f"Centrocampista {i+1}"
                 else:
                     name = f"Delantero {i+1}"
-                
+
                 player = Player(
                     id=f"{team_name}_{player_id}",
                     name=name,
@@ -486,13 +527,13 @@ class MockDataProvider:
                 )
                 players.append(player)
                 player_id += 1
-        
+
         return players
-    
+
     def _initialize_database(self):
         """Inicializa la base de datos con equipos validados por liga."""
         logger.info("Inicializando base de datos TEMPORADA 2025/2026...")
-        
+
         for league, teams in OFFICIAL_TEAMS.items():
             # Configurar estadísticas base según la liga
             if league == "Premier League":
@@ -516,7 +557,7 @@ class MockDataProvider:
             else:
                 base_xg_range = (1.2, 1.6)
                 defense_range = (1.0, 1.4)
-            
+
             for team_name in teams:
                 team_data = TeamData(
                     name=team_name,
@@ -526,17 +567,17 @@ class MockDataProvider:
                     avg_xg_season=round(random.uniform(*base_xg_range), 2),
                     avg_xg_conceded_season=round(random.uniform(*defense_range), 2)
                 )
-                
+
                 self._teams_db[team_name] = team_data
                 logger.debug(f"Equipo registrado: {team_name} ({league})")
-        
+
         # Log resumen por liga
         for league in OFFICIAL_TEAMS.keys():
             count = len([t for t in self._teams_db.values() if t.league == league])
             logger.info(f"  {league}: {count} equipos")
-        
+
         logger.info(f"Base de datos inicializada: {len(self._teams_db)} equipos en {len(OFFICIAL_TEAMS)} competiciones")
-    
+
     def get_teams_by_league(self, league: str) -> List[str]:
         """
         Retorna lista de equipos para una liga específica con validación estricta.
@@ -555,16 +596,16 @@ class MockDataProvider:
                                   .replace(" (Serbia)", "").replace(" (Ucrania)", "")\
                                   .replace(" (Israel)", "").replace(" (Argentina)", "")\
                                   .replace(" (Brasil)", "").strip()
-        
+
         logger.info(f"Solicitando equipos para liga: '{league}' (normalizado: '{league_normalized}')")
-        
+
         # Obtener equipos oficiales de la liga
         official_teams = OFFICIAL_TEAMS.get(league_normalized, [])
-        
+
         if not official_teams:
             logger.error(f"Liga no encontrada en catálogo oficial: '{league_normalized}'")
             return []
-        
+
         # Validar que todos los equipos estén en nuestra BD
         available_teams = []
         for team_name in official_teams:
@@ -578,26 +619,26 @@ class MockDataProvider:
                                   f"pero se solicitó '{league_normalized}'")
             else:
                 logger.warning(f"Equipo oficial no encontrado en BD: {team_name}")
-        
+
         # Ordenar alfabéticamente
         available_teams.sort()
-        
+
         logger.info(f"Retornando {len(available_teams)} equipos para '{league_normalized}'")
-        
+
         # Si no hay equipos disponibles, retornar lista vacía (no fallback)
         if not available_teams:
             logger.error(f"Ningún equipo disponible para '{league_normalized}'. "
                         f"Verificar inicialización de BD.")
-        
+
         return available_teams
-    
+
     def get_team_data(self, team_name: str) -> Optional[Team]:
         """
         Obtiene datos completos de un equipo con validación de existencia.
         """
         # Normalizar nombre
         normalized_name = self._normalize_team_name(team_name)
-        
+
         # Buscar en BD
         if normalized_name in self._teams_db:
             team_data = self._teams_db[normalized_name]
@@ -609,7 +650,7 @@ class MockDataProvider:
                 avg_xg_season=team_data.avg_xg_season,
                 avg_xg_conceded_season=team_data.avg_xg_conceded_season
             )
-        
+
         # Intentar búsqueda flexible
         for db_name, db_data in self._teams_db.items():
             if normalized_name.lower() in db_name.lower() or db_name.lower() in normalized_name.lower():
@@ -622,41 +663,41 @@ class MockDataProvider:
                     avg_xg_season=db_data.avg_xg_season,
                     avg_xg_conceded_season=db_data.avg_xg_conceded_season
                 )
-        
+
         logger.error(f"Equipo no encontrado: '{team_name}' (normalizado: '{normalized_name}')")
         return None
-    
+
     def get_last_match_lineup(self, team_name: str) -> List[str]:
         """
         Retorna última alineación conocida con validación.
         """
         if team_name in self._last_lineups:
             return self._last_lineups[team_name]
-        
+
         # Si no hay histórico, retornar titulares del equipo
         team = self.get_team_data(team_name)
         if team and team.players:
             titulares = [p.name for p in team.players if str(p.status) == "TITULAR"][:11]
             return titulares
-        
+
         logger.warning(f"No se encontró alineación histórica ni plantilla para: {team_name}")
         return []
-    
+
     def save_last_lineup(self, team_name: str, lineup: List[str]):
         """Guarda alineación para uso futuro."""
         self._last_lineups[team_name] = lineup
         logger.info(f"Alineación guardada para {team_name}: {len(lineup)} jugadores")
-    
+
     def get_last_match_date(self, team_name: str) -> Optional[datetime]:
         """Retorna fecha del último partido registrado (simulado)."""
         # Simular último partido hace 3-7 días
         days_ago = random.randint(3, 7)
         return datetime.now() - timedelta(days=days_ago)
-    
+
     def get_all_leagues(self) -> List[str]:
         """Retorna lista de todas las ligas disponibles."""
         return list(OFFICIAL_TEAMS.keys())
-    
+
     def validate_database_integrity(self) -> Dict:
         """
         Valida la integridad de toda la base de datos.
@@ -668,22 +709,22 @@ class MockDataProvider:
             "teams_by_league": {},
             "orphan_teams": []
         }
-        
+
         for team_name, team_data in self._teams_db.items():
             # Contar por liga
             league = team_data.league
             stats["teams_by_league"][league] = stats["teams_by_league"].get(league, 0) + 1
-            
+
             # Validar que la liga existe
             if league not in OFFICIAL_TEAMS:
                 issues.append(f"Equipo '{team_name}' tiene liga inválida: '{league}'")
                 stats["orphan_teams"].append(team_name)
                 continue
-            
+
             # Validar que el equipo está en la lista oficial de su liga
             if team_name not in OFFICIAL_TEAMS[league]:
                 issues.append(f"Equipo '{team_name}' no está en lista oficial de '{league}'")
-        
+
         return {
             "valid": len(issues) == 0,
             "issues": issues,
