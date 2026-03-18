@@ -463,7 +463,9 @@ with st.container():
         away_league = st.selectbox("Liga Visitante", ALL_LEAGUES, key="away_league_sel")
         away_teams = get_teams_for_league(away_league)
         if away_teams:
-            a_name = st.selectbox("Seleccionar Equipo", away_teams, key="ats")
+            # Índice 1 por defecto para que no coincida con el local
+            _away_default = 1 if len(away_teams) > 1 and away_teams[0] == st.session_state.get("hts", away_teams[0]) else 0
+            a_name = st.selectbox("Seleccionar Equipo", away_teams, index=_away_default, key="ats")
             away_team = data_provider.get_team_data(a_name)
         else:
             a_name = st.text_input("Nombre del equipo visitante", "Equipo Visitante FC", key="anm")
