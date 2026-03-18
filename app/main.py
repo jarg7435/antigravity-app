@@ -79,7 +79,7 @@ if os.path.exists(css_path):
 
 # Initialize Services
 @st.cache_resource
-def get_services(version: str = "6.70.2 (Global Generic)"):
+def get_services(version: str = "6.70.3 (Global Generic)"):
     # NUCLEAR RELOAD: Ensure Streamlit Cloud sees disk changes
     import importlib
     import src.models.base
