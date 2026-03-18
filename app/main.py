@@ -481,12 +481,13 @@ selected_league = st.selectbox(
 )
 
 # CORRECCIÓN CRÍTICA: Validar que los equipos no sean iguales
+teams_valid = True
 if home_team and away_team:
     if home_team.name == away_team.name:
         st.error("❌ **ERROR**: No puedes seleccionar el mismo equipo como local y visitante. Por favor, selecciona equipos diferentes para realizar el análisis.")
-        st.stop()
+        teams_valid = False
 
-if home_team and away_team:
+if home_team and away_team and teams_valid:
         # Match ID
         m_id = f"{home_team.name[:3]}_{away_team.name[:3]}_{selected_date.strftime('%Y%m%d')}"
         
@@ -659,7 +660,7 @@ if home_team and away_team:
             )
         except Exception as match_error:
             st.error(f"❌ Error al crear el partido: {match_error}")
-            st.stop()
+            pass  # st.stop() eliminado para no cortar la app
 
         # --- REAL-TIME CONFIRMATION ---
         st.divider()
