@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Cronos Fútbol — En Vivo</title>
+    <meta name="theme-color" content="#0a0e14">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Outfit:wght@600&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --bg:         #0a0e14;
+            --surface:    #0d1117;
+            --glass:      rgba(255,255,255,0.05);
+            --border:     rgba(255,255,255,0.1);
+            --primary:    #58a6ff;
+            --secondary:  #f0883e;
+            --success:    #3fb950;
+            --danger:     #ff5858;
+            --text:       #cdd9e5;
+            --muted:      #7d8590;
+        }
+        body {
+            background: var(--bg); color: var(--text);
+            font-family: 'Inter', sans-serif;
+            min-height: 100vh; display: flex; flex-direction: column;
+        }
+
+        /* ── AUTH OVERLAY ── */
+        #auth-overlay {
+            position: fixed; inset: 0; background: var(--bg);
+            display: flex; align-items: center; justify-content: center;
+            padding: 1rem; z-index: 999;
+        }
+        .auth-card {
+            width: 100%; max-width: 360px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid var(--border);
+            border-radius: 16px; padding: 2rem;
+        }
+        .auth-card h1 {
+            font-family: 'Outfit', sans-serif; color: var(--primary);
+            font-size: 1.5rem; text-align: center; margin-bottom: 0.2rem;
+        }
+        .auth-card p { color: var(--muted); font-size: 0.8rem; text-align: center; margin-bottom: 1.5rem; }
+        .auth-input {
+            width: 100%; padding: 0.75rem;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 8px; color: white; font-size: 0.95rem;
+            outline: none; margin-bottom: 0.8rem;
+        }
+        .auth-btn {
+            width: 100%; padding: 0.9rem;
+            background: var(--primary); border: none;
+            border-radius: 8px; color: #0a0e14;
+            font-weight: 700; font-size: 1rem; cursor: pointer;
+        }
+        #auth-error { color: var(--danger); font-size: 0.8rem; text-align: center; min-height: 1.2rem; margin-top: 0.6rem; }
+
+        /* ── HEADER ── */
+        #live-header {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 0.7rem 1.2rem;
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 1rem; flex-wrap: wrap;
+        }
+        #live-header .logo {
+            font-family: 'Outfit', sans-serif;
+            color: var(--primary); font-size: 0.95rem; font-weight: 700;
+            display: flex; align-items: center; gap: 0.4rem;
+        }
+        #live-header .logo span { color: var(--secondary); }
+        #live-badge {
+            display: flex; align-items: center; gap: 0.4rem;
+            background: rgba(255,88,88,0.15);
+            border: 1px solid rgba(255,88,88,0.4);
+            border-radius: 20px; padding: 3px 12px;
+            font-size: 0.72rem; font-weight: 700; color: #ff5858;
+        }
+        #live-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: #ff5858;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+        #last-update { color: var(--muted); font-size: 0.7rem; }
+        #btn-history {
+            padding: 0.4rem 0.9rem;
+            background: var(--glass); border: 1px solid var(--border);
+            border-radius: 6px; color: var(--muted);
+            font-size: 0.75rem; cursor: pointer;
+        }
+
+        /* ── SCOREBOARD ── */
+        #scoreboard {
+            background: linear-gradient(135deg, rgba(88,166,255,0.08), rgba(240,136,62,0.06));
+            border-bottom: 1px solid var(--border);
+            padding: 1rem 1.2rem;
+            display: flex; align-items: center; justify-content: center;
+            gap: 1.5rem; flex-wrap: wrap;
+        }
+        .team-score-block { text-align: center; }
+        .team-score-name {
+            font-size: 0.75rem; font-weight: 700;
+            letter-spacing: 1px; color: var(--muted); margin-bottom: 0.2rem;
+        }
+        .team-score-num {
+            font-family: 'Outfit', sans-serif;
+            font-size: 2.8rem; font-weight: 700; line-height: 1;
+        }
+        .score-sep { font-size: 2rem; color: var(--muted); font-weight: 300; }
+        .match-meta {
+            display: flex; flex-direction: column; align-items: center; gap: 0.3rem;
+        }
+        #live-timer {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.6rem; font-weight: 700; color: var(--primary);
+        }
+        #live-phase {
+            font-size: 0.7rem; color: var(--muted);
+            background: var(--glass); border-radius: 4px;
+            padding: 2px 8px; letter-spacing: 1px;
+        }
+        #live-mode { font-size: 0.72rem; color: var(--muted); }
+
+        /* ── MAIN LAYOUT ── */
+        #live-main {
+            flex: 1; display: flex; gap: 0; overflow: hidden;
+        }
+
+        /* ── FIELD ── */
+        #field-wrap {
+            flex: 1; padding: 0.8rem;
+            display: flex; align-items: center; justify-content: center;
+        }
+        #live-pitch {
+            width: 100%; max-width: 700px;
+            aspect-ratio: 3/2;
+            background:
+                linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px),
+                radial-gradient(ellipse 60% 40% at 50% 50%, rgba(255,255,255,0.04) 0%, transparent 70%),
+                linear-gradient(160deg, #0d2818 0%, #0a1f10 50%, #0d2818 100%);
+            background-size: 33.3% 50%, 33.3% 50%, 100% 100%, 100% 100%;
+            border: 2px solid rgba(255,255,255,0.15);
+            border-radius: 8px;
+            position: relative; overflow: hidden;
+        }
+        /* Field lines */
+        #live-pitch::before {
+            content: '';
+            position: absolute; inset: 0;
+            background:
+                /* Center line */
+                linear-gradient(90deg, transparent 49.5%, rgba(255,255,255,0.2) 49.5%, rgba(255,255,255,0.2) 50.5%, transparent 50.5%),
+                /* Center circle */
+                radial-gradient(circle 60px at 50% 50%, transparent 58px, rgba(255,255,255,0.2) 58px, rgba(255,255,255,0.2) 60px, transparent 60px),
+                /* Left penalty area */
+                linear-gradient(90deg, transparent 15%, rgba(255,255,255,0.12) 15%, rgba(255,255,255,0.12) 15.5%, transparent 15.5%),
+                linear-gradient(0deg, transparent 25%, rgba(255,255,255,0.12) 25%, rgba(255,255,255,0.12) 25.5%, transparent 25.5%),
+                linear-gradient(0deg, transparent 74.5%, rgba(255,255,255,0.12) 74.5%, rgba(255,255,255,0.12) 75%, transparent 75%),
+                /* Right penalty area */
+                linear-gradient(90deg, transparent 84.5%, rgba(255,255,255,0.12) 84.5%, rgba(255,255,255,0.12) 85%, transparent 85%);
+            pointer-events: none;
+        }
+        .live-player {
+            position: absolute;
+            transform: translate(-50%, -50%);
+            display: flex; flex-direction: column;
+            align-items: center; gap: 2px;
+            cursor: default;
+        }
+        .live-player-chip {
+            width: 32px; height: 32px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.65rem; font-weight: 700;
+            border: 2px solid rgba(255,255,255,0.4);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+            position: relative;
+        }
+        .live-player-label {
+            font-size: 0.55rem; font-weight: 700;
+            background: rgba(0,0,0,0.75);
+            color: #fff; border-radius: 3px;
+            padding: 1px 4px; white-space: nowrap;
+            max-width: 52px; overflow: hidden; text-overflow: ellipsis;
+        }
+        .live-player-time {
+            font-size: 0.5rem; color: rgba(255,255,255,0.6);
+        }
+        .chip-goal::after {
+            content: '⚽';
+            position: absolute; top: -6px; right: -6px;
+            font-size: 0.6rem;
+        }
+        .chip-yellow::after { content: '🟨'; position:absolute; top:-6px; right:-6px; font-size:0.6rem; }
+        .chip-red::after    { content: '🟥'; position:absolute; top:-6px; right:-6px; font-size:0.6rem; }
+
+        /* ── BENCH PANEL ── */
+        #bench-panel {
+            width: 200px; flex-shrink: 0;
+            background: var(--surface);
+            border-left: 1px solid var(--border);
+            overflow-y: auto; padding: 0.8rem;
+        }
+        .bench-section-title {
+            font-size: 0.65rem; font-weight: 700; letter-spacing: 1px;
+            color: var(--muted); margin-bottom: 0.5rem; margin-top: 0.8rem;
+        }
+        .bench-section-title:first-child { margin-top: 0; }
+        .bench-player-row {
+            display: flex; align-items: center; gap: 0.5rem;
+            padding: 0.4rem 0.5rem; border-radius: 6px;
+            background: var(--glass); margin-bottom: 4px;
+        }
+        .bench-dot {
+            width: 20px; height: 20px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.6rem; font-weight: 700; flex-shrink: 0;
+        }
+        .bench-info { flex: 1; overflow: hidden; }
+        .bench-name { font-size: 0.75rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .bench-num  { font-size: 0.65rem; color: var(--muted); }
+        .bench-time { font-size: 0.65rem; color: var(--muted); text-align: right; }
+
+        /* ── HISTORY VIEW ── */
+        #history-view {
+            display: none; flex: 1; flex-direction: column; overflow: hidden;
+        }
+        #history-header {
+            padding: 1rem 1.2rem;
+            border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        #history-list {
+            flex: 1; overflow-y: auto; padding: 1rem;
+        }
+        .history-card {
+            background: var(--glass); border: 1px solid var(--border);
+            border-radius: 10px; padding: 0.9rem 1rem;
+            margin-bottom: 0.7rem; cursor: pointer;
+            transition: border-color 0.2s;
+        }
+        .history-card:hover { border-color: var(--primary); }
+        .history-card-top {
+            display: flex; justify-content: space-between;
+            align-items: center; margin-bottom: 0.3rem;
+        }
+        .history-match { font-weight: 700; font-size: 0.9rem; }
+        .history-score {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.1rem; color: var(--primary); font-weight: 700;
+        }
+        .history-meta { font-size: 0.72rem; color: var(--muted); }
+        .history-status-live   { color: #ff5858; font-size: 0.7rem; font-weight: 700; }
+        .history-status-finish { color: var(--success); font-size: 0.7rem; }
+
+        /* ── EMPTY / LOADING ── */
+        #loading-screen {
+            flex: 1; display: flex; align-items: center; justify-content: center;
+            flex-direction: column; gap: 1rem;
+        }
+        #loading-screen p { color: var(--muted); font-size: 0.9rem; }
+        .spinner { font-size: 2rem; animation: spin 1s linear infinite; }
+        @keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+
+        @media (max-width: 600px) {
+            #bench-panel { display: none; }
+            #live-header { padding: 0.5rem 0.8rem; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- ══ LOGIN ═══════════════════════════════════════════════════════ -->
+<div id="auth-overlay">
+    <div class="auth-card">
+        <h1>⚽ CRONOS FÚTBOL</h1>
+        <p>Seguimiento en directo · Director Deportivo</p>
+        <input class="auth-input" type="email"    id="live-email"    placeholder="tu@email.com">
+        <input class="auth-input" type="password" id="live-password" placeholder="••••••••">
+        <button class="auth-btn" onclick="doLiveAuth()">ENTRAR</button>
+        <p id="auth-error"></p>
+    </div>
+</div>
+
+<!-- ══ HEADER ══════════════════════════════════════════════════════ -->
+<header id="live-header" style="display:none;">
+    <div class="logo">⚽ CRONOS <span>FÚTBOL</span></div>
+    <div id="live-badge"><div id="live-dot"></div><span id="badge-text">EN VIVO</span></div>
+    <span id="last-update"></span>
+    <button id="btn-history" onclick="showHistory()">📋 Historial</button>
+    <button onclick="doSignOut()"
+        style="padding:0.4rem 0.8rem; background:none; border:1px solid rgba(255,255,255,0.12);
+               color:var(--muted); font-size:0.72rem; border-radius:6px; cursor:pointer;">⏻ Salir</button>
+</header>
+
+<!-- ══ SCOREBOARD ═══════════════════════════════════════════════ -->
+<div id="scoreboard" style="display:none;">
+    <div class="team-score-block">
+        <div class="team-score-name" id="sb-home-name">LOCAL</div>
+        <div class="team-score-num" id="sb-home-score" style="color:var(--primary);">0</div>
+    </div>
+    <div class="match-meta">
+        <div id="live-timer">00:00</div>
+        <div id="live-phase">1ª PARTE</div>
+        <div id="live-mode"></div>
+    </div>
+    <div class="team-score-block">
+        <div class="team-score-name" id="sb-away-name">VISITANTE</div>
+        <div class="team-score-num" id="sb-away-score" style="color:var(--danger);">0</div>
+    </div>
+</div>
+
+<!-- ══ MAIN: CAMPO + BANQUILLO ════════════════════════════════════ -->
+<div id="live-main" style="display:none;">
+    <div id="field-wrap">
+        <div id="live-pitch"></div>
+    </div>
+    <aside id="bench-panel">
+        <div class="bench-section-title">LOCAL · BANQUILLO</div>
+        <div id="bench-home"></div>
+        <div class="bench-section-title">VISITANTE · BANQUILLO</div>
+        <div id="bench-away"></div>
+    </aside>
+</div>
+
+<!-- ══ HISTORIAL ═════════════════════════════════════════════════ -->
+<div id="history-view">
+    <div id="history-header">
+        <h2 style="font-size:1rem; font-family:'Outfit',sans-serif;">📋 Historial de partidos</h2>
+        <button onclick="showLive()"
+            style="padding:0.4rem 0.9rem; background:var(--glass);
+                   border:1px solid var(--border); border-radius:6px;
+                   color:var(--muted); font-size:0.8rem; cursor:pointer;">
+            ← En vivo
+        </button>
+    </div>
+    <div id="history-list">
+        <p style="color:var(--muted); text-align:center; margin-top:2rem;">Cargando historial…</p>
+    </div>
+</div>
+
+<!-- ══ LOADING ═══════════════════════════════════════════════════ -->
+<div id="loading-screen" style="display:none;">
+    <div class="spinner">⚙️</div>
+    <p id="loading-msg">Cargando partido…</p>
+</div>
+
+<!-- ══ FIREBASE ══════════════════════════════════════════════════ -->
+<script type="module">
+import { initializeApp }
+    from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
+    from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
+import { getFirestore, doc, getDoc, collection, query,
+         orderBy, limit, onSnapshot, getDocs, where }
+    from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+
+const firebaseConfig = {
+    apiKey:            'AIzaSyAWPw-lE6ynYK1CkFpSbwCgRtitDzBpIb4',
+    authDomain:        'cronos-futbol-app.firebaseapp.com',
+    projectId:         'cronos-futbol-app',
+    storageBucket:     'cronos-futbol-app.firebasestorage.app',
+    messagingSenderId: '393110572633',
+    appId:             '1:393110572633:web:27a7effed60975e690ab48'
+};
+
+const app  = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db   = getFirestore(app);
+
+// ── State ─────────────────────────────────────────────────────────
+let currentMatchId   = null;
+let unsubscribeMatch = null;
+let timerInterval    = null;
+let lastSnapshot     = null;
+let localTimerSecs   = 0;
+
+// ── Read match ID from URL ─────────────────────────────────────────
+const urlParams     = new URLSearchParams(location.search);
+const urlMatchId    = urlParams.get('match');
+
+// ── Auth ──────────────────────────────────────────────────────────
+window.doLiveAuth = async () => {
+    const email    = document.getElementById('live-email').value.trim();
+    const password = document.getElementById('live-password').value;
+    const errEl    = document.getElementById('auth-error');
+    errEl.textContent = 'Verificando…';
+    try {
+        const cred = await signInWithEmailAndPassword(auth, email, password);
+        await checkUserAccess(cred.user);
+    } catch(e) {
+        errEl.textContent = 'Email o contraseña incorrectos.';
+    }
+};
+
+window.doSignOut = async () => {
+    if (unsubscribeMatch) unsubscribeMatch();
+    clearInterval(timerInterval);
+    await signOut(auth);
+    location.reload();
+};
+
+async function checkUserAccess(user) {
+    const errEl = document.getElementById('auth-error');
+    try {
+        const snap = await getDoc(doc(db, 'users', user.uid));
+        if (!snap.exists()) { errEl.textContent = 'Usuario no registrado.'; await signOut(auth); return; }
+        const data = snap.data();
+        if (!data.isAuthorized) { errEl.textContent = 'Cuenta pendiente de autorización.'; await signOut(auth); return; }
+        // Solo roles: admin, director (no user normal)
+        if (data.role !== 'admin' && data.role !== 'director') {
+            errEl.textContent = 'No tienes permiso para ver partidos en vivo. Contacta con el administrador.';
+            await signOut(auth); return;
+        }
+        // Access granted
+        document.getElementById('auth-overlay').style.display = 'none';
+        document.getElementById('live-header').style.display  = 'flex';
+        enterLiveView();
+    } catch(e) {
+        errEl.textContent = 'Error de conexión: ' + e.message;
+    }
+}
+
+// Restore session if already logged in
+onAuthStateChanged(auth, async (user) => {
+    if (user) await checkUserAccess(user);
+});
+
+// ── Enter live view ────────────────────────────────────────────────
+async function enterLiveView() {
+    if (urlMatchId) {
+        // Direct link to a specific match
+        loadMatch(urlMatchId);
+    } else {
+        // No match ID → show history
+        showHistory();
+    }
+}
+
+// ── Load a specific match (real-time listener) ─────────────────────
+window.loadMatch = function(matchId) {
+    currentMatchId = matchId;
+    showLoadingScreen('Conectando al partido…');
+
+    if (unsubscribeMatch) unsubscribeMatch();
+
+    unsubscribeMatch = onSnapshot(
+        doc(db, 'live_matches', matchId),
+        (snap) => {
+            if (!snap.exists()) {
+                showLoadingScreen('Partido no encontrado.');
+                return;
+            }
+            const data = snap.data();
+            lastSnapshot = data;
+            renderMatch(data);
+        },
+        (err) => {
+            showLoadingScreen('Error al conectar: ' + err.message);
+        }
+    );
+};
+
+// ── Render match data ──────────────────────────────────────────────
+function renderMatch(data) {
+    // Show match UI
+    document.getElementById('loading-screen').style.display  = 'none';
+    document.getElementById('scoreboard').style.display      = 'flex';
+    document.getElementById('live-main').style.display       = 'flex';
+    document.getElementById('history-view').style.display    = 'none';
+
+    const isLive = data.status === 'active';
+
+    // Badge
+    document.getElementById('badge-text').textContent   = isLive ? 'EN VIVO' : 'FINALIZADO';
+    document.getElementById('live-dot').style.display   = isLive ? 'block' : 'none';
+    document.getElementById('last-update').textContent  =
+        data.updatedAt?.toDate
+            ? '↻ ' + data.updatedAt.toDate().toLocaleTimeString('es-ES', {hour:'2-digit', minute:'2-digit', second:'2-digit'})
+            : '';
+
+    // Scoreboard
+    document.getElementById('sb-home-name').textContent  = data.homeTeam?.name  || 'LOCAL';
+    document.getElementById('sb-away-name').textContent  = data.awayTeam?.name  || 'VISITANTE';
+    document.getElementById('sb-home-score').textContent = data.homeTeam?.score ?? 0;
+    document.getElementById('sb-away-score').textContent = data.awayTeam?.score ?? 0;
+    document.getElementById('live-mode').textContent     =
+        data.mode === 'f7' ? 'Fútbol 7' : 'Fútbol 11';
+
+    // Phase label
+    const phaseLabel = data.phase === '2nd_half' ? '2ª PARTE'
+                     : data.phase === 'halftime'  ? 'DESCANSO'
+                     : data.phase === 'finished'  ? 'FINALIZADO'
+                     : '1ª PARTE';
+    document.getElementById('live-phase').textContent = phaseLabel;
+
+    // Timer — use server time + local interpolation when live
+    const totalSecs = (data.timeH1 || 0) + (data.timeH2 || 0);
+    localTimerSecs  = totalSecs;
+    clearInterval(timerInterval);
+    updateTimerDisplay(localTimerSecs);
+    if (isLive) {
+        timerInterval = setInterval(() => {
+            localTimerSecs++;
+            updateTimerDisplay(localTimerSecs);
+        }, 1000);
+    }
+
+    // Field & bench
+    renderField(data);
+    renderBench(data);
+}
+
+function updateTimerDisplay(secs) {
+    const m = Math.floor(secs / 60).toString().padStart(2, '0');
+    const s = (secs % 60).toString().padStart(2, '0');
+    document.getElementById('live-timer').textContent = `${m}:${s}`;
+}
+
+function formatTime(secs) {
+    const m = Math.floor(secs / 60).toString().padStart(2, '0');
+    const s = (secs % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+}
+
+// ── Render field ───────────────────────────────────────────────────
+function renderField(data) {
+    const pitch   = document.getElementById('live-pitch');
+    const players = (data.players || []).filter(p => p.status === 'field');
+
+    pitch.innerHTML = players.map(p => {
+        const isHome = p.team === 'home';
+        const color  = isHome ? (data.homeTeam?.color || '#58a6ff')
+                              : (data.awayTeam?.color || '#ff5858');
+        const text   = isHome ? (data.homeTeam?.textColor || '#fff')
+                              : (data.awayTeam?.textColor || '#fff');
+
+        const hasGoal   = (p.goals  || 0) > 0;
+        const hasYellow = p.cards === 'amarilla';
+        const hasRed    = p.cards === 'roja';
+        const chipClass = hasRed ? 'chip-red' : hasYellow ? 'chip-yellow' : hasGoal ? 'chip-goal' : '';
+
+        const xPct = Math.max(3, Math.min(97, p.x || 50));
+        const yPct = Math.max(3, Math.min(97, p.y || 50));
+
+        return `<div class="live-player" style="left:${xPct}%;top:${yPct}%;">
+            <div class="live-player-chip ${chipClass}"
+                 style="background:${color};color:${text};">
+                ${p.number}
+            </div>
+            <div class="live-player-label">${p.name}</div>
+            <div class="live-player-time">${formatTime(p.time || 0)}</div>
+        </div>`;
+    }).join('');
+}
+
+// ── Render bench ───────────────────────────────────────────────────
+function renderBench(data) {
+    const players = data.players || [];
+
+    ['home', 'away'].forEach(team => {
+        const containerId = team === 'home' ? 'bench-home' : 'bench-away';
+        const container   = document.getElementById(containerId);
+        const teamData    = team === 'home' ? data.homeTeam : data.awayTeam;
+        const color       = teamData?.color || (team === 'home' ? '#58a6ff' : '#ff5858');
+
+        const benchPlayers = players
+            .filter(p => p.team === team && p.status === 'bench')
+            .sort((a, b) => (a.number || 0) - (b.number || 0));
+
+        if (benchPlayers.length === 0) {
+            container.innerHTML = '<p style="color:var(--muted);font-size:0.72rem;padding:0.3rem 0;">Sin suplentes</p>';
+            return;
+        }
+
+        container.innerHTML = benchPlayers.map(p => {
+            const cardIcon = p.cards === 'amarilla' ? ' 🟨' : p.cards === 'roja' ? ' 🟥' : '';
+            const goalIcon = (p.goals || 0) > 0 ? ` ⚽×${p.goals}` : '';
+            return `<div class="bench-player-row">
+                <div class="bench-dot" style="background:${color};color:#0a0e14;">${p.number}</div>
+                <div class="bench-info">
+                    <div class="bench-name">${p.name}${cardIcon}${goalIcon}</div>
+                </div>
+                <div class="bench-time">${formatTime(p.time || 0)}</div>
+            </div>`;
+        }).join('');
+    });
+}
+
+// ── Show history ───────────────────────────────────────────────────
+window.showHistory = async function() {
+    clearInterval(timerInterval);
+    document.getElementById('scoreboard').style.display   = 'none';
+    document.getElementById('live-main').style.display    = 'none';
+    document.getElementById('loading-screen').style.display = 'none';
+    document.getElementById('history-view').style.display = 'flex';
+    document.getElementById('history-view').style.flexDirection = 'column';
+
+    const listEl = document.getElementById('history-list');
+    listEl.innerHTML = '<p style="color:var(--muted);text-align:center;margin-top:2rem;">⏳ Cargando…</p>';
+
+    try {
+        const q    = query(collection(db, 'live_matches'), orderBy('updatedAt', 'desc'), limit(50));
+        const snap = await getDocs(q);
+
+        if (snap.empty) {
+            listEl.innerHTML = '<p style="color:var(--muted);text-align:center;margin-top:2rem;">No hay partidos registrados aún.</p>';
+            return;
+        }
+
+        // Separar: en vivo vs finalizados
+        const liveMatches = [], finishedMatches = [];
+        snap.forEach(d => {
+            const m = { id: d.id, ...d.data() };
+            if (m.status === 'active') liveMatches.push(m);
+            else finishedMatches.push(m);
+        });
+
+        listEl.innerHTML = '';
+
+        // ── EN VIVO ──────────────────────────────────────────
+        if (liveMatches.length > 0) {
+            const lh = document.createElement('div');
+            lh.innerHTML = `<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.6rem;">
+                <div style="width:8px;height:8px;border-radius:50%;background:#ff5858;
+                            animation:pulse 1.5s ease-in-out infinite;flex-shrink:0;"></div>
+                <span style="font-size:0.7rem;font-weight:700;letter-spacing:1px;color:#ff5858;">
+                    PARTIDOS EN VIVO AHORA
+                </span></div>`;
+            listEl.appendChild(lh);
+            liveMatches.forEach(m => {
+                const time = m.updatedAt?.toDate
+                    ? m.updatedAt.toDate().toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'})
+                    : '—';
+                const card = document.createElement('div');
+                card.className = 'history-card';
+                card.style.cssText = 'border-color:rgba(255,88,88,0.5);background:rgba(255,88,88,0.06);';
+                card.innerHTML = `
+                    <div class="history-card-top">
+                        <div class="history-match" style="font-size:1rem;">
+                            ${m.homeTeam?.name||'LOCAL'} vs ${m.awayTeam?.name||'VISITANTE'}
+                        </div>
+                        <div class="history-score" style="font-size:1.4rem;">
+                            ${m.homeTeam?.score??0} – ${m.awayTeam?.score??0}
+                        </div>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.4rem;">
+                        <div class="history-meta">
+                            ${m.mode==='f7'?'Fútbol 7':'Fútbol 11'} · Actualizado: ${time}
+                            ${m.coachEmail?'<br>Entrenador: '+m.coachEmail:''}
+                        </div>
+                        <button style="padding:0.5rem 1rem;background:#ff5858;border:none;
+                                       border-radius:8px;color:#fff;font-weight:700;
+                                       font-size:0.82rem;cursor:pointer;white-space:nowrap;">
+                            🔴 VER EN VIVO
+                        </button>
+                    </div>`;
+                card.onclick = () => { history.pushState({},'','?match='+m.id); loadMatch(m.id); };
+                listEl.appendChild(card);
+            });
+        } else {
+            const noLive = document.createElement('div');
+            noLive.style.cssText =
+                'background:rgba(255,255,255,0.03);border:1px solid var(--border);' +
+                'border-radius:10px;padding:1rem;text-align:center;margin-bottom:1rem;';
+            noLive.innerHTML =
+                '<p style="color:var(--muted);font-size:0.85rem;">No hay partidos en vivo en este momento.</p>' +
+                '<p style="color:var(--muted);font-size:0.75rem;margin-top:0.3rem;">Cuando un entrenador inicie un partido aparecerá aquí automáticamente.</p>';
+            listEl.appendChild(noLive);
+        }
+
+        // ── HISTORIAL ────────────────────────────────────────
+        if (finishedMatches.length > 0) {
+            const hh = document.createElement('div');
+            hh.style.cssText = 'margin:1rem 0 0.6rem;';
+            hh.innerHTML = '<span style="font-size:0.7rem;font-weight:700;letter-spacing:1px;color:var(--muted);">PARTIDOS ANTERIORES</span>';
+            listEl.appendChild(hh);
+            finishedMatches.forEach(m => {
+                const date = m.updatedAt?.toDate
+                    ? m.updatedAt.toDate().toLocaleDateString('es-ES',
+                        {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})
+                    : '—';
+                const card = document.createElement('div');
+                card.className = 'history-card';
+                card.innerHTML = `
+                    <div class="history-card-top">
+                        <div class="history-match">
+                            ${m.homeTeam?.name||'LOCAL'} vs ${m.awayTeam?.name||'VISITANTE'}
+                        </div>
+                        <div class="history-score">
+                            ${m.homeTeam?.score??0} – ${m.awayTeam?.score??0}
+                        </div>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.3rem;">
+                        <div class="history-meta">
+                            ${m.mode==='f7'?'Fútbol 7':'Fútbol 11'} · ${date}
+                            ${m.coachEmail?'<br>Entrenador: '+m.coachEmail:''}
+                        </div>
+                        <span class="history-status-finish">✅ Finalizado</span>
+                    </div>`;
+                card.onclick = () => { history.pushState({},'','?match='+m.id); loadMatch(m.id); };
+                listEl.appendChild(card);
+            });
+        }
+
+    } catch(err) {
+        listEl.innerHTML = `<p style="color:var(--danger);text-align:center;margin-top:2rem;">Error: ${err.message}</p>`;
+    }
+};
+
+window.showLive = function() {
+    document.getElementById('history-view').style.display = 'none';
+    if (currentMatchId) loadMatch(currentMatchId);
+    else showHistory();
+};
+
+// ── Helpers ────────────────────────────────────────────────────────
+function showLoadingScreen(msg) {
+    document.getElementById('scoreboard').style.display      = 'none';
+    document.getElementById('live-main').style.display       = 'none';
+    document.getElementById('history-view').style.display    = 'none';
+    document.getElementById('loading-screen').style.display  = 'flex';
+    document.getElementById('loading-msg').textContent       = msg;
+}
+</script>
+</body>
+</html>
