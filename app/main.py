@@ -643,16 +643,15 @@ if home_team and away_team and teams_valid:
         except:
             full_match_datetime = datetime.now()
 
-        # CORRECCIÓN: Crear copias independientes de los equipos para evitar problemas de referencia
+        # CORRECCIÓN: Parsear a diccionarios para evadir problemas de carga de clases dobles en Streamlit/Pydantic
         try:
-            # Crear copias profundas simples de los equipos
-            home_team_copy = home_team.model_copy(deep=True) if hasattr(home_team, 'model_copy') else home_team
-            away_team_copy = away_team.model_copy(deep=True) if hasattr(away_team, 'model_copy') else away_team
+            home_team_data = home_team.model_dump() if hasattr(home_team, 'model_dump') else dict(home_team)
+            away_team_data = away_team.model_dump() if hasattr(away_team, 'model_dump') else dict(away_team)
             
             selected_match = Match(
                 id=m_id, 
-                home_team=home_team_copy, 
-                away_team=away_team_copy, 
+                home_team=home_team_data, 
+                away_team=away_team_data, 
                 date=full_match_datetime, 
                 kickoff_time=selected_time, 
                 competition=selected_league,
@@ -702,8 +701,9 @@ if home_team and away_team and teams_valid:
                 st.markdown(f'<p style="color: #fdffcc;">Confirmado vía: {lineup_source}</p>', unsafe_allow_html=True)
         
         with c_conf2:
-            button_label = "🛡️ CONFIRMAR DATOS (OFICIAL)" if can_fetch_official else "📋 CARGAR ÚLTIMO PARTIDO"
-            if st.button(button_label, type="primary", use_container_width=True):
+            button_label = "🛡️ CONFIRMAR DATOS (OFICIAL)" if can_fetch_official else "🔒 ANÁLISIS BLOQUEADO (Centinela)"
+            if st.button(button_label, type="primary", use_container_width=True, disabled=not can_fetch_official):
+
                 with st.spinner("🤖 Sincronizando datos..."):
                     l_fetcher = LineupFetcher(data_provider)
                     
