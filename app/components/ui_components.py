@@ -128,15 +128,18 @@ def render_prediction_cards(result: PredictionResult):
     # 2. Score Matrix (Poisson)
     with st.expander("🎲 Matriz de Resultados Probables (Poisson)"):
         # Sort matrix and show top 5
-        sorted_matrix = sorted(result.poisson_matrix.items(), key=lambda x: x[1], reverse=True)[:5]
-        cols = st.columns(len(sorted_matrix))
-        for i, (score, prob) in enumerate(sorted_matrix):
-            cols[i].markdown(f"""
-                <div style="text-align: center; background: rgba(15, 23, 42, 0.4); padding: 10px; border-radius: 10px; border: 1px solid rgba(0, 212, 255, 0.1);">
-                    <div style="color: #ffffff; font-size: 0.9rem; font-weight: 700; margin-bottom: 5px;">{score}</div>
-                    <div style="color: #fdffcc; font-size: 1.6rem; font-weight: 900; letter-spacing: -0.5px;">{prob*100:.1f}%</div>
-                </div>
-            """, unsafe_allow_html=True)
+        if not result.poisson_matrix:
+            st.warning("⚠️ Los datos detallados de la Matriz Poisson no están disponibles para este estudio (posiblemente un estudio antiguo o error de cálculo).")
+        else:
+            sorted_matrix = sorted(result.poisson_matrix.items(), key=lambda x: x[1], reverse=True)[:5]
+            cols = st.columns(max(1, len(sorted_matrix)))
+            for i, (score, prob) in enumerate(sorted_matrix):
+                cols[i].markdown(f"""
+                    <div style="text-align: center; background: rgba(15, 23, 42, 0.4); padding: 10px; border-radius: 10px; border: 1px solid rgba(0, 212, 255, 0.1);">
+                        <div style="color: #ffffff; font-size: 0.9rem; font-weight: 700; margin-bottom: 5px;">{score}</div>
+                        <div style="color: #fdffcc; font-size: 1.6rem; font-weight: 900; letter-spacing: -0.5px;">{prob*100:.1f}%</div>
+                    </div>
+                """, unsafe_allow_html=True)
 
     # 3. Secondary Markets
     st.markdown("#### 📈 Mercados Secundarios")

@@ -100,22 +100,48 @@ def _matches(query, sofa_name):
 
 
 def _find_event(home, away, timeout=10):
-    """Encuentra el partido en SofaScore."""
+    """Encuentra el partido en SofaScore mediante estrategia insistente."""
     hv, av = _variants(home), _variants(away)
-    for q in [f"{home} {away}", f"{hv[0]} {av[0]}"]:
+    
+    # Estrategia agresiva de insistencia:
+    # 1. Combinaciones cruzadas (Fiorentina Inter)
+    # 2. Solo local (Fiorentina)
+    # 3. Solo visitante (Inter)
+    queries = []
+    for h in hv[:2]:
+        for a in av[:2]:
+            queries.append(f"{h} {a}")
+    queries.extend(hv[:2])
+    queries.extend(av[:2])
+    
+    # Limpiar duplicados manteniendo el orden
+    unique_queries = []
+    for q in queries:
+        if q not in unique_queries:
+            unique_queries.append(q)
+
+    for q in unique_queries:
         try:
             r = requests.get(
                 f"https://api.sofascore.com/api/v1/search/events?q={requests.utils.quote(q)}",
                 headers=HEADERS, timeout=timeout
             )
             if r.status_code != 200: continue
-            for ev in r.json().get("events", [])[:10]:
+            events = r.json().get("events", [])
+            for ev in events[:20]:  # Buscar más profundo
                 hn = ev.get("homeTeam", {}).get("name", "")
                 an = ev.get("awayTeam", {}).get("name", "")
-                if any(_matches(v, hn) for v in hv) and any(_matches(v, an) for v in av):
+                
+                # Check if matches home AND away robustly
+                home_match = any(_matches(v, hn) for v in hv) or any(_matches(v, an) for v in hv)
+                away_match = any(_matches(v, an) for v in av) or any(_matches(v, hn) for v in av)
+                
+                if home_match and away_match:
+                    print(f"  [SofaScore] Búsqueda Insistente: Partido encontrado con query '{q}': {hn} vs {an}")
                     return ev
         except Exception as e:
-            print(f"  [SofaScore] find_event: {e}")
+            print(f"  [SofaScore] find_event error on '{q}': {e}")
+            
     return None
 
 

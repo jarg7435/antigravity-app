@@ -758,44 +758,76 @@ if home_team and away_team and teams_valid:
         st.markdown('<h4 style="color: #fdffcc;">🔍 Ajuste de Piezas Críticas</h4>', unsafe_allow_html=True)
         v1, v2 = st.columns(2)
 
-        # Usar jugadores de SofaScore si están disponibles, si no usar BD interna
-        if st.session_state.lineups_confirmed and st.session_state.fetched_lineups:
-            from src.models.base import Player, PlayerPosition, PlayerStatus
-            fetched_h = st.session_state.fetched_lineups.get('home', [])
-            fetched_a = st.session_state.fetched_lineups.get('away', [])
+        # Helper para evitar que los jugadores genéricos de la BD interna arruinen la predicción
+        def is_generic_player(name):
+            n = name.lower()
+            return " gk" in n or " ld" in n or " ct" in n or " li" in n or " mc" in n or " dc" in n or "jugador " in n or "mo" in n or "ed" in n or "ei" in n
+        
+        from src.models.base import Player, PlayerPosition, PlayerStatus
+        def names_to_players(names, team_name):
+            players = []
+            for i, name in enumerate(names):
+                players.append(Player(
+                    id=f"{team_name[:3]}_{i}",
+                    name=name,
+                    team_name=team_name,
+                    position=PlayerPosition.MIDFIELDER,
+                    status=PlayerStatus.TITULAR,
+                    rating_last_5=7.0
+                ))
+            return players
 
-            def names_to_players(names, team_name):
-                players = []
-                for i, name in enumerate(names):
-                    players.append(Player(
-                        id=f"f_{i}_{name[:4]}",
-                        name=name,
-                        team_name=team_name,
-                        position=PlayerPosition.MIDFIELDER,
-                        status=PlayerStatus.TITULAR,
-                        rating_last_5=7.0
-                    ))
-                return players
+        # Determinar jugadores reales (ignorando los genéricos)
+        raw_h = f_home if isinstance(f_home, list) else []
+        raw_a = f_away if isinstance(f_away, list) else []
+        real_h = [n for n in raw_h if not is_generic_player(n)]
+        real_a = [n for n in raw_a if not is_generic_player(n)]
 
-            if fetched_h:
-                home_players_ui = names_to_players(fetched_h, home_team.name)
-            else:
-                home_players_ui = home_team.players
+        with v1:
+            if not real_h or len(real_h) < 7:
+                st.error(f"❌ Alineación no detectada o genérica. Ingresa 11 titulares separados por comas.")
+                manual_h = st.text_area(f"Alineación Manual: {home_team.name}", key="man_home", placeholder="Jugador 1, Jugador 2...")
+                if manual_h:
+                    real_h = [x.strip() for x in manual_h.split(',') if x.strip()]
+            home_players_ui = names_to_players(real_h, home_team.name)
+            c_home = render_lineup_check_ui(home_team.name, home_players_ui, side="home")
 
-            if fetched_a:
-                away_players_ui = names_to_players(fetched_a, away_team.name)
-            else:
-                away_players_ui = away_team.players
-        else:
-            home_players_ui = home_team.players
-            away_players_ui = away_team.players
+        with v2:
+            if not real_a or len(real_a) < 7:
+                st.error(f"❌ Alineación no detectada o genérica. Ingresa 11 titulares separados por comas.")
+                manual_a = st.text_area(f"Alineación Manual: {away_team.name}", key="man_away", placeholder="Jugador 1, Jugador 2...")
+                if manual_a:
+                    real_a = [x.strip() for x in manual_a.split(',') if x.strip()]
+            away_players_ui = names_to_players(real_a, away_team.name)
+            c_away = render_lineup_check_ui(away_team.name, away_players_ui, side="away")
 
-        with v1: c_home = render_lineup_check_ui(home_team.name, home_players_ui, side="home")
-        with v2: c_away = render_lineup_check_ui(away_team.name, away_players_ui, side="away")
+        # Insistent Deep Search Action Button
+        if (not real_h or len(real_h) < 7) or (not real_a or len(real_a) < 7):
+            st.markdown("---")
+            st.warning("⚠️ **¿No quieres introducirlos a mano?** El sistema no pudo extraer las alineaciones a la primera.")
+            if st.button("🔄 FORZAR BÚSQUEDA PROFUNDA (Modo Insistente)", type="primary", use_container_width=True):
+                with st.spinner("🤖 Aplicando combinatoria exhaustiva de búsqueda profunda..."):
+                    l_fetcher = LineupFetcher(data_provider)
+                    res = l_fetcher.fetch_smart_lineup(
+                        home_team.name, away_team.name, match_datetime, selected_league
+                    )
+                    st.session_state.fetched_lineups = res
+                    st.session_state.lineups_confirmed = True
+                    # Re-fetch umpire
+                    ref_data = l_fetcher.fetch_match_referee(home_team.name, away_team.name, selected_date, selected_league)
+                    st.session_state.fetched_ref = ref_data
+                    st.rerun()
 
         # --- PREDICTION ---
         st.divider()
         if st.button("🚀 CALCULAR PREDICCIÓN FINAL", type="primary", use_container_width=True):
+            # Strict Validation before allowing prediction calculation
+            if len(c_home) < 7 or len(c_away) < 7:
+                st.error("❌ ERROR CRÍTICO: Debes confirmar al menos 7 jugadores reales por equipo para realizar el análisis confiable.")
+                st.stop()
+            if selected_ref.name in ["Por Detectar", "No asignado", "Pendiente"]:
+                st.error(f"❌ ERROR CRÍTICO: Árbitro no detectado ({selected_ref.name}). Debes introducirlo manualmente arriba para continuar.")
+                st.stop()
             with st.spinner("Analizando..."):
                 val_h = validator.validate_lineup(home_team, c_home)
                 val_a = validator.validate_lineup(away_team, c_away)
@@ -1145,31 +1177,21 @@ with st.sidebar:
                                     intel = analyst.get_detailed_intelligence(match_obj_p)
                                     # Guardar impacto de prensa en session_state
                                     st.session_state[f"press_intel_{s['match_id']}"] = intel
-                                    # Recalcular predicción con nuevo impacto de prensa
-                                    pred_p = db_manager.get_prediction(s["match_id"])
-                                    if pred_p:
-                                        from src.logic.bpa_engine import BPAEngine
-                                        bpa_r = bpa_engine.calculate_match_bpa(
-                                            match_obj_p,
-                                            press_modifiers=intel["impact"]
-                                        )
-                                        # CORRECCIÓN: Evitar división por cero
-                                        home_bpa = bpa_r.get("home_bpa", 0.5)
-                                        away_bpa = bpa_r.get("away_bpa", 0.5)
-                                        total_bpa = home_bpa + away_bpa + 0.3
+                                    # RE-CÁLCULO INTEGRAL: Usar el predictor completo para mantener consistencia (Poisson, etc.)
+                                    try:
+                                        # Determinamos la frescura actual
+                                        fresh = "confirmed" if match_obj_p.lineup_confirmed else "predicted"
+                                        # El predictor ya usa external_analyst internamente, 
+                                        # pero aquí ya tenemos el intel nuevo, así que lo inyectamos si fuera necesario.
+                                        # Para simplificar y asegurar consistencia, pedimos una nueva predicción completa.
+                                        new_pred_p = predictor.predict_match(match_obj_p, lineup_freshness=fresh)
+                                        new_pred_p.match_id = s["match_id"]
                                         
-                                        if total_bpa > 0:
-                                            pred_p.win_prob_home = round(home_bpa / total_bpa, 3)
-                                            pred_p.win_prob_away = round(away_bpa / total_bpa, 3)
-                                        else:
-                                            pred_p.win_prob_home = 0.33
-                                            pred_p.win_prob_away = 0.33
-                                            
-                                        prob_sum = pred_p.win_prob_home + pred_p.win_prob_away
-                                        pred_p.draw_prob = round(max(0.05, 1 - prob_sum), 3)
-                                        db_manager.save_prediction(pred_p)
+                                        db_manager.save_prediction(new_pred_p)
+                                        st.session_state["last_pred"] = new_pred_p # Actualizar vista
+                                        
                                         via = "🤖 Claude API" if os.environ.get("ANTHROPIC_API_KEY") else "📡 Google News RSS"
-                                        st.toast(f"📰 Prensa actualizada · {via}", icon="✅")
+                                        st.toast(f"📰 Prensa actualizada y re-analizada · {via}", icon="✅")
                                         # Mostrar resumen de impacto
                                         h_moral = intel["impact"].get("home", 0)
                                         a_moral = intel["impact"].get("away", 0)

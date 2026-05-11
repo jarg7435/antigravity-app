@@ -36,15 +36,15 @@ class PoissonEngine:
         
         for h in range(max_goals + 1):
             prob_h = self.calculate_poisson_probability(home_lambda, h)
-            if prob_h < 0.0001:
+            if prob_h < 1e-8:
                 continue
                 
             for a in range(max_goals + 1):
                 prob_a = self.calculate_poisson_probability(away_lambda, a)
-                if prob_a < 0.0001:
+                if prob_a < 1e-8:
                     continue
                     
-                matrix[f"{h}-{a}"] = round(prob_h * prob_a, 6)
+                matrix[f"{h}-{a}"] = round(prob_h * prob_a, 8)
         
         total_prob = sum(matrix.values())
         if total_prob > 0 and abs(total_prob - 1.0) > 0.01:
@@ -86,7 +86,9 @@ class PoissonEngine:
         away_bpa: float = 0.5,
         lineup_freshness: str = "confirmed",
         missing_key_players_home: int = 0,
-        missing_key_players_away: int = 0
+        missing_key_players_away: int = 0,
+        league_name: Optional[str] = None,
+        **kwargs
     ):
         if league_avg_goals <= 0.5:
             league_avg_goals = 1.35
@@ -136,7 +138,7 @@ class PoissonEngine:
         home_lambda = max(home_min, min(home_max, home_lambda))
         away_lambda = max(away_min, min(away_max, away_lambda))
 
-        return round(home_lambda, 2), round(away_lambda, 2)
+        return home_lambda, away_lambda
 
     def _get_team_rating(self, team: Team):
         players = getattr(team, 'players', [])

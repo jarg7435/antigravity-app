@@ -161,7 +161,11 @@ class DataManager:
     def get_prediction(self, match_id: str) -> Optional[PredictionResult]:
         if self.use_supabase:
             rows = self._sb_get("predictions", f"match_id=eq.{match_id}&select=prediction_json")
-            if rows: return PredictionResult.model_validate_json(rows[0]["prediction_json"])
+            if rows:
+                p_json = rows[0]["prediction_json"]
+                if isinstance(p_json, dict):
+                    return PredictionResult.model_validate(p_json)
+                return PredictionResult.model_validate_json(p_json)
         else:
             conn = sqlite3.connect(self.db_path)
             r = conn.execute('SELECT prediction_json FROM predictions WHERE match_id=?', (match_id,)).fetchone()
