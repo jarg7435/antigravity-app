@@ -8,7 +8,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import streamlit as st
 
-# LAGEMA JARG74 - VERSION 6.70.2 - GLOBAL GENERIC RELEASE
+# LAGEMA JARG74 - VERSION 6.71.0 - FIX ÁRBITROS CORRECTOS
 # Código de acceso desde variable de entorno (seguro para GitHub/Streamlit Cloud)
 # En Streamlit Cloud: Settings → Secrets → ACCESS_CODE = "tu_codigo"
 # En local: crea un archivo .env con ACCESS_CODE=tu_codigo
@@ -603,7 +603,7 @@ if home_team and away_team and teams_valid:
 
             with c_ref2:
                 if st.button("🔍 Buscar Árbitro Auto", use_container_width=True):
-                    with st.spinner("Buscando en SofaScore y Google News..."):
+                    with st.spinner("Buscando en APIs oficiales y fuentes web..."):
                         import io, sys
                         # Capturar logs para mostrar al usuario
                         log_capture = io.StringIO()
@@ -1326,6 +1326,44 @@ with st.sidebar:
     if st.button("🚦 Ver Semáforos e Historial", use_container_width=True):
         st.session_state.semaforos = not st.session_state.get("semaforos", False)
         st.session_state.sh = False
+
+    # ── DIAGNÓSTICO DE APIs ──────────────────────────────────────────────
+    st.divider()
+    st.markdown('<p style="color:#fdffcc;font-size:0.8rem;font-weight:bold;">🔌 Estado de APIs</p>', unsafe_allow_html=True)
+    
+    if st.button("🔍 Diagnosticar APIs", use_container_width=True, key="diag_apis_btn"):
+        with st.spinner("Verificando conectividad de APIs..."):
+            try:
+                from src.data.multi_source_fetcher import MultiSourceFetcher
+                msf = MultiSourceFetcher()
+                diag = msf.diagnose_connectivity()
+                st.session_state["api_diag"] = diag
+            except Exception as e:
+                st.session_state["api_diag"] = {"error": str(e)}
+    
+    if st.session_state.get("api_diag"):
+        diag = st.session_state["api_diag"]
+        if isinstance(diag, dict) and "error" not in diag:
+            for api_name, info in diag.items():
+                status = info.get("status", "?")
+                detail = info.get("detail", "")
+                if status == "OK":
+                    icon = "🟢"
+                    color = "#4ade80"
+                elif status == "LIMITED":
+                    icon = "🟡"
+                    color = "#fbbf24"
+                else:
+                    icon = "🔴"
+                    color = "#f87171"
+                st.markdown(
+                    f'<div style="font-size:0.75rem;color:{color};">{icon} <b>{api_name}</b>: {detail}</div>',
+                    unsafe_allow_html=True
+                )
+        else:
+            st.error(f"Error diagnóstico: {diag.get('error', 'Desconocido')}")
+    else:
+        st.markdown('<p style="font-size:0.7rem;color:#888;">Pulsa para verificar el estado de las APIs</p>', unsafe_allow_html=True)
 
     st.divider()
     st.markdown('<p style="color:#fdffcc;font-size:0.8rem;font-weight:bold;">🧠 Aprendizaje Retroactivo</p>', unsafe_allow_html=True)
