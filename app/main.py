@@ -8,7 +8,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import streamlit as st
 
-# LAGEMA JARG74 - VERSION 6.71.0 - FIX ÁRBITROS CORRECTOS
+# LAGEMA JARG74 - VERSION 6.72.0 - API-FOOTBALL DIRECTO ÁRBITROS+ALINEACIONES
 # Código de acceso desde variable de entorno (seguro para GitHub/Streamlit Cloud)
 # En Streamlit Cloud: Settings → Secrets → ACCESS_CODE = "tu_codigo"
 # En local: crea un archivo .env con ACCESS_CODE=tu_codigo
@@ -603,23 +603,160 @@ if home_team and away_team and teams_valid:
 
             with c_ref2:
                 if st.button("🔍 Buscar Árbitro Auto", use_container_width=True):
-                    with st.spinner("Buscando en APIs oficiales y fuentes web..."):
-                        import io, sys
-                        # Capturar logs para mostrar al usuario
-                        log_capture = io.StringIO()
-                        old_stdout = sys.stdout
-                        sys.stdout = log_capture
+                    with st.spinner("Buscando árbitro en APIs oficiales..."):
+                        ref_data = None
+                        search_log = []
+
+                        # ── PASO 1: football-data.org (FUENTE PRIMARIA — CONFIRMADA FUNCIONAL) ──
                         try:
-                            l_fetcher = LineupFetcher(data_provider)
-                            ref_data = l_fetcher.fetch_match_referee(
-                                home_team.name, away_team.name,
-                                selected_date, selected_league
-                            )
-                        finally:
-                            sys.stdout = old_stdout
-                        logs = log_capture.getvalue()
+                            from src.data.api_manager import APIManager
+                            api = APIManager()
+                            date_str = selected_date.strftime("%Y-%m-%d") if selected_date else None
+                            league_key = selected_league.split(" (")[0] if selected_league else ""
+                            # Mapear liga a código football-data.org
+                            _comp_codes = {
+                                "La Liga": "PD", "Premier League": "PL", "Bundesliga": "BL1",
+                                "Serie A": "SA", "Ligue 1": "FL1", "Champions League": "CL",
+                                "Europa League": "EL", "Conference League": "EC",
+                            }
+                            comp_code = _comp_codes.get(league_key)
+                            search_log.append(f"[1] football-data.org: fecha={date_str}, liga={league_key} (code={comp_code})")
+                            
+                            if comp_code and date_str:
+                                # Buscar en un rango de +/-3 días para mayor cobertura
+                                from datetime import timedelta
+                                date_from = (selected_date - timedelta(days=3)).strftime("%Y-%m-%d")
+                                date_to = (selected_date + timedelta(days=3)).strftime("%Y-%m-%d")
+                                matches = api.football_data.get_competition_matches(
+                                    comp_code, date_from=date_from, date_to=date_to
+                                )
+                                search_log.append(f"[1] Partidos encontrados: {len(matches) if matches else 0}")
+                                
+                                if matches:
+                                    for m in matches:
+                                        m_date = m.get("utcDate", "")[:10]
+                                        ht = m.get("homeTeam", {}).get("shortName", m.get("homeTeam", {}).get("name", ""))
+                                        at = m.get("awayTeam", {}).get("shortName", m.get("awayTeam", {}).get("name", ""))
+                                        h_match = home_team.name.lower().split()[0] in ht.lower() or ht.lower().split()[0] in home_team.name.lower()
+                                        a_match = away_team.name.lower().split()[0] in at.lower() or at.lower().split()[0] in away_team.name.lower()
+                                        if h_match and a_match:
+                                            referees = m.get("referees", [])
+                                            search_log.append(f"[1] Partido: {ht} vs {at} ({m_date}) — {len(referees)} árbitros")
+                                            for ref in referees:
+                                                ref_name = ref.get("name", "")
+                                                ref_role = ref.get("role", "")
+                                                if ref_name and len(ref_name.strip()) >= 5:
+                                                    ref_data = {
+                                                        "name": ref_name.strip(),
+                                                        "source": f"football-data.org ({ref_role or 'árbitro'})",
+                                                        "verification_link": None,
+                                                        "_is_fallback": False,
+                                                    }
+                                                    try:
+                                                        from src.data.referee_database import enrich_referee
+                                                        ref_data = enrich_referee(ref_data)
+                                                    except Exception:
+                                                        pass
+                                                    search_log.append(f"[1] ✅ ÁRBITRO OFICIAL: {ref_name.strip()} ({ref_role})")
+                                                    break
+                                            if ref_data and not ref_data.get("_is_fallback"):
+                                                break
+                        except Exception as e:
+                            search_log.append(f"[1] ❌ Error football-data.org: {e}")
+
+                        # ── PASO 2: API-Football (si la suscripción está activa) ──
+                        if not ref_data or ref_data.get("_is_fallback"):
+                            try:
+                                from src.data.api_manager import APIManager
+                                api = APIManager()
+                                date_str = selected_date.strftime("%Y-%m-%d") if selected_date else None
+                                league_key2 = selected_league.split(" (")[0] if selected_league else ""
+                                _lid_map = {
+                                    "La Liga": 140, "Premier League": 39, "Bundesliga": 78,
+                                    "Serie A": 135, "Ligue 1": 61, "Champions League": 2,
+                                    "Europa League": 3, "Conference League": 848,
+                                }
+                                lid = _lid_map.get(league_key2)
+                                search_log.append(f"[2] API-Football: fecha={date_str}, liga={league_key2} (ID={lid})")
+
+                                if date_str:
+                                    fixtures = api.api_football.get_fixtures(date=date_str, league_id=lid)
+                                    search_log.append(f"[2] Fixtures: {len(fixtures) if fixtures else 0} (si 0 = suscripción expirada)")
+                                    
+                                    if fixtures:
+                                        for f in fixtures:
+                                            ht = f.get("teams", {}).get("home", {}).get("name", "")
+                                            at = f.get("teams", {}).get("away", {}).get("name", "")
+                                            h_match = home_team.name.lower().split()[0] in ht.lower() or ht.lower().split()[0] in home_team.name.lower()
+                                            a_match = away_team.name.lower().split()[0] in at.lower() or at.lower().split()[0] in away_team.name.lower()
+                                            if h_match and a_match:
+                                                referee_name = f.get("fixture", {}).get("referee", "")
+                                                fixture_id = f.get("fixture", {}).get("id")
+                                                search_log.append(f"[2] Partido: {ht} vs {at} (ID={fixture_id}), árbitro='{referee_name}'")
+                                                
+                                                if referee_name and len(referee_name.strip()) >= 5:
+                                                    ref_data = {
+                                                        "name": referee_name.strip(),
+                                                        "source": "API-Football (Oficial)",
+                                                        "verification_link": f"https://www.api-football.com/",
+                                                        "_is_fallback": False,
+                                                        "fixture_id": fixture_id
+                                                    }
+                                                    try:
+                                                        from src.data.referee_database import enrich_referee
+                                                        ref_data = enrich_referee(ref_data)
+                                                    except Exception:
+                                                        pass
+                                                    search_log.append(f"[2] ✅ ÁRBITRO: {referee_name.strip()}")
+                                                    break
+                                                else:
+                                                    search_log.append(f"[2] ⚠️ Partido encontrado pero sin árbitro asignado")
+                                                    if not ref_data:
+                                                        ref_data = {
+                                                            "name": "No asignado aún",
+                                                            "source": f"API-Football: sin árbitro",
+                                                            "verification_link": "https://www.rfef.es/noticias/arbitros/designaciones",
+                                                            "_is_fallback": True,
+                                                            "fixture_id": fixture_id
+                                                        }
+                                                    break
+                            except Exception as e:
+                                search_log.append(f"[2] ❌ Error API-Football: {e}")
+
+                        # ── PASO 3: Scrapers (solo si APIs fallaron) ──
+                        if not ref_data or ref_data.get("_is_fallback"):
+                            search_log.append("[3] Intentando scrapers (menos fiables)...")
+                            try:
+                                l_fetcher = LineupFetcher(data_provider)
+                                ms_ref = l_fetcher.fetch_match_referee(
+                                    home_team.name, away_team.name,
+                                    selected_date, selected_league
+                                )
+                                if ms_ref and ms_ref.get("name") and not ms_ref.get("_is_fallback"):
+                                    ref_name = ms_ref.get("name", "")
+                                    if len(ref_name.split()) >= 2 and ref_name not in ["No Detectado", "Por Detectar"]:
+                                        ref_data = ms_ref
+                                        ref_data["source"] = ms_ref.get("source", "Scraper") + " (Verificar)"
+                                        search_log.append(f"[3] ⚠️ Scraper: {ref_name} — VERIFICAR")
+                                    else:
+                                        search_log.append(f"[3] Scraper: nombre inválido '{ref_name}'")
+                                else:
+                                    search_log.append(f"[3] Scrapers: sin árbitro fiable")
+                            except Exception as e:
+                                search_log.append(f"[3] ❌ Error scrapers: {e}")
+
+                        # Guardar resultado final
+                        if not ref_data:
+                            ref_data = {
+                                "name": "No Detectado",
+                                "source": "No encontrado en ninguna fuente",
+                                "verification_link": "https://www.rfef.es/noticias/arbitros/designaciones",
+                                "_is_fallback": True
+                            }
+                            search_log.append("❌ No se encontró árbitro en ninguna fuente")
+
                         st.session_state.fetched_ref = ref_data
-                        st.session_state.ref_search_logs = logs
+                        st.session_state.ref_search_logs = "\n".join(search_log)
                         st.rerun()
                 # Mostrar logs de búsqueda si existen
                 if st.session_state.get("ref_search_logs"):
@@ -704,27 +841,98 @@ if home_team and away_team and teams_valid:
             button_label = "🛡️ CONFIRMAR DATOS (OFICIAL)" if can_fetch_official else "🔒 ANÁLISIS BLOQUEADO (Centinela)"
             if st.button(button_label, type="primary", use_container_width=True, disabled=not can_fetch_official):
 
-                with st.spinner("🤖 Sincronizando datos..."):
-                    l_fetcher = LineupFetcher(data_provider)
+                with st.spinner("🤖 Sincronizando datos desde APIs oficiales..."):
+                    _fixture_id = st.session_state.fetched_ref.get("fixture_id") if st.session_state.fetched_ref else None
+                    res = None
                     
-                    # Unified Smart Fetching
-                    res = l_fetcher.fetch_smart_lineup(
-                        home_team.name, 
-                        away_team.name, 
-                        match_datetime, 
-                        selected_league
-                    )
+                    # ── PASO 1: Intentar API-Football DIRECTO para alineaciones ──
+                    try:
+                        from src.data.api_manager import APIManager
+                        api = APIManager()
+                        date_str = selected_date.strftime("%Y-%m-%d") if selected_date else None
+                        league_key = selected_league.split(" (")[0] if selected_league else ""
+                        _lid_map = {
+                            "La Liga": 140, "Premier League": 39, "Bundesliga": 78,
+                            "Serie A": 135, "Ligue 1": 61, "Champions League": 2,
+                            "Europa League": 3, "Conference League": 848,
+                        }
+                        lid = _lid_map.get(league_key)
+                        
+                        # Buscar fixture_id si no lo tenemos
+                        if not _fixture_id and date_str:
+                            fixtures = api.api_football.get_fixtures(date=date_str, league_id=lid)
+                            if fixtures:
+                                for f in fixtures:
+                                    ht = f.get("teams", {}).get("home", {}).get("name", "")
+                                    at = f.get("teams", {}).get("away", {}).get("name", "")
+                                    h_match = home_team.name.lower().split()[0] in ht.lower() or ht.lower().split()[0] in home_team.name.lower()
+                                    a_match = away_team.name.lower().split()[0] in at.lower() or at.lower().split()[0] in away_team.name.lower()
+                                    if h_match and a_match:
+                                        _fixture_id = f.get("fixture", {}).get("id")
+                                        # También actualizar árbitro si estaba vacío
+                                        referee_name = f.get("fixture", {}).get("referee", "")
+                                        if referee_name and len(referee_name.strip()) >= 5:
+                                            ref_update = {"name": referee_name.strip(), "source": "API-Football (Oficial)", "_is_fallback": False, "fixture_id": _fixture_id}
+                                            try:
+                                                from src.data.referee_database import enrich_referee
+                                                ref_update = enrich_referee(ref_update)
+                                            except Exception:
+                                                pass
+                                            st.session_state.fetched_ref = ref_update
+                                        break
+                        
+                        # Obtener alineaciones si tenemos fixture_id
+                        if _fixture_id:
+                            lineups = api.api_football.get_lineups(_fixture_id)
+                            if lineups and len(lineups) >= 2:
+                                home_players = []
+                                away_players = []
+                                for lineup in lineups:
+                                    team_name = lineup.get("team", {}).get("name", "")
+                                    formation = lineup.get("formation", "")
+                                    start_xi = [p.get("player", {}).get("name", "") for p in lineup.get("startXI", [])]
+                                    is_home = home_team.name.lower().split()[0] in team_name.lower() or team_name.lower().split()[0] in home_team.name.lower()
+                                    if is_home:
+                                        home_players = start_xi
+                                    else:
+                                        away_players = start_xi
+                                
+                                if home_players or away_players:
+                                    res = {
+                                        "home": home_players,
+                                        "away": away_players,
+                                        "bajas": [],
+                                        "source": "API-Football (Alineaciones Oficiales)",
+                                        "verification_link": f"https://www.api-football.com/",
+                                        "_is_fallback": False,
+                                        "is_official": True,
+                                    }
+                                    st.toast(f"✅ Alineaciones oficiales API-Football: {len(home_players)}+{len(away_players)}", icon="📋")
+                    except Exception as e:
+                        st.warning(f"API-Football alineaciones: {e}")
+
+                    # ── PASO 2: Fallback a LineupFetcher si API-Football no tuvo alineaciones ──
+                    if not res or not res.get("home"):
+                        l_fetcher = LineupFetcher(data_provider)
+                        res = l_fetcher.fetch_smart_lineup(
+                            home_team.name, 
+                            away_team.name, 
+                            match_datetime, 
+                            selected_league
+                        )
                     
                     st.session_state.fetched_lineups = res
                     st.session_state.lineups_confirmed = True
                     
                     # Fetch Referee if official is available, otherwise placeholder
                     if can_fetch_official:
-                        ref_data = l_fetcher.fetch_match_referee(
-                            home_team.name, away_team.name, selected_date, selected_league
-                        )
-                        st.session_state.fetched_ref = ref_data
-                        st.toast(f"👨‍⚖️ Árbitro Oficial: {ref_data['name']}", icon="⚖️")
+                        if not st.session_state.fetched_ref or st.session_state.fetched_ref.get("_is_fallback"):
+                            l_fetcher = LineupFetcher(data_provider)
+                            ref_data = l_fetcher.fetch_match_referee(
+                                home_team.name, away_team.name, selected_date, selected_league
+                            )
+                            st.session_state.fetched_ref = ref_data
+                        st.toast(f"👨‍⚖️ Árbitro: {st.session_state.fetched_ref.get('name', 'Desconocido')}", icon="⚖️")
                     else:
                         st.session_state.fetched_ref = {
                             'name': 'Por Confirmar (1h antes)',
@@ -1012,6 +1220,47 @@ if home_team and away_team and teams_valid:
 
 with st.sidebar:
     st.markdown('<h2 style="color: #ffffff;">⚙️ PANEL DE CONTROL</h2>', unsafe_allow_html=True)
+
+    # =====================================================================
+    # 🔌 DIAGNÓSTICO DE APIs
+    # =====================================================================
+    with st.expander("🔌 Estado de APIs", expanded=False):
+        if st.button("🔍 Verificar APIs", key="check_apis", use_container_width=True):
+            with st.spinner("Verificando conexión con APIs..."):
+                api_results = {}
+                # 1. API-Football
+                try:
+                    from src.data.api_manager import APIManager
+                    api = APIManager()
+                    status_data = api.api_football._get("status")
+                    if status_data and status_data.get("response"):
+                        req = status_data.get("response", {}).get("requests", {})
+                        api_results["API-Football"] = f"✅ OK ({req.get('current', '?')}/{req.get('limit', '?')} peticiones)"
+                    else:
+                        api_results["API-Football"] = "❌ Sin respuesta (¿suscripción expirada?)"
+                except Exception as e:
+                    api_results["API-Football"] = f"❌ Error: {str(e)[:60]}"
+                # 2. football-data.org
+                try:
+                    from src.data.api_manager import APIManager
+                    api = APIManager()
+                    r = api.football_data._get("competitions/PD/matches", {"limit": 1})
+                    api_results["football-data.org"] = "✅ OK" if r else "❌ Sin respuesta"
+                except Exception as e:
+                    api_results["football-data.org"] = f"❌ Error: {str(e)[:60]}"
+                # 3. Sportmonks
+                try:
+                    from src.data.api_manager import APIManager
+                    api = APIManager()
+                    r = api.sportmonks._get("leagues", {"limit": 1})
+                    api_results["Sportmonks"] = "✅ OK" if r else "❌ Sin respuesta"
+                except Exception as e:
+                    api_results["Sportmonks"] = f"❌ Error: {str(e)[:60]}"
+                
+                for api_name, status in api_results.items():
+                    st.markdown(f"**{api_name}**: {status}")
+        
+        st.markdown('<p style="color:#888;font-size:0.7rem;">Las APIs proporcionan datos de árbitros, alineaciones, clasificación y H2H reales.</p>', unsafe_allow_html=True)
 
     # =====================================================================
     # 📋 PANEL DE ESTUDIOS GUARDADOS
