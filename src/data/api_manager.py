@@ -1,0 +1,1031 @@
+"""
+APIManager — Orquestador de APIs REALES para LAGEMA JARG74
+==========================================================
+Conecta con API-Football (RapidAPI), football-data.org y Sportmonks
+para obtener datos verídicos, reales y contrastados.
+
+Prioridad en cascada:
+  1. API-Football (800+ ligas, fixtures, stats, H2H, alineaciones, árbitros)
+  2. Sportmonks (datos enriquecidos de equipos, jugadores, clasificación)
+  3. football-data.org (competiciones europeas, resultados en vivo)
+
+Uso:
+  from src.data.api_manager import APIManager
+  api = APIManager()
+  fixtures = api.get_fixtures("2026-05-12", league_id=140)
+"""
+
+import os
+import time
+import json
+import logging
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Any, Tuple
+from functools import lru_cache
+
+import requests
+from dotenv import load_dotenv
+
+load_dotenv()
+
+logger = logging.getLogger("LAGEMA_API")
+logging.basicConfig(level=logging.INFO)
+
+
+class RateLimiter:
+    """Controla las llamadas por minuto a cada API."""
+
+    def __init__(self, calls_per_minute: int = 30):
+        self.calls_per_minute = calls_per_minute
+        self.calls = []
+    
+    def wait_if_needed(self):
+        now = time.time()
+        self.calls = [t for t in self.calls if now - t < 60]
+        if len(self.calls) >= self.calls_per_minute:
+            sleep_time = 60 - (now - self.calls[0]) + 0.1
+            if sleep_time > 0:
+                logger.info(f"[RateLimiter] Esperando {sleep_time:.1f}s...")
+                time.sleep(sleep_time)
+        self.calls.append(time.time())
+
+
+class APIFootballClient:
+    """
+    Cliente para API-Football (RapidAPI).
+    800+ ligas, fixtures en tiempo real, estadísticas, H2H,
+    alineaciones, árbitros, predicciones, jugadores lesionados.
+    
+    Documentación: https://www.api-football.com/documentation-v3
+    """
+
+    BASE_URL = "https://api-football-v1.p.rapidapi.com/v3"
+
+    # Mapping de ligas principales
+    LEAGUE_IDS = {
+        "La Liga": 140,
+        "Premier League": 39,
+        "Bundesliga": 78,
+        "Serie A": 135,
+        "Ligue 1": 61,
+        "Champions League": 2,
+        "Europa League": 3,
+        "Conference League": 848,
+        "Copa Libertadores": 13,
+        "Copa Sudamericana": 14,
+        "Eredivisie": 88,
+        "Primeira Liga": 94,
+        "Süper Lig": 203,
+        "Scottish Premiership": 179,
+        "Belgian Pro League": 144,
+        "Segunda División": 141,
+        "Championship": 40,
+        "Bundesliga 2": 79,
+        "Serie B": 136,
+        "Ligue 2": 62,
+    }
+
+    # Mapping inverso
+    LEAGUE_NAME_BY_ID = {v: k for k, v in LEAGUE_IDS.items()}
+
+    def __init__(self, api_key: str = None):
+        self.api_key = api_key or os.environ.get("API_FOOTBALL_KEY", "")
+        if not self.api_key:
+            logger.warning("[API-Football] Sin API key configurada")
+        self.rate_limiter = RateLimiter(calls_per_minute=28)
+        self.session = requests.Session()
+        self.session.headers.update({
+            "X-RapidAPI-Key": self.api_key,
+            "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"
+        })
+
+    def _get(self, endpoint: str, params: dict = None) -> Optional[dict]:
+        """Petición GET con rate limiting y manejo de errores."""
+        self.rate_limiter.wait_if_needed()
+        url = f"{self.BASE_URL}/{endpoint}"
+        try:
+            response = self.session.get(url, params=params, timeout=15)
+            if response.status_code == 200:
+                data = response.json()
+                results = data.get("results", 0)
+                logger.info(f"[API-Football] {endpoint} -> {results} resultados")
+                return data
+            elif response.status_code == 429:
+                logger.warning("[API-Football] Rate limit alcanzado, esperando 60s...")
+                time.sleep(60)
+                return self._get(endpoint, params)
+            else:
+                logger.error(f"[API-Football] Error {response.status_code}: {response.text[:200]}")
+                return None
+        except requests.exceptions.Timeout:
+            logger.error(f"[API-Football] Timeout en {endpoint}")
+            return None
+        except Exception as e:
+            logger.error(f"[API-Football] Error: {e}")
+            return None
+
+    # =========================================================================
+    # FIXTURES (Partidos)
+    # =========================================================================
+
+    def get_fixtures(self, date: str = None, league_id: int = None,
+                     season: int = None, team_id: int = None,
+                     live: str = None, fixture_id: int = None) -> List[dict]:
+        """
+        Obtiene partidos por fecha, liga, equipo o en vivo.
+        
+        Args:
+            date: "YYYY-MM-DD" (ej: "2026-05-12")
+            league_id: ID de liga (ej: 140 para La Liga)
+            season: Año de temporada (ej: 2025)
+            team_id: ID de equipo
+            live: "1-2-3" para partidos en vivo por liga
+            fixture_id: ID específico de partido
+        """
+        params = {}
+        if date: params["date"] = date
+        if league_id: params["league"] = league_id
+        if season: params["season"] = season
+        if team_id: params["team"] = team_id
+        if live: params["live"] = live
+        if fixture_id: params["id"] = fixture_id
+
+        # Si no hay temporada y hay liga, usar la actual
+        if league_id and not season:
+            now = datetime.now()
+            params["season"] = now.year if now.month >= 8 else now.year - 1
+
+        data = self._get("fixtures", params)
+        if not data:
+            return []
+        return data.get("response", [])
+
+    def get_fixture_by_id(self, fixture_id: int) -> Optional[dict]:
+        """Obtiene un partido específico por su ID."""
+        fixtures = self.get_fixtures(fixture_id=fixture_id)
+        return fixtures[0] if fixtures else None
+
+    def get_head_to_head(self, team1_id: int, team2_id: int,
+                         last: int = 10) -> List[dict]:
+        """Obtiene historial de enfrentamientos directos."""
+        params = {"h2h": f"{team1_id}-{team2_id}", "last": last}
+        data = self._get("fixtures/headtohead", params)
+        if not data:
+            return []
+        return data.get("response", [])
+
+    # =========================================================================
+    # EQUIPOS Y ESTADÍSTICAS
+    # =========================================================================
+
+    def get_team_info(self, team_id: int) -> Optional[dict]:
+        """Información detallada de un equipo."""
+        data = self._get("teams", {"id": team_id})
+        if data and data.get("response"):
+            return data["response"][0]
+        return None
+
+    def get_team_statistics(self, team_id: int, league_id: int,
+                            season: int = None) -> Optional[dict]:
+        """
+        Estadísticas completas de un equipo en una liga/temporada.
+        Incluye: xG, goles, posesión, cleans sheets, racha, etc.
+        """
+        if not season:
+            now = datetime.now()
+            season = now.year if now.month >= 8 else now.year - 1
+        data = self._get("teams/statistics", {
+            "team": team_id, "league": league_id, "season": season
+        })
+        if data:
+            return data.get("response", {})
+        return None
+
+    def get_team_form(self, team_id: int, league_id: int,
+                      season: int = None) -> List[str]:
+        """Obtiene la forma reciente del equipo (W/D/L)."""
+        stats = self.get_team_statistics(team_id, league_id, season)
+        if stats:
+            form_str = stats.get("form", "")
+            return list(form_str) if form_str else []
+        return []
+
+    def search_team(self, name: str) -> List[dict]:
+        """Busca equipos por nombre."""
+        data = self._get("teams", {"search": name})
+        return data.get("response", []) if data else []
+
+    # =========================================================================
+    # ALINEACIONES
+    # =========================================================================
+
+    def get_lineups(self, fixture_id: int) -> List[dict]:
+        """
+        Alineaciones confirmadas de un partido.
+        Disponible 1-2 horas antes del inicio.
+        """
+        data = self._get("fixtures/lineups", {"fixture": fixture_id})
+        return data.get("response", []) if data else []
+
+    # =========================================================================
+    # ÁRBITROS
+    # =========================================================================
+
+    def get_referees(self, league_id: int = None, season: int = None) -> List[dict]:
+        """Lista de árbitros disponibles."""
+        params = {}
+        if league_id: params["league"] = league_id
+        if season: params["season"] = season
+        data = self._get("referees", params)
+        return data.get("response", []) if data else []
+
+    # =========================================================================
+    # ESTADÍSTICAS DE PARTIDO
+    # =========================================================================
+
+    def get_fixture_stats(self, fixture_id: int) -> List[dict]:
+        """Estadísticas en tiempo real de un partido."""
+        data = self._get("fixtures/statistics", {"fixture": fixture_id})
+        return data.get("response", []) if data else []
+
+    def get_fixture_events(self, fixture_id: int) -> List[dict]:
+        """Eventos del partido (goles, tarjetas, sustituciones)."""
+        data = self._get("fixtures/events", {"fixture": fixture_id})
+        return data.get("response", []) if data else []
+
+    # =========================================================================
+    # JUGADORES LESIONADOS
+    # =========================================================================
+
+    def get_injuries(self, team_id: int = None, league_id: int = None,
+                     season: int = None) -> List[dict]:
+        """Lista de jugadores lesionados o dudosos."""
+        params = {}
+        if team_id: params["team"] = team_id
+        if league_id: params["league"] = league_id
+        if season: params["season"] = season
+        data = self._get("injuries", params)
+        return data.get("response", []) if data else []
+
+    # =========================================================================
+    # CLASIFICACIÓN
+    # =========================================================================
+
+    def get_standings(self, league_id: int, season: int = None) -> List[dict]:
+        """Tabla de clasificación de una liga."""
+        if not season:
+            now = datetime.now()
+            season = now.year if now.month >= 8 else now.year - 1
+        data = self._get("standings", {"league": league_id, "season": season})
+        return data.get("response", []) if data else []
+
+    # =========================================================================
+    # PREDICCIONES (de API-Football como referencia)
+    # =========================================================================
+
+    def get_predictions(self, fixture_id: int) -> Optional[dict]:
+        """Predicciones de API-Football para comparar con nuestro modelo."""
+        data = self._get("predictions", {"fixture": fixture_id})
+        if data and data.get("response"):
+            return data["response"][0]
+        return None
+
+    # =========================================================================
+    # RESULTADOS EN VIVO
+    # =========================================================================
+
+    def get_live_fixtures(self, league_ids: List[int] = None) -> List[dict]:
+        """Partidos en vivo actualmente."""
+        if league_ids:
+            live_str = "-".join(str(lid) for lid in league_ids)
+            return self.get_fixtures(live=live_str)
+        data = self._get("fixtures", {"live": "all"})
+        return data.get("response", []) if data else []
+
+
+class SportmonksClient:
+    """
+    Cliente para Sportmonks Football API.
+    Datos enriquecidos: equipos, jugadores, clasificaciones,
+    marcadores en vivo, estadísticas de temporada.
+    
+    Documentación: https://docs.sportmonks.com/football/
+    """
+
+    BASE_URL = "https://api.sportmonks.com/v3/football"
+
+    def __init__(self, api_token: str = None):
+        self.api_token = api_token or os.environ.get("SPORTMONKS_API_TOKEN", "")
+        if not self.api_token:
+            logger.warning("[Sportmonks] Sin API token configurado")
+        self.rate_limiter = RateLimiter(calls_per_minute=28)
+        self.session = requests.Session()
+
+    def _get(self, endpoint: str, params: dict = None) -> Optional[dict]:
+        self.rate_limiter.wait_if_needed()
+        url = f"{self.BASE_URL}/{endpoint}"
+        params = params or {}
+        params["api_token"] = self.api_token
+        try:
+            response = self.session.get(url, params=params, timeout=15)
+            if response.status_code == 200:
+                data = response.json()
+                return data.get("data", data)
+            elif response.status_code == 429:
+                logger.warning("[Sportmonks] Rate limit, esperando...")
+                time.sleep(60)
+                return self._get(endpoint, params)
+            else:
+                logger.error(f"[Sportmonks] Error {response.status_code}")
+                return None
+        except Exception as e:
+            logger.error(f"[Sportmonks] Error: {e}")
+            return None
+
+    def get_team_by_name(self, name: str) -> Optional[dict]:
+        """Busca un equipo por nombre con datos enriquecidos."""
+        data = self._get("teams/search", {"name": name})
+        if isinstance(data, list) and data:
+            return data[0]
+        return None
+
+    def get_team_season_stats(self, team_id: int, season_id: int) -> Optional[dict]:
+        """Estadísticas de equipo en una temporada."""
+        return self._get(f"teams/{team_id}/seasons/{season_id}")
+
+    def get_player_by_name(self, name: str) -> Optional[dict]:
+        """Busca un jugador por nombre."""
+        data = self._get("players/search", {"name": name})
+        if isinstance(data, list) and data:
+            return data[0]
+        return None
+
+    def get_season_standings(self, season_id: int) -> List[dict]:
+        """Clasificación de una temporada."""
+        data = self._get(f"standings/seasons/{season_id}")
+        return data if isinstance(data, list) else []
+
+    def get_referee_by_name(self, name: str) -> Optional[dict]:
+        """Busca árbitro por nombre."""
+        data = self._get("referees/search", {"name": name})
+        if isinstance(data, list) and data:
+            return data[0]
+        return None
+
+
+class FootballDataClient:
+    """
+    Cliente para football-data.org API.
+    Competiciones europeas, resultados, clasificaciones,
+    partidos en vivo.
+    
+    Documentación: https://www.football-data.org/documentation/api
+    """
+
+    BASE_URL = "https://api.football-data.org/v4"
+
+    # IDs de competiciones
+    COMPETITION_IDS = {
+        "PD": "La Liga",
+        "PL": "Premier League",
+        "BL1": "Bundesliga",
+        "SA": "Serie A",
+        "FL1": "Ligue 1",
+        "CL": "Champions League",
+        "EL": "Europa League",
+        "EC": "Conference League",
+        "DED": "Eredivisie",
+        "PPL": "Primeira Liga",
+        "BSA": "Serie A Brasil",
+        "WC": "World Cup",
+    }
+
+    def __init__(self, api_key: str = None):
+        self.api_key = api_key or os.environ.get("FOOTBALL_DATA_API_KEY", "")
+        if not self.api_key:
+            logger.warning("[football-data.org] Sin API key configurada")
+        self.rate_limiter = RateLimiter(calls_per_minute=9)
+        self.session = requests.Session()
+        self.session.headers.update({
+            "X-Auth-Token": self.api_key
+        })
+
+    def _get(self, endpoint: str, params: dict = None) -> Optional[dict]:
+        self.rate_limiter.wait_if_needed()
+        url = f"{self.BASE_URL}/{endpoint}"
+        try:
+            response = self.session.get(url, params=params, timeout=15)
+            if response.status_code == 200:
+                return response.json()
+            elif response.status_code == 429:
+                logger.warning("[football-data.org] Rate limit, esperando 60s...")
+                time.sleep(60)
+                return self._get(endpoint, params)
+            else:
+                logger.error(f"[football-data.org] Error {response.status_code}")
+                return None
+        except Exception as e:
+            logger.error(f"[football-data.org] Error: {e}")
+            return None
+
+    def get_competition_matches(self, competition_code: str,
+                                 date_from: str = None,
+                                 date_to: str = None,
+                                 matchday: int = None) -> List[dict]:
+        """
+        Partidos de una competición.
+        Args:
+            competition_code: "PD", "PL", "BL1", "SA", "FL1", "CL", etc.
+            date_from: "YYYY-MM-DD"
+            date_to: "YYYY-MM-DD"
+            matchday: Jornada específica
+        """
+        params = {}
+        if date_from: params["dateFrom"] = date_from
+        if date_to: params["dateTo"] = date_to
+        if matchday: params["matchday"] = matchday
+        data = self._get(f"competitions/{competition_code}/matches", params)
+        if data:
+            return data.get("matches", [])
+        return []
+
+    def get_match(self, match_id: int) -> Optional[dict]:
+        """Detalle de un partido específico."""
+        return self._get(f"matches/{match_id}")
+
+    def get_team_matches(self, team_id: int,
+                          date_from: str = None,
+                          date_to: str = None) -> List[dict]:
+        """Partidos de un equipo en un rango de fechas."""
+        params = {}
+        if date_from: params["dateFrom"] = date_from
+        if date_to: params["dateTo"] = date_to
+        data = self._get(f"teams/{team_id}/matches", params)
+        if data:
+            return data.get("matches", [])
+        return []
+
+    def get_standings(self, competition_code: str) -> List[dict]:
+        """Clasificación de una competición."""
+        data = self._get(f"competitions/{competition_code}/standings")
+        if data:
+            return data.get("standings", [])
+        return []
+
+    def get_team(self, team_id: int) -> Optional[dict]:
+        """Información de un equipo."""
+        return self._get(f"teams/{team_id}")
+
+
+class APIManager:
+    """
+    Orquestador central de todas las APIs.
+    Implementa cascada de fuentes con fallback automático.
+    
+    Estrategia:
+      - API-Football: fuente primaria (datos más completos)
+      - Sportmonks: enriquecimiento (datos de jugadores, estadísticas avanzadas)
+      - football-data.org: backup y competiciones europeas
+    
+    Cada método intenta API-Football primero, luego Sportmonks,
+    y finalmente football-data.org.
+    """
+
+    def __init__(self):
+        self.api_football = APIFootballClient()
+        self.sportmonks = SportmonksClient()
+        self.football_data = FootballDataClient()
+
+        # Caché en memoria para evitar llamadas duplicadas en la misma sesión
+        self._cache: Dict[str, Any] = {}
+        self._cache_ttl = 300  # 5 minutos
+
+    def _cache_key(self, method: str, **kwargs) -> str:
+        return f"{method}:" + ":".join(f"{k}={v}" for k, v in sorted(kwargs.items()))
+
+    def _get_cached(self, key: str) -> Optional[Any]:
+        if key in self._cache:
+            entry = self._cache[key]
+            if time.time() - entry["ts"] < self._cache_ttl:
+                return entry["data"]
+            del self._cache[key]
+        return None
+
+    def _set_cached(self, key: str, data: Any):
+        self._cache[key] = {"ts": time.time(), "data": data}
+
+    # =========================================================================
+    # MÉTODOS PRINCIPALES
+    # =========================================================================
+
+    def get_fixtures_for_date(self, date: str,
+                               league_name: str = None) -> List[dict]:
+        """
+        Obtiene todos los partidos de una fecha.
+        Opcionalmente filtra por liga.
+        
+        Returns: Lista de dicts normalizados:
+        [{
+            "fixture_id": int,
+            "date": "2026-05-12T20:00:00",
+            "league": "La Liga",
+            "league_id": 140,
+            "home_team": "Real Madrid",
+            "away_team": "Barcelona",
+            "home_team_id": 541,
+            "away_team_id": 529,
+            "status": "NS",
+            "home_score": None,
+            "away_score": None,
+            "referee": "Jesús Gil Manzano",
+            "source": "api-football"
+        }]
+        """
+        cache_key = self._cache_key("fixtures", date=date, league=league_name)
+        cached = self._get_cached(cache_key)
+        if cached is not None:
+            return cached
+
+        results = []
+
+        # 1. Intentar API-Football
+        league_id = APIFootballClient.LEAGUE_IDS.get(league_name) if league_name else None
+        fixtures = self.api_football.get_fixtures(date=date, league_id=league_id)
+
+        if fixtures:
+            for f in fixtures:
+                league_info = f.get("league", {})
+                home = f.get("teams", {}).get("home", {})
+                away = f.get("teams", {}).get("away", {})
+                goals = f.get("goals", {})
+                score = f.get("score", {})
+
+                results.append({
+                    "fixture_id": f.get("fixture", {}).get("id"),
+                    "date": f.get("fixture", {}).get("date", ""),
+                    "league": league_info.get("name", ""),
+                    "league_id": league_info.get("id"),
+                    "league_country": league_info.get("country", ""),
+                    "home_team": home.get("name", ""),
+                    "away_team": away.get("name", ""),
+                    "home_team_id": home.get("id"),
+                    "away_team_id": away.get("id"),
+                    "home_logo": home.get("logo", ""),
+                    "away_logo": away.get("logo", ""),
+                    "status": f.get("fixture", {}).get("status", {}).get("short", ""),
+                    "home_score": goals.get("home"),
+                    "away_score": goals.get("away"),
+                    "ht_score": score.get("halftime", {}),
+                    "ft_score": score.get("fulltime", {}),
+                    "referee": f.get("fixture", {}).get("referee", ""),
+                    "venue": f.get("fixture", {}).get("venue", {}).get("name", ""),
+                    "source": "api-football"
+                })
+            self._set_cached(cache_key, results)
+            return results
+
+        # 2. Fallback a football-data.org
+        if league_name:
+            comp_code = self._get_competition_code(league_name)
+            if comp_code:
+                matches = self.football_data.get_competition_matches(
+                    comp_code, date_from=date, date_to=date
+                )
+                for m in matches:
+                    results.append(self._normalize_fd_match(m))
+                if results:
+                    self._set_cached(cache_key, results)
+                    return results
+
+        # 3. Último intento: football-data.org todas las competiciones
+        for comp_code in ["PD", "PL", "BL1", "SA", "FL1"]:
+            matches = self.football_data.get_competition_matches(
+                comp_code, date_from=date, date_to=date
+            )
+            for m in matches:
+                results.append(self._normalize_fd_match(m))
+
+        self._set_cached(cache_key, results)
+        return results
+
+    def get_team_stats(self, team_name: str, league_name: str,
+                        season: int = None) -> Optional[dict]:
+        """
+        Estadísticas completas de un equipo en una liga.
+        Incluye: xG, goles, posesión, forma, racha, etc.
+        """
+        cache_key = self._cache_key("team_stats", team=team_name,
+                                      league=league_name, season=season)
+        cached = self._get_cached(cache_key)
+        if cached is not None:
+            return cached
+
+        # 1. Buscar team_id en API-Football
+        teams = self.api_football.search_team(team_name)
+        if not teams:
+            # Fallback Sportmonks
+            sm_team = self.sportmonks.get_team_by_name(team_name)
+            if sm_team:
+                teams = [{"team": sm_team}]
+
+        if not teams:
+            return None
+
+        team_id = teams[0].get("team", teams[0]).get("id")
+        league_id = APIFootballClient.LEAGUE_IDS.get(league_name)
+
+        if not league_id:
+            return None
+
+        # 2. Obtener estadísticas
+        stats = self.api_football.get_team_statistics(team_id, league_id, season)
+        if stats:
+            normalized = self._normalize_team_stats(stats, team_name)
+            self._set_cached(cache_key, normalized)
+            return normalized
+
+        return None
+
+    def get_match_result(self, fixture_id: int = None,
+                          home_team: str = None, away_team: str = None,
+                          date: str = None) -> Optional[dict]:
+        """
+        Obtiene el resultado REAL de un partido finalizado.
+        Busca por fixture_id o por equipos+fecha.
+        
+        Returns: {
+            "home_score": int,
+            "away_score": int,
+            "winner": "LOCAL"|"VISITANTE"|"EMPATE",
+            "stats": {"corners": {...}, "cards": {...}, "shots": {...}},
+            "events": [...],
+            "source": str
+        }
+        """
+        # 1. API-Football
+        if fixture_id:
+            fixture = self.api_football.get_fixture_by_id(fixture_id)
+        elif home_team and away_team and date:
+            # Buscar por equipos y fecha
+            fixtures = self.api_football.get_fixtures(date=date)
+            fixture = None
+            for f in fixtures:
+                ht = f.get("teams", {}).get("home", {}).get("name", "")
+                at = f.get("teams", {}).get("away", {}).get("name", "")
+                if (home_team.lower() in ht.lower() or 
+                    away_team.lower() in at.lower()):
+                    fixture = f
+                    break
+        else:
+            return None
+
+        if not fixture:
+            return None
+
+        goals = fixture.get("goals", {})
+        home_score = goals.get("home")
+        away_score = goals.get("away")
+
+        if home_score is None:
+            # Partido no finalizado aún
+            return None
+
+        winner = "EMPATE"
+        if home_score > away_score:
+            winner = "LOCAL"
+        elif away_score > home_score:
+            winner = "VISITANTE"
+
+        # Obtener estadísticas detalladas
+        fid = fixture.get("fixture", {}).get("id", 0)
+        stats_data = self.api_football.get_fixture_stats(fid)
+        events = self.api_football.get_fixture_events(fid)
+
+        match_stats = self._parse_match_stats(stats_data, events)
+
+        return {
+            "home_score": home_score,
+            "away_score": away_score,
+            "winner": winner,
+            "stats": match_stats,
+            "events": events[:20] if events else [],
+            "source": "api-football"
+        }
+
+    def get_h2h(self, team1_name: str, team2_name: str,
+                last: int = 10) -> List[dict]:
+        """
+        Historial de enfrentamientos directos.
+        Busca IDs de equipos primero, luego obtiene H2H.
+        """
+        # Buscar IDs de equipos
+        teams1 = self.api_football.search_team(team1_name)
+        teams2 = self.api_football.search_team(team2_name)
+
+        if not teams1 or not teams2:
+            return []
+
+        id1 = teams1[0].get("team", teams1[0]).get("id")
+        id2 = teams2[0].get("team", teams2[0]).get("id")
+
+        if not id1 or not id2:
+            return []
+
+        h2h = self.api_football.get_head_to_head(id1, id2, last)
+        results = []
+
+        for match in h2h:
+            goals = match.get("goals", {})
+            results.append({
+                "date": match.get("fixture", {}).get("date", ""),
+                "home_team": match.get("teams", {}).get("home", {}).get("name", ""),
+                "away_team": match.get("teams", {}).get("away", {}).get("name", ""),
+                "home_score": goals.get("home"),
+                "away_score": goals.get("away"),
+                "league": match.get("league", {}).get("name", ""),
+            })
+
+        return results
+
+    def get_lineups_real(self, fixture_id: int) -> Optional[dict]:
+        """
+        Alineaciones confirmadas de un partido.
+        Solo disponible 1-2h antes del inicio.
+        """
+        lineups = self.api_football.get_lineups(fixture_id)
+        if not lineups:
+            return None
+
+        result = {"home": {}, "away": {}, "confirmed": False}
+
+        for idx, lineup in enumerate(lineups):
+            team = lineup.get("team", {}).get("name", "")
+            formation = lineup.get("formation", "")
+            start_xi = [p.get("player", {}).get("name", "") 
+                        for p in lineup.get("startXI", [])]
+            subs = [p.get("player", {}).get("name", "") 
+                    for p in lineup.get("substitutes", [])]
+
+            side = "home" if idx == 0 else "away"
+
+            result[side] = {
+                "team": team,
+                "formation": formation,
+                "start_xi": start_xi,
+                "substitutes": subs
+            }
+            result["confirmed"] = True
+
+        result["source"] = "api-football"
+        return result
+
+    def get_injured_players(self, team_name: str = None,
+                             league_name: str = None) -> List[dict]:
+        """
+        Jugadores lesionados o dudosos.
+        Información REAL de lesiones actualizada.
+        """
+        league_id = APIFootballClient.LEAGUE_IDS.get(league_name) if league_name else None
+        team_id = None
+
+        if team_name:
+            teams = self.api_football.search_team(team_name)
+            if teams:
+                team_id = teams[0].get("team", teams[0]).get("id")
+
+        injuries = self.api_football.get_injuries(
+            team_id=team_id, league_id=league_id
+        )
+
+        results = []
+        for inj in injuries[:30]:
+            player = inj.get("player", {})
+            team = inj.get("team", {})
+            results.append({
+                "player_name": player.get("name", ""),
+                "player_id": player.get("id"),
+                "team": team.get("name", ""),
+                "reason": inj.get("player", {}).get("reason", ""),
+                "type": inj.get("player", {}).get("type", ""),
+            })
+
+        return results
+
+    def get_referee_data(self, referee_name: str) -> Optional[dict]:
+        """
+        Datos REALES de un árbitro desde Sportmonks.
+        Incluye tarjetas medias, penaltis, partidos dirigidos.
+        """
+        # Intentar Sportmonks primero (datos más completos)
+        ref = self.sportmonks.get_referee_by_name(referee_name)
+        if ref:
+            return {
+                "name": ref.get("name", referee_name),
+                "common_name": ref.get("common_name", ""),
+                "nationality": ref.get("nationality", ""),
+                "birth_date": ref.get("birth_date", ""),
+                "games": ref.get("games", 0),
+                "cards": ref.get("cards", {}),
+                "source": "sportmonks"
+            }
+
+        # Fallback: buscar en lista de API-Football
+        referees = self.api_football.get_referees()
+        for ref in referees:
+            if referee_name.lower() in ref.get("name", "").lower():
+                return {
+                    "name": ref.get("name", referee_name),
+                    "nationality": ref.get("nationality", ""),
+                    "source": "api-football"
+                }
+
+        return None
+
+    def get_standings(self, league_name: str, season: int = None) -> List[dict]:
+        """Clasificación de una liga."""
+        league_id = APIFootballClient.LEAGUE_IDS.get(league_name)
+        if not league_id:
+            return []
+
+        standings = self.api_football.get_standings(league_id, season)
+        results = []
+
+        for entry in standings:
+            for standing_group in entry.get("league", {}).get("standings", [[]]):
+                if not isinstance(standing_group, list):
+                    standing_group = [standing_group]
+                for team_data in standing_group:
+                    results.append({
+                        "position": team_data.get("rank"),
+                        "team": team_data.get("team", {}).get("name", ""),
+                        "team_id": team_data.get("team", {}).get("id"),
+                        "points": team_data.get("points"),
+                        "played": team_data.get("all", {}).get("played"),
+                        "won": team_data.get("all", {}).get("win"),
+                        "draw": team_data.get("all", {}).get("draw"),
+                        "lost": team_data.get("all", {}).get("lose"),
+                        "goals_for": team_data.get("all", {}).get("goals", {}).get("for"),
+                        "goals_against": team_data.get("all", {}).get("goals", {}).get("against"),
+                        "form": team_data.get("form", ""),
+                        "description": team_data.get("description", ""),
+                    })
+
+        return results
+
+    # =========================================================================
+    # HELPERS DE NORMALIZACIÓN
+    # =========================================================================
+
+    def _normalize_fd_match(self, match: dict) -> dict:
+        """Normaliza un partido de football-data.org al formato estándar."""
+        home = match.get("homeTeam", {})
+        away = match.get("awayTeam", {})
+        score = match.get("score", {})
+
+        return {
+            "fixture_id": match.get("id"),
+            "date": match.get("utcDate", ""),
+            "league": match.get("competition", {}).get("name", ""),
+            "league_id": None,
+            "league_country": "",
+            "home_team": home.get("shortName", home.get("name", "")),
+            "away_team": away.get("shortName", away.get("name", "")),
+            "home_team_id": home.get("id"),
+            "away_team_id": away.get("id"),
+            "status": match.get("status", ""),
+            "home_score": score.get("fullTime", {}).get("home"),
+            "away_score": score.get("fullTime", {}).get("away"),
+            "referee": match.get("referees", [{}])[0].get("name", "") if match.get("referees") else "",
+            "venue": "",
+            "source": "football-data.org"
+        }
+
+    def _normalize_team_stats(self, stats: dict, team_name: str) -> dict:
+        """Normaliza estadísticas de equipo de API-Football."""
+        return {
+            "team": team_name,
+            "league": stats.get("league", {}).get("name", ""),
+            "season": stats.get("league", {}).get("season", ""),
+            "form": stats.get("form", ""),
+            "fixtures_played": stats.get("fixtures", {}).get("played", {}).get("total", 0),
+            "wins": stats.get("fixtures", {}).get("wins", {}).get("total", 0),
+            "draws": stats.get("fixtures", {}).get("draws", {}).get("total", 0),
+            "losses": stats.get("fixtures", {}).get("loses", {}).get("total", 0),
+            "goals_total": stats.get("goals", {}).get("for", {}).get("total", {}).get("total", 0),
+            "goals_against": stats.get("goals", {}).get("against", {}).get("total", {}).get("total", 0),
+            "avg_goals_for": stats.get("goals", {}).get("for", {}).get("average", {}).get("total", 0),
+            "avg_goals_against": stats.get("goals", {}).get("against", {}).get("average", {}).get("total", 0),
+            "biggest_win": stats.get("biggest", {}).get("wins", {}),
+            "biggest_loss": stats.get("biggest", {}).get("loses", {}),
+            "clean_sheets": stats.get("clean_sheet", {}).get("total", 0),
+            "failed_to_score": stats.get("failed_to_score", {}).get("total", 0),
+            "lineup_most_used": stats.get("lineups", [{}])[0].get("formation", "") if stats.get("lineups") else "",
+            "penalty_stats": stats.get("penalty", {}),
+        }
+
+    def _parse_match_stats(self, stats_data: list, events: list) -> dict:
+        """Parsea estadísticas y eventos de un partido."""
+        result = {
+            "corners": {"home": 0, "away": 0},
+            "cards": {"home_yellow": 0, "home_red": 0, "away_yellow": 0, "away_red": 0},
+            "shots": {"home": 0, "away": 0},
+            "shots_on_target": {"home": 0, "away": 0},
+            "possession": {"home": 50, "away": 50},
+        }
+
+        # De estadísticas del partido
+        if stats_data:
+            for team_stats in stats_data:
+                for stat in team_stats.get("statistics", []):
+                    stat_type = stat.get("type", "")
+                    value = stat.get("value", 0)
+
+                    # Parsear valores que pueden ser strings ("55%")
+                    if isinstance(value, str):
+                        value = value.replace("%", "").strip()
+                        try:
+                            value = float(value)
+                        except ValueError:
+                            value = 0
+
+                    if "Corner" in stat_type and value:
+                        result["corners"]["home"] = int(value)
+                    elif "Total Shots" in stat_type and value:
+                        result["shots"]["home"] = int(value)
+                    elif "Shots on Goal" in stat_type and value:
+                        result["shots_on_target"]["home"] = int(value)
+                    elif "Ball Possession" in stat_type and value:
+                        result["possession"]["home"] = int(value)
+                        result["possession"]["away"] = 100 - int(value)
+
+        # De eventos (más fiable para tarjetas)
+        if events:
+            for event in events:
+                e_type = event.get("type", "")
+                detail = event.get("detail", "")
+                if e_type == "Card":
+                    team_side = event.get("team", {}).get("name", "")
+                    if "Yellow" in detail:
+                        result["cards"]["home_yellow"] += 1
+                    elif "Red" in detail:
+                        result["cards"]["home_red"] += 1
+
+        return result
+
+    def _get_competition_code(self, league_name: str) -> Optional[str]:
+        """Convierte nombre de liga a código de football-data.org."""
+        mapping = {
+            "La Liga": "PD", "La Liga (España)": "PD",
+            "Premier League": "PL", "Premier League (Inglaterra)": "PL",
+            "Bundesliga": "BL1", "Bundesliga (Alemania)": "BL1",
+            "Serie A": "SA", "Serie A (Italia)": "SA",
+            "Ligue 1": "FL1", "Ligue 1 (Francia)": "FL1",
+            "Champions League": "CL",
+            "Europa League": "EL",
+            "Conference League": "EC",
+        }
+        return mapping.get(league_name)
+
+    # =========================================================================
+    # DIAGNÓSTICO
+    # =========================================================================
+
+    def diagnose(self) -> dict:
+        """Verifica la conectividad con todas las APIs."""
+        results = {}
+
+        # API-Football
+        try:
+            data = self.api_football._get("status")
+            if data:
+                results["api_football"] = {
+                    "status": "OK",
+                    "requests_limit": data.get("response", {}).get("requests", {}).get("limit", "?"),
+                    "requests_current": data.get("response", {}).get("requests", {}).get("current", "?"),
+                }
+            else:
+                results["api_football"] = {"status": "ERROR", "detail": "Sin respuesta"}
+        except Exception as e:
+            results["api_football"] = {"status": "ERROR", "detail": str(e)}
+
+        # Sportmonks
+        try:
+            data = self.sportmonks._get("leagues", {"per_page": 1})
+            results["sportmonks"] = {
+                "status": "OK" if data else "ERROR",
+                "detail": "Conectado" if data else "Sin respuesta"
+            }
+        except Exception as e:
+            results["sportmonks"] = {"status": "ERROR", "detail": str(e)}
+
+        # football-data.org
+        try:
+            data = self.football_data._get("competitions", {"plan": "TIER_ONE"})
+            results["football_data"] = {
+                "status": "OK" if data else "ERROR",
+                "competitions": len(data.get("competitions", [])) if data else 0
+            }
+        except Exception as e:
+            results["football_data"] = {"status": "ERROR", "detail": str(e)}
+
+        return results
