@@ -1202,6 +1202,8 @@ with st.sidebar:
                                                 <div style="color:#f5f0e0;font-size:0.75rem;">✈️ Visit.: <b style="color:{'#4ade80' if a_moral >= 0 else '#f87171'};">{a_moral:+.3f}</b></div>
                                             </div>
                                         """, unsafe_allow_html=True)
+                                    except Exception as e:
+                                        st.error(f"Error re-cálculo prensa: {e}")
                                 except Exception as e:
                                     st.error(f"Error prensa: {e}")
                 else:
