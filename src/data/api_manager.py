@@ -1,27 +1,30 @@
 """
 APIManager — Orquestador de APIs REALES para LAGEMA JARG74
 ==========================================================
-Conecta con API-Football (RapidAPI), football-data.org y Sportmonks
-para obtener datos verídicos, reales y contrastados.
+VERSIÓN 5.1 — Correcciones basadas en test real
 
-Prioridad en cascada:
-  1. API-Football (800+ ligas, fixtures, stats, H2H, alineaciones, árbitros)
-  2. Sportmonks (datos enriquecidos de equipos, jugadores, clasificación)
-  3. football-data.org (competiciones europeas, resultados en vivo)
+CORRECCIONES v5.1:
+  - API-Football: Soporta Direct (v3.api-football.com) y RapidAPI
+    Auto-detecta y prueba ambos modos
+  - Sportmonks: Corregido — search endpoints usan query parameter correcto
+    No se puede pasar ID a endpoints de search
+  - football-data.org: Árbitros disponibles en partidos FINALIZADOS
+  - Singleton APIManager para reutilizar conexión
+  - Logging mejorado para diagnóstico
 
 Uso:
-  from src.data.api_manager import APIManager
-  api = APIManager()
-  fixtures = api.get_fixtures("2026-05-12", league_id=140)
+  from src.data.api_manager import get_api_manager
+  api = get_api_manager()
+  fixtures = api.get_fixtures_for_date("2026-05-12", league_name="La Liga")
 """
 
 import os
 import time
 import json
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Tuple
-from functools import lru_cache
 
 import requests
 from dotenv import load_dotenv
@@ -50,16 +53,45 @@ class RateLimiter:
         self.calls.append(time.time())
 
 
+def _detect_api_key_type(api_key: str) -> str:
+    """
+    Auto-detecta el tipo de API key de API-Football.
+    
+    Retorna:
+      "rapidapi"  — Clave de RapidAPI (contiene 'ms' y 'jsn')
+      "direct"    — Clave directa de api-football.com (32 chars hex)
+      "unknown"   — No se pudo determinar
+    """
+    if not api_key:
+        return "unknown"
+    
+    key = api_key.strip()
+    
+    # RapidAPI keys tienen formato: XXXXmsXXXXjsnXXXX
+    if "ms" in key and "jsn" in key:
+        return "rapidapi"
+    
+    # Direct keys son hexadecimales de 32 caracteres
+    if re.match(r'^[a-f0-9]{32}$', key, re.IGNORECASE):
+        return "direct"
+    
+    # Si tiene 30+ chars y parece hex, probablemente direct
+    if len(key) >= 30 and re.match(r'^[a-f0-9]+$', key, re.IGNORECASE):
+        return "direct"
+    
+    return "unknown"
+
+
 class APIFootballClient:
     """
-    Cliente para API-Football (RapidAPI).
-    800+ ligas, fixtures en tiempo real, estadísticas, H2H,
-    alineaciones, árbitros, predicciones, jugadores lesionados.
+    Cliente para API-Football — AUTO-DETECTA formato de key.
     
-    Documentación: https://www.api-football.com/documentation-v3
+    Soporta 2 configuraciones:
+      1. RapidAPI: api-football-v1.p.rapidapi.com + X-RapidAPI-Key
+      2. Direct (v3): v3.api-football.com + x-apisports-key
+    
+    Prueba automáticamente ambos modos y usa el que funciona.
     """
-
-    BASE_URL = "https://api-football-v1.p.rapidapi.com/v3"
 
     # Mapping de ligas principales
     LEAGUE_IDS = {
@@ -85,24 +117,133 @@ class APIFootballClient:
         "Ligue 2": 62,
     }
 
-    # Mapping inverso
     LEAGUE_NAME_BY_ID = {v: k for k, v in LEAGUE_IDS.items()}
+
+    # Configuraciones de conexión para cada modo
+    MODES = {
+        "rapidapi": {
+            "base_url": "https://api-football-v1.p.rapidapi.com/v3",
+            "headers": lambda key: {
+                "X-RapidAPI-Key": key,
+                "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"
+            }
+        },
+        "direct": {
+            "base_url": "https://v3.api-football.com",
+            "headers": lambda key: {
+                "x-apisports-key": key
+            }
+        }
+    }
 
     def __init__(self, api_key: str = None):
         self.api_key = api_key or os.environ.get("API_FOOTBALL_KEY", "")
         if not self.api_key:
             logger.warning("[API-Football] Sin API key configurada")
+        
         self.rate_limiter = RateLimiter(calls_per_minute=28)
+        self.detected_type = _detect_api_key_type(self.api_key)
         self.session = requests.Session()
-        self.session.headers.update({
-            "X-RapidAPI-Key": self.api_key,
-            "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"
-        })
+        
+        # Estado de probe
+        self._probed = False
+        self._working_mode = None  # 'rapidapi' or 'direct'
+        self._working_base_url = None
+        self._working_headers = None
+        
+        # Configurar modo inicial (el detectado)
+        self._apply_mode(self.detected_type if self.detected_type != "unknown" else "rapidapi")
+        
+        logger.info(f"[API-Football] Key detectada como: {self.detected_type} (...{self.api_key[-8:]})")
+
+    def _apply_mode(self, mode: str):
+        """Aplica una configuración de conexión."""
+        config = self.MODES.get(mode)
+        if config:
+            self._current_mode = mode
+            self._current_base_url = config["base_url"]
+            self._current_headers = config["headers"](self.api_key)
+
+    def _probe_connection(self) -> str:
+        """
+        Prueba la conexión en ambos modos y determina cuál funciona.
+        Retorna el modo que funciona: 'rapidapi' o 'direct' o 'failed'
+        """
+        if self._probed and self._working_mode:
+            return self._working_mode
+            
+        logger.info("[API-Football] Probando conexión...")
+        
+        # Orden de prueba: primero el detectado, luego el alternativo
+        modes_to_try = []
+        if self.detected_type in ("rapidapi", "unknown"):
+            modes_to_try = ["rapidapi", "direct"]
+        elif self.detected_type == "direct":
+            modes_to_try = ["direct", "rapidapi"]
+        else:
+            modes_to_try = ["rapidapi", "direct"]
+        
+        for mode in modes_to_try:
+            config = self.MODES[mode]
+            base_url = config["base_url"]
+            headers = config["headers"](self.api_key)
+            
+            try:
+                logger.info(f"[API-Football] Probando modo {mode}: {base_url}")
+                resp = requests.get(
+                    f"{base_url}/status",
+                    headers=headers,
+                    timeout=10
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    req = data.get("response", {}).get("requests", {})
+                    account = data.get("response", {}).get("account", {})
+                    current = req.get("current", "?")
+                    limit = req.get("limit_day", "?")
+                    
+                    logger.info(f"[API-Football] ✅ CONECTADO en modo {mode} — "
+                              f"Account: {account.get('firstname','?')}, "
+                              f"Requests: {current}/{limit}")
+                    
+                    self._working_mode = mode
+                    self._working_base_url = base_url
+                    self._working_headers = headers
+                    
+                    # Actualizar sesión
+                    self.session.headers.clear()
+                    for k, v in headers.items():
+                        self.session.headers[k] = v
+                    
+                    self._probed = True
+                    return self._working_mode
+                elif resp.status_code in (401, 403):
+                    logger.warning(f"[API-Football] Modo {mode}: AUTH ERROR ({resp.status_code})")
+                else:
+                    logger.warning(f"[API-Football] Modo {mode}: HTTP {resp.status_code}")
+            except requests.exceptions.ConnectionError as e:
+                logger.warning(f"[API-Football] Modo {mode}: Sin conexión — {str(e)[:80]}")
+            except Exception as e:
+                logger.warning(f"[API-Football] Modo {mode}: Error — {str(e)[:80]}")
+        
+        logger.error("[API-Football] ❌ No se pudo conectar en NINGÚN modo")
+        self._probed = True
+        self._working_mode = "failed"
+        return "failed"
 
     def _get(self, endpoint: str, params: dict = None) -> Optional[dict]:
-        """Petición GET con rate limiting y manejo de errores."""
+        """Petición GET con rate limiting, probe automático y manejo de errores."""
         self.rate_limiter.wait_if_needed()
-        url = f"{self.BASE_URL}/{endpoint}"
+        
+        # Probe en la primera petición
+        if not self._probed:
+            mode = self._probe_connection()
+            if mode == "failed":
+                return None
+        
+        base_url = self._working_base_url or self._current_base_url
+        url = f"{base_url}/{endpoint}"
+        
         try:
             response = self.session.get(url, params=params, timeout=15)
             if response.status_code == 200:
@@ -110,6 +251,16 @@ class APIFootballClient:
                 results = data.get("results", 0)
                 logger.info(f"[API-Football] {endpoint} -> {results} resultados")
                 return data
+            elif response.status_code in (401, 403):
+                logger.error(f"[API-Football] ❌ AUTH ERROR {response.status_code}")
+                # Re-probar con modo alternativo
+                if self._working_mode != "failed":
+                    old_mode = self._working_mode
+                    self._probed = False
+                    new_mode = self._probe_connection()
+                    if new_mode != "failed" and new_mode != old_mode:
+                        return self._get(endpoint, params)
+                return None
             elif response.status_code == 429:
                 logger.warning("[API-Football] Rate limit alcanzado, esperando 60s...")
                 time.sleep(60)
@@ -131,17 +282,7 @@ class APIFootballClient:
     def get_fixtures(self, date: str = None, league_id: int = None,
                      season: int = None, team_id: int = None,
                      live: str = None, fixture_id: int = None) -> List[dict]:
-        """
-        Obtiene partidos por fecha, liga, equipo o en vivo.
-        
-        Args:
-            date: "YYYY-MM-DD" (ej: "2026-05-12")
-            league_id: ID de liga (ej: 140 para La Liga)
-            season: Año de temporada (ej: 2025)
-            team_id: ID de equipo
-            live: "1-2-3" para partidos en vivo por liga
-            fixture_id: ID específico de partido
-        """
+        """Obtiene partidos por fecha, liga, equipo o en vivo."""
         params = {}
         if date: params["date"] = date
         if league_id: params["league"] = league_id
@@ -150,7 +291,6 @@ class APIFootballClient:
         if live: params["live"] = live
         if fixture_id: params["id"] = fixture_id
 
-        # Si no hay temporada y hay liga, usar la actual
         if league_id and not season:
             now = datetime.now()
             params["season"] = now.year if now.month >= 8 else now.year - 1
@@ -187,10 +327,7 @@ class APIFootballClient:
 
     def get_team_statistics(self, team_id: int, league_id: int,
                             season: int = None) -> Optional[dict]:
-        """
-        Estadísticas completas de un equipo en una liga/temporada.
-        Incluye: xG, goles, posesión, cleans sheets, racha, etc.
-        """
+        """Estadísticas completas de un equipo en una liga/temporada."""
         if not season:
             now = datetime.now()
             season = now.year if now.month >= 8 else now.year - 1
@@ -220,10 +357,7 @@ class APIFootballClient:
     # =========================================================================
 
     def get_lineups(self, fixture_id: int) -> List[dict]:
-        """
-        Alineaciones confirmadas de un partido.
-        Disponible 1-2 horas antes del inicio.
-        """
+        """Alineaciones confirmadas de un partido."""
         data = self._get("fixtures/lineups", {"fixture": fixture_id})
         return data.get("response", []) if data else []
 
@@ -280,7 +414,7 @@ class APIFootballClient:
         return data.get("response", []) if data else []
 
     # =========================================================================
-    # PREDICCIONES (de API-Football como referencia)
+    # PREDICCIONES
     # =========================================================================
 
     def get_predictions(self, fixture_id: int) -> Optional[dict]:
@@ -306,8 +440,10 @@ class APIFootballClient:
 class SportmonksClient:
     """
     Cliente para Sportmonks Football API.
-    Datos enriquecidos: equipos, jugadores, clasificaciones,
-    marcadores en vivo, estadísticas de temporada.
+    
+    NOTA IMPORTANTE: Los endpoints de search en Sportmonks v3 usan 
+    parámetros de query diferentes. Para buscar por nombre se usa
+    el endpoint /search con query parameter.
     
     Documentación: https://docs.sportmonks.com/football/
     """
@@ -336,18 +472,27 @@ class SportmonksClient:
                 time.sleep(60)
                 return self._get(endpoint, params)
             else:
-                logger.error(f"[Sportmonks] Error {response.status_code}")
+                logger.error(f"[Sportmonks] Error {response.status_code}: {response.text[:200]}")
                 return None
         except Exception as e:
             logger.error(f"[Sportmonks] Error: {e}")
             return None
 
     def get_team_by_name(self, name: str) -> Optional[dict]:
-        """Busca un equipo por nombre con datos enriquecidos."""
-        data = self._get("teams/search", {"name": name})
+        """
+        Busca un equipo por nombre.
+        Usa /teams/search/{name} — el nombre va en la URL, no como query param.
+        """
+        # Codificar nombre para URL
+        encoded_name = requests.utils.quote(name)
+        data = self._get(f"teams/search/{encoded_name}")
         if isinstance(data, list) and data:
             return data[0]
         return None
+
+    def get_team_by_id(self, team_id: int) -> Optional[dict]:
+        """Obtiene equipo por ID."""
+        return self._get(f"teams/{team_id}")
 
     def get_team_season_stats(self, team_id: int, season_id: int) -> Optional[dict]:
         """Estadísticas de equipo en una temporada."""
@@ -355,7 +500,8 @@ class SportmonksClient:
 
     def get_player_by_name(self, name: str) -> Optional[dict]:
         """Busca un jugador por nombre."""
-        data = self._get("players/search", {"name": name})
+        encoded_name = requests.utils.quote(name)
+        data = self._get(f"players/search/{encoded_name}")
         if isinstance(data, list) and data:
             return data[0]
         return None
@@ -366,25 +512,43 @@ class SportmonksClient:
         return data if isinstance(data, list) else []
 
     def get_referee_by_name(self, name: str) -> Optional[dict]:
-        """Busca árbitro por nombre."""
-        data = self._get("referees/search", {"name": name})
+        """
+        Busca árbitro por nombre.
+        Usa /referees/search/{name} — el nombre va en la URL.
+        """
+        encoded_name = requests.utils.quote(name)
+        data = self._get(f"referees/search/{encoded_name}")
         if isinstance(data, list) and data:
             return data[0]
         return None
+    
+    def get_fixture_by_id(self, fixture_id: int) -> Optional[dict]:
+        """Obtiene detalles de un fixture con include de árbitro."""
+        return self._get(f"fixtures/{fixture_id}", {"include": "referee"})
+    
+    def get_fixtures_between(self, date_from: str, date_to: str,
+                              league_id: int = None) -> List[dict]:
+        """Obtiene fixtures entre fechas."""
+        params = {}
+        if league_id:
+            params["filters"] = f"leagueIds:{league_id}"
+        data = self._get(f"fixtures/between/{date_from}/{date_to}", params)
+        return data if isinstance(data, list) else []
 
 
 class FootballDataClient:
     """
     Cliente para football-data.org API.
-    Competiciones europeas, resultados, clasificaciones,
-    partidos en vivo.
+    
+    NOTA IMPORTANTE: Los árbitros solo están disponibles en partidos
+    FINALIZADOS (status=FINISHED). Para próximos partidos, usar
+    API-Football o Sportmonks.
     
     Documentación: https://www.football-data.org/documentation/api
     """
 
     BASE_URL = "https://api.football-data.org/v4"
 
-    # IDs de competiciones
     COMPETITION_IDS = {
         "PD": "La Liga",
         "PL": "Premier League",
@@ -422,7 +586,7 @@ class FootballDataClient:
                 time.sleep(60)
                 return self._get(endpoint, params)
             else:
-                logger.error(f"[football-data.org] Error {response.status_code}")
+                logger.error(f"[football-data.org] Error {response.status_code}: {response.text[:200]}")
                 return None
         except Exception as e:
             logger.error(f"[football-data.org] Error: {e}")
@@ -431,19 +595,23 @@ class FootballDataClient:
     def get_competition_matches(self, competition_code: str,
                                  date_from: str = None,
                                  date_to: str = None,
-                                 matchday: int = None) -> List[dict]:
+                                 matchday: int = None,
+                                 status: str = None) -> List[dict]:
         """
         Partidos de una competición.
+        
         Args:
             competition_code: "PD", "PL", "BL1", "SA", "FL1", "CL", etc.
             date_from: "YYYY-MM-DD"
             date_to: "YYYY-MM-DD"
             matchday: Jornada específica
+            status: Filtrar por estado ("FINISHED", "SCHEDULED", etc.)
         """
         params = {}
         if date_from: params["dateFrom"] = date_from
         if date_to: params["dateTo"] = date_to
         if matchday: params["matchday"] = matchday
+        if status: params["status"] = status
         data = self._get(f"competitions/{competition_code}/matches", params)
         if data:
             return data.get("matches", [])
@@ -475,6 +643,33 @@ class FootballDataClient:
     def get_team(self, team_id: int) -> Optional[dict]:
         """Información de un equipo."""
         return self._get(f"teams/{team_id}")
+    
+    def get_finished_matches_with_referees(self, competition_code: str,
+                                            limit: int = 10) -> List[dict]:
+        """
+        Obtiene partidos FINALIZADOS que tienen árbitros asignados.
+        Útil para obtener datos de árbitros históricos.
+        """
+        data = self._get(f"competitions/{competition_code}/matches", 
+                        {"status": "FINISHED", "limit": limit})
+        if data:
+            matches = data.get("matches", [])
+            return [m for m in matches if m.get("referees")]
+        return []
+
+
+# =============================================================================
+# SINGLETON — Evita crear múltiples instancias de APIManager
+# =============================================================================
+
+_api_manager_instance = None
+
+def get_api_manager() -> "APIManager":
+    """Retorna la instancia singleton de APIManager."""
+    global _api_manager_instance
+    if _api_manager_instance is None:
+        _api_manager_instance = APIManager()
+    return _api_manager_instance
 
 
 class APIManager:
@@ -486,19 +681,14 @@ class APIManager:
       - API-Football: fuente primaria (datos más completos)
       - Sportmonks: enriquecimiento (datos de jugadores, estadísticas avanzadas)
       - football-data.org: backup y competiciones europeas
-    
-    Cada método intenta API-Football primero, luego Sportmonks,
-    y finalmente football-data.org.
     """
 
     def __init__(self):
         self.api_football = APIFootballClient()
         self.sportmonks = SportmonksClient()
         self.football_data = FootballDataClient()
-
-        # Caché en memoria para evitar llamadas duplicadas en la misma sesión
         self._cache: Dict[str, Any] = {}
-        self._cache_ttl = 300  # 5 minutos
+        self._cache_ttl = 300
 
     def _cache_key(self, method: str, **kwargs) -> str:
         return f"{method}:" + ":".join(f"{k}={v}" for k, v in sorted(kwargs.items()))
@@ -520,27 +710,7 @@ class APIManager:
 
     def get_fixtures_for_date(self, date: str,
                                league_name: str = None) -> List[dict]:
-        """
-        Obtiene todos los partidos de una fecha.
-        Opcionalmente filtra por liga.
-        
-        Returns: Lista de dicts normalizados:
-        [{
-            "fixture_id": int,
-            "date": "2026-05-12T20:00:00",
-            "league": "La Liga",
-            "league_id": 140,
-            "home_team": "Real Madrid",
-            "away_team": "Barcelona",
-            "home_team_id": 541,
-            "away_team_id": 529,
-            "status": "NS",
-            "home_score": None,
-            "away_score": None,
-            "referee": "Jesús Gil Manzano",
-            "source": "api-football"
-        }]
-        """
+        """Obtiene todos los partidos de una fecha."""
         cache_key = self._cache_key("fixtures", date=date, league=league_name)
         cached = self._get_cached(cache_key)
         if cached is not None:
@@ -610,20 +780,15 @@ class APIManager:
 
     def get_team_stats(self, team_name: str, league_name: str,
                         season: int = None) -> Optional[dict]:
-        """
-        Estadísticas completas de un equipo en una liga.
-        Incluye: xG, goles, posesión, forma, racha, etc.
-        """
+        """Estadísticas completas de un equipo en una liga."""
         cache_key = self._cache_key("team_stats", team=team_name,
                                       league=league_name, season=season)
         cached = self._get_cached(cache_key)
         if cached is not None:
             return cached
 
-        # 1. Buscar team_id en API-Football
         teams = self.api_football.search_team(team_name)
         if not teams:
-            # Fallback Sportmonks
             sm_team = self.sportmonks.get_team_by_name(team_name)
             if sm_team:
                 teams = [{"team": sm_team}]
@@ -637,7 +802,6 @@ class APIManager:
         if not league_id:
             return None
 
-        # 2. Obtener estadísticas
         stats = self.api_football.get_team_statistics(team_id, league_id, season)
         if stats:
             normalized = self._normalize_team_stats(stats, team_name)
@@ -649,24 +813,10 @@ class APIManager:
     def get_match_result(self, fixture_id: int = None,
                           home_team: str = None, away_team: str = None,
                           date: str = None) -> Optional[dict]:
-        """
-        Obtiene el resultado REAL de un partido finalizado.
-        Busca por fixture_id o por equipos+fecha.
-        
-        Returns: {
-            "home_score": int,
-            "away_score": int,
-            "winner": "LOCAL"|"VISITANTE"|"EMPATE",
-            "stats": {"corners": {...}, "cards": {...}, "shots": {...}},
-            "events": [...],
-            "source": str
-        }
-        """
-        # 1. API-Football
+        """Obtiene el resultado REAL de un partido finalizado."""
         if fixture_id:
             fixture = self.api_football.get_fixture_by_id(fixture_id)
         elif home_team and away_team and date:
-            # Buscar por equipos y fecha
             fixtures = self.api_football.get_fixtures(date=date)
             fixture = None
             for f in fixtures:
@@ -687,7 +837,6 @@ class APIManager:
         away_score = goals.get("away")
 
         if home_score is None:
-            # Partido no finalizado aún
             return None
 
         winner = "EMPATE"
@@ -696,7 +845,6 @@ class APIManager:
         elif away_score > home_score:
             winner = "VISITANTE"
 
-        # Obtener estadísticas detalladas
         fid = fixture.get("fixture", {}).get("id", 0)
         stats_data = self.api_football.get_fixture_stats(fid)
         events = self.api_football.get_fixture_events(fid)
@@ -714,11 +862,7 @@ class APIManager:
 
     def get_h2h(self, team1_name: str, team2_name: str,
                 last: int = 10) -> List[dict]:
-        """
-        Historial de enfrentamientos directos.
-        Busca IDs de equipos primero, luego obtiene H2H.
-        """
-        # Buscar IDs de equipos
+        """Historial de enfrentamientos directos."""
         teams1 = self.api_football.search_team(team1_name)
         teams2 = self.api_football.search_team(team2_name)
 
@@ -748,10 +892,7 @@ class APIManager:
         return results
 
     def get_lineups_real(self, fixture_id: int) -> Optional[dict]:
-        """
-        Alineaciones confirmadas de un partido.
-        Solo disponible 1-2h antes del inicio.
-        """
+        """Alineaciones confirmadas de un partido."""
         lineups = self.api_football.get_lineups(fixture_id)
         if not lineups:
             return None
@@ -781,10 +922,7 @@ class APIManager:
 
     def get_injured_players(self, team_name: str = None,
                              league_name: str = None) -> List[dict]:
-        """
-        Jugadores lesionados o dudosos.
-        Información REAL de lesiones actualizada.
-        """
+        """Jugadores lesionados o dudosos."""
         league_id = APIFootballClient.LEAGUE_IDS.get(league_name) if league_name else None
         team_id = None
 
@@ -812,11 +950,8 @@ class APIManager:
         return results
 
     def get_referee_data(self, referee_name: str) -> Optional[dict]:
-        """
-        Datos REALES de un árbitro desde Sportmonks.
-        Incluye tarjetas medias, penaltis, partidos dirigidos.
-        """
-        # Intentar Sportmonks primero (datos más completos)
+        """Datos de un árbitro desde APIs."""
+        # Intentar Sportmonks primero
         ref = self.sportmonks.get_referee_by_name(referee_name)
         if ref:
             return {
@@ -915,8 +1050,6 @@ class APIManager:
             "goals_against": stats.get("goals", {}).get("against", {}).get("total", {}).get("total", 0),
             "avg_goals_for": stats.get("goals", {}).get("for", {}).get("average", {}).get("total", 0),
             "avg_goals_against": stats.get("goals", {}).get("against", {}).get("average", {}).get("total", 0),
-            "biggest_win": stats.get("biggest", {}).get("wins", {}),
-            "biggest_loss": stats.get("biggest", {}).get("loses", {}),
             "clean_sheets": stats.get("clean_sheet", {}).get("total", 0),
             "failed_to_score": stats.get("failed_to_score", {}).get("total", 0),
             "lineup_most_used": stats.get("lineups", [{}])[0].get("formation", "") if stats.get("lineups") else "",
@@ -933,14 +1066,12 @@ class APIManager:
             "possession": {"home": 50, "away": 50},
         }
 
-        # De estadísticas del partido
         if stats_data:
             for team_stats in stats_data:
                 for stat in team_stats.get("statistics", []):
                     stat_type = stat.get("type", "")
                     value = stat.get("value", 0)
 
-                    # Parsear valores que pueden ser strings ("55%")
                     if isinstance(value, str):
                         value = value.replace("%", "").strip()
                         try:
@@ -958,13 +1089,11 @@ class APIManager:
                         result["possession"]["home"] = int(value)
                         result["possession"]["away"] = 100 - int(value)
 
-        # De eventos (más fiable para tarjetas)
         if events:
             for event in events:
                 e_type = event.get("type", "")
                 detail = event.get("detail", "")
                 if e_type == "Card":
-                    team_side = event.get("team", {}).get("name", "")
                     if "Yellow" in detail:
                         result["cards"]["home_yellow"] += 1
                     elif "Red" in detail:
@@ -998,34 +1127,43 @@ class APIManager:
         try:
             data = self.api_football._get("status")
             if data:
+                req_info = data.get("response", {}).get("requests", {})
                 results["api_football"] = {
                     "status": "OK",
-                    "requests_limit": data.get("response", {}).get("requests", {}).get("limit", "?"),
-                    "requests_current": data.get("response", {}).get("requests", {}).get("current", "?"),
+                    "mode": self.api_football._working_mode or self.api_football.detected_type,
+                    "requests_limit": req_info.get("limit_day", "?"),
+                    "requests_current": req_info.get("current", "?"),
                 }
             else:
-                results["api_football"] = {"status": "ERROR", "detail": "Sin respuesta"}
+                results["api_football"] = {
+                    "status": "ERROR", 
+                    "mode": self.api_football._working_mode or "not probed",
+                    "detail": "Sin respuesta — verificar API key y suscripción"
+                }
         except Exception as e:
-            results["api_football"] = {"status": "ERROR", "detail": str(e)}
-
-        # Sportmonks
-        try:
-            data = self.sportmonks._get("leagues", {"per_page": 1})
-            results["sportmonks"] = {
-                "status": "OK" if data else "ERROR",
-                "detail": "Conectado" if data else "Sin respuesta"
-            }
-        except Exception as e:
-            results["sportmonks"] = {"status": "ERROR", "detail": str(e)}
+            results["api_football"] = {"status": "ERROR", "detail": str(e)[:100]}
 
         # football-data.org
         try:
             data = self.football_data._get("competitions", {"plan": "TIER_ONE"})
-            results["football_data"] = {
-                "status": "OK" if data else "ERROR",
-                "competitions": len(data.get("competitions", [])) if data else 0
-            }
+            if data:
+                results["football_data_org"] = {
+                    "status": "OK",
+                    "competitions": len(data.get("competitions", []))
+                }
+            else:
+                results["football_data_org"] = {"status": "ERROR", "detail": "Sin respuesta"}
         except Exception as e:
-            results["football_data"] = {"status": "ERROR", "detail": str(e)}
+            results["football_data_org"] = {"status": "ERROR", "detail": str(e)[:100]}
+
+        # Sportmonks
+        try:
+            data = self.sportmonks._get("leagues", {"limit": 1})
+            if data:
+                results["sportmonks"] = {"status": "OK"}
+            else:
+                results["sportmonks"] = {"status": "ERROR", "detail": "Sin respuesta"}
+        except Exception as e:
+            results["sportmonks"] = {"status": "ERROR", "detail": str(e)[:100]}
 
         return results
