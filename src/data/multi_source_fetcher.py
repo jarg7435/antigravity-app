@@ -122,8 +122,8 @@ class MultiSourceFetcher:
         Busca árbitro con prioridad en APIs REALES.
         
         Orden de cascada:
-          1. API-Football: fixture.referee (OFICIAL)
-          2. football-data.org: referees en partidos (funciona para finalizados)
+          1. football-data.org (CONFIRMADO FUNCIONAL — árbitros reales)
+          2. API-Football: fixture.referee (si suscripción activa)
           3. Sportmonks: base de datos de árbitros
           4. FutbolFantasy Designaciones (La Liga específico)
           5. SofaScore: scraping
@@ -144,50 +144,7 @@ class MultiSourceFetcher:
         except Exception:
             hours = 999
 
-        # ── FUENTE 1: API-Football (DATO OFICIAL) ─────────────────────────
-        try:
-            from src.data.api_manager import APIManager
-            api = APIManager()
-            
-            # Verificar si API-Football está activa
-            status = api.api_football._get("status")
-            if status and status.get("response"):
-                # API activa, buscar fixtures
-                date_str = safe_date.strftime("%Y-%m-%d") if safe_date else None
-                league_id = LEAGUE_ID_MAP.get(_norm_league(league))
-                if date_str:
-                    fixtures = api.api_football.get_fixtures(date=date_str, league_id=league_id)
-                    if fixtures:
-                        for f in fixtures:
-                            ht = f.get("teams", {}).get("home", {}).get("name", "")
-                            at = f.get("teams", {}).get("away", {}).get("name", "")
-                            if _team_matches(home, ht) and _team_matches(away, at):
-                                referee_name = f.get("fixture", {}).get("referee", "")
-                                fixture_id = f.get("fixture", {}).get("id")
-                                if referee_name and len(referee_name.split()) >= 2:
-                                    logger.info(f"  [1-API-Football] ✅ {referee_name} (OFICIAL)")
-                                    result = {
-                                        "name": referee_name,
-                                        "source": "API-Football (Oficial)",
-                                        "verification_link": f"https://www.api-football.com/",
-                                        "_is_fallback": False
-                                    }
-                                    try:
-                                        ref_data = api.get_referee_data(referee_name)
-                                        if ref_data:
-                                            result["referee_details"] = ref_data
-                                    except Exception:
-                                        pass
-                                    return _enrich(result)
-                                
-                                if fixture_id:
-                                    logger.info(f"  [1-API-Football] Partido encontrado (ID: {fixture_id}) pero sin árbitro asignado")
-            else:
-                logger.warning("  [1-API-Football] ❌ API NO DISPONIBLE (suscripción expirada o sin conexión)")
-        except Exception as e:
-            logger.debug(f"  [1-API-Football] {e}")
-
-        # ── FUENTE 2: football-data.org (FUNCIONA para finalizados/timed) ─
+        # ── FUENTE 1: football-data.org (CONFIRMADO FUNCIONAL) ──────────
         try:
             from src.data.api_manager import APIManager
             api = APIManager()
@@ -196,28 +153,70 @@ class MultiSourceFetcher:
             if comp_code:
                 date_str = safe_date.strftime("%Y-%m-%d") if safe_date else None
                 if date_str:
+                    # Buscar en rango +/-3 días
+                    from datetime import timedelta
+                    date_from = (safe_date - timedelta(days=3)).strftime("%Y-%m-%d")
+                    date_to = (safe_date + timedelta(days=3)).strftime("%Y-%m-%d")
                     matches = api.football_data.get_competition_matches(
-                        comp_code, date_from=date_str, date_to=date_str
+                        comp_code, date_from=date_from, date_to=date_to
                     )
                     for m in matches:
-                        ht = m.get("homeTeam", {}).get("name", "")
-                        at = m.get("awayTeam", {}).get("name", "")
+                        ht = m.get("homeTeam", {}).get("shortName", m.get("homeTeam", {}).get("name", ""))
+                        at = m.get("awayTeam", {}).get("shortName", m.get("awayTeam", {}).get("name", ""))
                         if _team_matches(home, ht) and _team_matches(away, at):
                             referees = m.get("referees", [])
                             for ref in referees:
                                 ref_name = ref.get("name", "")
                                 ref_role = ref.get("role", "") or ref.get("nationality", "")
                                 if ref_name and len(ref_name.split()) >= 2:
-                                    # Preferir el árbitro principal (REFEREE role)
-                                    logger.info(f"  [2-football-data.org] ✅ {ref_name} (role: {ref_role})")
+                                    logger.info(f"  [1-football-data.org] ✅ {ref_name} (role: {ref_role})")
                                     return _enrich({
                                         "name": ref_name,
-                                        "source": "football-data.org",
+                                        "source": f"football-data.org ({ref_role or 'árbitro'})",
                                         "verification_link": None,
                                         "_is_fallback": False
                                     })
         except Exception as e:
-            logger.debug(f"  [2-football-data.org] {e}")
+            logger.debug(f"  [1-football-data.org] {e}")
+
+        # ── FUENTE 2: API-Football (DATO OFICIAL si suscripción activa) ─
+        try:
+            from src.data.api_manager import APIManager
+            api = APIManager()
+            
+            date_str = safe_date.strftime("%Y-%m-%d") if safe_date else None
+            league_id = LEAGUE_ID_MAP.get(_norm_league(league))
+            if date_str:
+                fixtures = api.api_football.get_fixtures(date=date_str, league_id=league_id)
+                if fixtures:
+                    for f in fixtures:
+                        ht = f.get("teams", {}).get("home", {}).get("name", "")
+                        at = f.get("teams", {}).get("away", {}).get("name", "")
+                        if _team_matches(home, ht) and _team_matches(away, at):
+                            referee_name = f.get("fixture", {}).get("referee", "")
+                            fixture_id = f.get("fixture", {}).get("id")
+                            if referee_name and len(referee_name.split()) >= 2:
+                                logger.info(f"  [2-API-Football] ✅ {referee_name} (OFICIAL)")
+                                result = {
+                                    "name": referee_name,
+                                    "source": "API-Football (Oficial)",
+                                    "verification_link": f"https://www.api-football.com/",
+                                    "_is_fallback": False
+                                }
+                                try:
+                                    ref_data = api.get_referee_data(referee_name)
+                                    if ref_data:
+                                        result["referee_details"] = ref_data
+                                except Exception:
+                                    pass
+                                return _enrich(result)
+                            
+                            if fixture_id:
+                                logger.info(f"  [2-API-Football] Partido encontrado (ID: {fixture_id}) pero sin árbitro asignado")
+                else:
+                    logger.warning("  [2-API-Football] ❌ Sin fixtures (suscripción expirada o sin conexión)")
+        except Exception as e:
+            logger.debug(f"  [2-API-Football] {e}")
 
         # ── FUENTE 3: Sportmonks (Base de datos de árbitros) ──────────────
         try:
