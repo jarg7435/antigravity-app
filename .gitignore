@@ -1,0 +1,20 @@
+# --- Secretos (nunca versionar) ---
+.env
+.streamlit/secrets.toml
+
+# --- Artefactos de Python ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# --- Herramientas de agentes / plantillas ajenas al proyecto ---
+.agent/
+data/.agent/
+marketingskills-main/
+
+# --- Entornos y editores ---
+.venv/
+venv/
+.vscode/
+.idea/

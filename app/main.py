@@ -1,6 +1,5 @@
 import sys
 import os
-import importlib
 from dotenv import load_dotenv
 
 # Add the project root directory to Python path
@@ -78,36 +77,12 @@ if os.path.exists(css_path):
     load_css(css_path)
 
 # Initialize Services
+CURRENT_VERSION = "6.70.2"
+
 @st.cache_resource
-def get_services(version: str = "6.70.3 (Global Generic)"):
-    # NUCLEAR RELOAD: Ensure Streamlit Cloud sees disk changes
-    import importlib
-    import src.models.base
-    import src.logic.poisson_engine
-    import src.logic.predictors
-    import src.logic.bpa_engine
-    import src.logic.external_analyst
-    import src.data.mock_provider
-    import src.data.bankroll_manager
-    import src.data.db_manager
-
-    importlib.reload(src.models.base)
-    importlib.reload(src.logic.poisson_engine)
-    importlib.reload(src.logic.bpa_engine)
-    importlib.reload(src.logic.external_analyst)
-    importlib.reload(src.logic.predictors)
-    importlib.reload(src.data.mock_provider)
-    importlib.reload(src.data.bankroll_manager)
-    importlib.reload(src.data.db_manager)
-
-    from src.data.mock_provider import MockDataProvider
-    from src.data.db_manager import DataManager
-    from src.logic.bpa_engine import BPAEngine
-    from src.logic.predictors import Predictor
-    from src.logic.validator import Validator
-    from src.data.bankroll_manager import BankrollManager
-    from src.logic.report_engine import ReportEngine
-
+def get_services(version: str = CURRENT_VERSION):
+    # 'version' es la clave de cache: cambiar CURRENT_VERSION fuerza la reconstruccion.
+    # Sin importlib.reload: una sola generacion de clases Pydantic viva en memoria.
     data_provider = MockDataProvider()
     db_manager = DataManager()
     bpa_engine = BPAEngine()
@@ -115,11 +90,10 @@ def get_services(version: str = "6.70.3 (Global Generic)"):
     validator = Validator()
     bankroll_manager = BankrollManager()
     report_engine = ReportEngine()
-    
+
     return data_provider, db_manager, bpa_engine, predictor, validator, bankroll_manager, report_engine
 
 # --- SERVICE INITIALIZATION ---
-CURRENT_VERSION = "6.70.2"
 data_provider, db_manager, bpa_engine, predictor, validator, bankroll_manager, report_engine = get_services(CURRENT_VERSION)
 
 # --- MAIN LAYOUT ---
