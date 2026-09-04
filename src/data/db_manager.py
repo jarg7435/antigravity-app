@@ -18,6 +18,33 @@ import requests
 from src.models.base import Match, PredictionResult
 
 
+def _cargar_match(raw, origen: str = "") -> Optional[Match]:
+    """
+    Deserializa un Match tolerando registros antiguos o corruptos.
+
+    Los estudios guardados antes de traducir el vocabulario de los enums, o con
+    un JSON danado, no deben tumbar el panel entero: se descartan con aviso.
+    """
+    try:
+        if isinstance(raw, dict):
+            return Match.model_validate(raw)
+        return Match.model_validate_json(raw)
+    except Exception as e:
+        print(f"[DB] ⚠️ Estudio ilegible{origen}: {type(e).__name__}")
+        return None
+
+
+def _cargar_prediction(raw, origen: str = "") -> Optional[PredictionResult]:
+    """Equivalente a _cargar_match para las predicciones."""
+    try:
+        if isinstance(raw, dict):
+            return PredictionResult.model_validate(raw)
+        return PredictionResult.model_validate_json(raw)
+    except Exception as e:
+        print(f"[DB] ⚠️ Prediccion ilegible{origen}: {type(e).__name__}")
+        return None
+
+
 class DataManager:
 
     def __init__(self, db_path="data/lagema.db"):
@@ -122,23 +149,25 @@ class DataManager:
     def get_match(self, match_id: str) -> Optional[Match]:
         if self.use_supabase:
             rows = self._sb_get("matches", f"id=eq.{match_id}&select=data_json")
-            if rows: return Match.model_validate_json(rows[0]["data_json"])
+            if rows: return _cargar_match(rows[0]["data_json"], f" (id={match_id})")
         else:
             conn = sqlite3.connect(self.db_path)
             r = conn.execute('SELECT data_json FROM matches WHERE id=?', (match_id,)).fetchone()
             conn.close()
-            if r: return Match.model_validate_json(r[0])
+            if r: return _cargar_match(r[0], f" (id={match_id})")
         return None
 
     def get_recent_matches(self, limit=20) -> List[Match]:
         if self.use_supabase:
             rows = self._sb_get("matches", f"select=data_json&order=date.desc&limit={limit}")
-            return [Match.model_validate_json(r["data_json"]) for r in rows]
+            cargados = [_cargar_match(r["data_json"]) for r in rows]
+            return [m for m in cargados if m is not None]
         else:
             conn = sqlite3.connect(self.db_path)
             rows = conn.execute('SELECT data_json FROM matches ORDER BY date DESC LIMIT ?', (limit,)).fetchall()
             conn.close()
-            return [Match.model_validate_json(r[0]) for r in rows]
+            cargados = [_cargar_match(r[0]) for r in rows]
+            return [m for m in cargados if m is not None]
 
     # =========================================================================
     # API PÚBLICA — Predictions
@@ -163,14 +192,12 @@ class DataManager:
             rows = self._sb_get("predictions", f"match_id=eq.{match_id}&select=prediction_json")
             if rows:
                 p_json = rows[0]["prediction_json"]
-                if isinstance(p_json, dict):
-                    return PredictionResult.model_validate(p_json)
-                return PredictionResult.model_validate_json(p_json)
+                return _cargar_prediction(p_json, f" (match={match_id})")
         else:
             conn = sqlite3.connect(self.db_path)
             r = conn.execute('SELECT prediction_json FROM predictions WHERE match_id=?', (match_id,)).fetchone()
             conn.close()
-            if r: return PredictionResult.model_validate_json(r[0])
+            if r: return _cargar_prediction(r[0], f" (match={match_id})")
         return None
 
     # =========================================================================

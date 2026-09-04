@@ -10,11 +10,39 @@ class PlayerPosition(str, Enum):
     FORWARD = "Delantero"
     MANAGER = "Entrenador"
 
+    @classmethod
+    def _missing_(cls, value):
+        # Studies saved before the vocabulary was translated still hold English
+        # values, and API-Football returns English too. Both must keep loading.
+        if not isinstance(value, str):
+            return None
+        return {
+            "goalkeeper": cls.GOALKEEPER, "gk": cls.GOALKEEPER, "portero": cls.GOALKEEPER,
+            "defender": cls.DEFENDER, "defence": cls.DEFENDER, "defensa": cls.DEFENDER,
+            "midfielder": cls.MIDFIELDER, "midfield": cls.MIDFIELDER,
+            "centrocampista": cls.MIDFIELDER, "mediocampista": cls.MIDFIELDER,
+            "forward": cls.FORWARD, "attacker": cls.FORWARD, "striker": cls.FORWARD,
+            "delantero": cls.FORWARD,
+            "manager": cls.MANAGER, "coach": cls.MANAGER, "entrenador": cls.MANAGER,
+        }.get(value.strip().lower())
+
 class PlayerStatus(str, Enum):
     TITULAR = "Titular"
     DUDA = "Duda"
     BAJA = "Baja"
     SUPLENTE = "Suplente"
+
+    @classmethod
+    def _missing_(cls, value):
+        if not isinstance(value, str):
+            return None
+        return {
+            "starter": cls.TITULAR, "titular": cls.TITULAR, "lineup": cls.TITULAR,
+            "doubt": cls.DUDA, "doubtful": cls.DUDA, "questionable": cls.DUDA, "duda": cls.DUDA,
+            "out": cls.BAJA, "injured": cls.BAJA, "suspended": cls.BAJA, "baja": cls.BAJA,
+            "substitute": cls.SUPLENTE, "sub": cls.SUPLENTE, "bench": cls.SUPLENTE,
+            "suplente": cls.SUPLENTE,
+        }.get(value.strip().lower())
 
 class NodeRole(str, Enum):
     FINALIZER = "Finalizador" # Delanteros/Extremos
@@ -83,6 +111,17 @@ class RefereeStrictness(str, Enum):
     HIGH = "Alto (Riguroso)"    # Many cards
     MEDIUM = "Medio (Equilibrado)" 
     LOW = "Bajo (Permisivo)"   # Few cards
+
+    @classmethod
+    def _missing_(cls, value):
+        if not isinstance(value, str):
+            return None
+        return {
+            "high (strict)": cls.HIGH, "high": cls.HIGH, "strict": cls.HIGH, "alto": cls.HIGH,
+            "medium (balanced)": cls.MEDIUM, "medium": cls.MEDIUM, "balanced": cls.MEDIUM,
+            "medio": cls.MEDIUM,
+            "low (permissive)": cls.LOW, "low": cls.LOW, "permissive": cls.LOW, "bajo": cls.LOW,
+        }.get(value.strip().lower())
 
 class Referee(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="ignore")
