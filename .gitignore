@@ -21,3 +21,7 @@ venv/
 
 # --- Notas de trabajo locales ---
 implementar.txt
+
+# --- Datos generados y material local ---
+data/cache/
+CAPTURAS/

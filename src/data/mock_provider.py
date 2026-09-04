@@ -7,6 +7,17 @@ class MockDataProvider(DataProvider):
     """
     Provides dummy data for testing the UI and Logic flow.
     Expanded for 5 Major Leagues.
+
+    ATENCION: datos de DEMOSTRACION, no aptos para alineaciones reales.
+
+    Las plantillas de _init_teams() estan codificadas a mano y corresponden a
+    la temporada 2023-24. Servirlas como alineacion causo el fallo que motivo
+    src/data/plantillas.py: la interfaz mostraba cinco jugadores del Real Betis
+    que ya no estaban en el club.
+
+    Para plantillas y alineaciones vigentes se usa src/data/plantillas.py, que
+    consulta football-data.org. Esta clase se conserva para los ratings y
+    metricas de equipo que todavia no tienen fuente real.
     """
     
     def __init__(self):

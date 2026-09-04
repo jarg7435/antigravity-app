@@ -21,6 +21,7 @@ from src.data.interface import DataProvider
 from src.data.auto_lineup_fetcher import AutoLineupFetcher
 from src.data.referee_source_mapper import RefereeSourceMapper
 from src.data.multi_source_fetcher import MultiSourceFetcher
+from src.data import plantillas as _plantillas
 
 # Configuración de logging profesional
 logging.basicConfig(
@@ -224,55 +225,87 @@ class LineupFetcher:
         team = self.data_provider.get_team_data(team_name)
         return [p.name for p in team.players[:11]] if team and team.players else []
 
-    def _safe_fallback(self, source_msg: str, home_team_name: str, away_team_name: str, 
-                       match_datetime: datetime) -> LineupResult:
+    def _filtrar_por_plantilla(self, result: LineupResult, home_team_name: str,
+                               away_team_name: str, league: str) -> LineupResult:
         """
-        Fallback controlado con metadatos completos y timestamp.
-        NUNCA retorna datos sin contexto de frescura.
+        Descarta de la alineacion a quien ya no esta en el club.
+
+        Las fuentes web arrastran con frecuencia onces de temporadas pasadas.
+        Se contrastan contra la plantilla vigente y, si no se puede obtener, la
+        alineacion se devuelve intacta: sin referencia no hay motivo para
+        descartar a nadie.
+        """
+        try:
+            casa, fuera_casa = _plantillas.filtrar_alineacion(result.home, home_team_name, league)
+            visit, fuera_visit = _plantillas.filtrar_alineacion(result.away, away_team_name, league)
+        except Exception as e:
+            logger.warning(f"No se pudo validar la vigencia de la alineacion: {e}")
+            return result
+
+        descartados = fuera_casa + fuera_visit
+        if not descartados:
+            return result
+
+        logger.warning(
+            f"Descartados {len(descartados)} jugador(es) que ya no estan en plantilla: "
+            f"{', '.join(descartados)}"
+        )
+        result.home = casa
+        result.away = visit
+        result.count = len(casa) + len(visit)
+        result.metadata = dict(result.metadata or {})
+        result.metadata["descartados_por_plantilla"] = descartados
+        return result
+
+    def _safe_fallback(self, source_msg: str, home_team_name: str, away_team_name: str,
+                       match_datetime: datetime, league: str = None) -> LineupResult:
+        """
+        Fallback con datos vigentes, nunca con plantillas de temporadas pasadas.
+
+        Antes recurria a data_provider.get_last_match_lineup(), que en la
+        practica devolvia las plantillas codificadas a mano de mock_provider:
+        onces de 2023-24 servidos como "ultimo partido conocido". Al comprobar
+        el Real Betis contra la plantilla real, cinco de los seis jugadores que
+        mostraba la interfaz ya no estaban en el club.
+
+        Ahora se usa la plantilla vigente de football-data.org, etiquetada como
+        lo que es —una plantilla, no un once inicial— y si no se puede obtener
+        se devuelve vacio: preferimos no saber a inventar.
         """
         logger.warning(f"Activando fallback: {source_msg}")
-        
+
+        plantilla_casa, plantilla_visitante = [], []
         try:
-            home_last = self.data_provider.get_last_match_lineup(home_team_name)
-            away_last = self.data_provider.get_last_match_lineup(away_team_name)
-            
-            # Verificar antigüedad del fallback
-            days_since_last = 999
-            try:
-                last_match_date = self.data_provider.get_last_match_date(home_team_name)
-                if last_match_date and isinstance(last_match_date, datetime):
-                    days_since_last = (datetime.now() - last_match_date).days
-            except (AttributeError, NotImplementedError):
-                # get_last_match_date no implementado en todos los DataProviders
-                # Intentar inferir desde la última alineación conocida
-                try:
-                    last_lineup = self.data_provider.get_last_match_lineup(home_team_name)
-                    if last_lineup:
-                        # Si hay alineación previa pero no fecha, asumir reciente
-                        days_since_last = 7
-                except Exception:
-                    pass
-            
-            freshness = LineupFreshness.STALE if days_since_last > 30 else LineupFreshness.FALLBACK
-            
+            plantilla_casa = _plantillas.plantilla_actual(home_team_name, league)
+            plantilla_visitante = _plantillas.plantilla_actual(away_team_name, league)
         except Exception as e:
-            logger.error(f"Error en fallback: {e}")
-            home_last, away_last = [], []
+            logger.error(f"Error obteniendo plantillas vigentes: {e}")
+
+        if plantilla_casa or plantilla_visitante:
+            freshness = LineupFreshness.FALLBACK
+            fuente = f"{source_msg} — plantilla vigente, no es el once inicial"
+        else:
+            # Sin plantilla verificable no se inventa nada.
             freshness = LineupFreshness.STALE
-        
+            fuente = f"{source_msg} — sin datos vigentes disponibles"
+
         return LineupResult(
-            home=home_last,
-            away=away_last,
+            home=plantilla_casa,
+            away=plantilla_visitante,
             bajas_detectadas=[],
-            source=f"{source_msg} (Fallback)",
-            count=len(home_last) + len(away_last),
+            source=fuente,
+            count=len(plantilla_casa) + len(plantilla_visitante),
             status='fallback',
             is_official=False,
             freshness=freshness,
             uncertainty_penalty=freshness.get_uncertainty_penalty(),
             timestamp=datetime.now(),
             match_datetime=match_datetime,
-            metadata={'fallback_reason': source_msg, 'days_since_last_match': days_since_last if 'days_since_last' in locals() else None}
+            metadata={
+                'fallback_reason': source_msg,
+                'es_plantilla_no_alineacion': bool(plantilla_casa or plantilla_visitante),
+                'fuente_plantilla': 'football-data.org' if plantilla_casa else None,
+            }
         )
 
     def fetch_smart_lineup(self, home_team_name: str, away_team_name: str, 
@@ -294,8 +327,8 @@ class LineupFetcher:
                     logger.warning(f"Fecha inválida, usando mañana como default: {match_datetime}")
             except Exception as e:
                 logger.error(f"Error normalizando fecha: {e}")
-                return self._safe_fallback("Error fecha inválida", home_team_name, 
-                                         away_team_name, match_datetime).to_dict()
+                return self._safe_fallback("Error fecha inválida", home_team_name,
+                                         away_team_name, match_datetime, league).to_dict()
 
         now = datetime.now()
         time_until_match = match_datetime - now
@@ -356,7 +389,7 @@ class LineupFetcher:
                     
                     logger.info(f"✅ MultiSource exitoso. Freshness: {freshness.value}, "
                               f"Penalty: {result.uncertainty_penalty}")
-                    return result.to_dict()
+                    return self._filtrar_por_plantilla(result, home_team_name, away_team_name, league).to_dict()
                     
             except Exception as e:
                 logger.error(f"MultiSourceFetcher falló: {e}")
@@ -365,7 +398,7 @@ class LineupFetcher:
             logger.info("Usando BD interna (alineación tipo/previa)")
             return self._safe_fallback('BD Interna (alineación tipo)', 
                                      home_team_name, away_team_name, 
-                                     match_datetime).to_dict()
+                                     match_datetime, league).to_dict()
 
         # =================================================================
         # ESTRATEGIA: Dentro de 1 hora (Live/Confirmado)
@@ -403,7 +436,7 @@ class LineupFetcher:
                         )
                         
                         logger.info(f"✅ Alineación LIVE confirmada. Freshness: {freshness.value}")
-                        return result.to_dict()
+                        return self._filtrar_por_plantilla(result, home_team_name, away_team_name, league).to_dict()
                     else:
                         logger.warning("MultiSource retornó fallback en modo live, intentando AutoFetcher...")
                         
@@ -440,7 +473,7 @@ class LineupFetcher:
                         )
                         
                         logger.info(f"✅ AutoFetcher exitoso. Freshness: {freshness.value}")
-                        return result.to_dict()
+                        return self._filtrar_por_plantilla(result, home_team_name, away_team_name, league).to_dict()
                     else:
                         logger.warning(f"AutoFetcher integridad fallida: {integrity['issues']}")
                         
@@ -451,7 +484,7 @@ class LineupFetcher:
             logger.error("Todas las fuentes fallaron en modo live. Usando fallback de emergencia.")
             return self._safe_fallback('BD Interna (fuentes web no disponibles)', 
                                      home_team_name, away_team_name,
-                                     match_datetime).to_dict()
+                                     match_datetime, league).to_dict()
 
     def fetch_match_referee(self, home_team: str, away_team: str, 
                            match_date: datetime, league: str) -> dict:

@@ -200,13 +200,15 @@ if st.session_state.get("review_study"):
                     )
                     # Si la web no devuelve datos, usar BD interna como fallback real
                     if not new_lu.get("home") and not new_lu.get("away"):
-                        upd_h = data_provider.get_team_data(home_name_rs)
-                        upd_a = data_provider.get_team_data(away_name_rs)
+                        # Plantilla vigente en vez de la plantilla codificada del
+                        # proveedor de demo, que arrastraba jugadores de 2023-24.
+                        from src.data import plantillas as _pl
+                        _liga_rs = rs.get("competition") if isinstance(rs, dict) else None
                         new_lu = {
-                            "home": [p.name for p in upd_h.players[:11]],
-                            "away": [p.name for p in upd_a.players[:11]],
+                            "home": _pl.plantilla_actual(home_name_rs, _liga_rs),
+                            "away": _pl.plantilla_actual(away_name_rs, _liga_rs),
                             "is_official": False,
-                            "source": "BD Interna (alineación tipo del último partido conocido)"
+                            "source": "Plantilla vigente (football-data.org) — no es el once inicial"
                         }
 
                     if new_lu.get("home") or new_lu.get("away"):
