@@ -4,7 +4,7 @@ APIManager — Orquestador de APIs REALES para LAGEMA JARG74
 VERSIÓN 5.1 — Correcciones basadas en test real
 
 CORRECCIONES v5.1:
-  - API-Football: Soporta Direct (v3.api-football.com) y RapidAPI
+  - API-Football: Soporta Direct (v3.football.api-sports.io) y RapidAPI
     Auto-detecta y prueba ambos modos
   - Sportmonks: Corregido — search endpoints usan query parameter correcto
     No se puede pasar ID a endpoints de search
@@ -30,6 +30,7 @@ import requests
 from dotenv import load_dotenv
 
 from src.data.api_football import LEAGUE_IDS as _LEAGUE_IDS_CANONICO
+from src.data.api_football import APIFootballClient as _ClienteCanonico
 
 load_dotenv()
 
@@ -90,7 +91,7 @@ class APIFootballClient:
     
     Soporta 2 configuraciones:
       1. RapidAPI: api-football-v1.p.rapidapi.com + X-RapidAPI-Key
-      2. Direct (v3): v3.api-football.com + x-apisports-key
+      2. Direct (v3): v3.football.api-sports.io + x-apisports-key
     
     Prueba automáticamente ambos modos y usa el que funciona.
     """
@@ -103,16 +104,20 @@ class APIFootballClient:
     LEAGUE_NAME_BY_ID = {v: k for k, v in LEAGUE_IDS.items()}
 
     # Configuraciones de conexión para cada modo
+    # Las URLs base salen del cliente canonico: cuando este modulo tenia su
+    # propia copia, la del modo directo apuntaba a v3.api-football.com, un host
+    # que ni siquiera resuelve, y el probe caia siempre a rapidapi (403 con una
+    # llave directa). Toda la ruta API-Football de app/main.py estaba muerta.
     MODES = {
         "rapidapi": {
-            "base_url": "https://api-football-v1.p.rapidapi.com/v3",
+            "base_url": _ClienteCanonico.BASE_URL_RAPIDAPI,
             "headers": lambda key: {
                 "X-RapidAPI-Key": key,
                 "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"
             }
         },
         "direct": {
-            "base_url": "https://v3.api-football.com",
+            "base_url": _ClienteCanonico.BASE_URL_DIRECT,
             "headers": lambda key: {
                 "x-apisports-key": key
             }
