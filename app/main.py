@@ -11,14 +11,16 @@ import streamlit as st
 # Código de acceso desde variable de entorno (seguro para GitHub/Streamlit Cloud)
 # En Streamlit Cloud: Settings → Secrets → ACCESS_CODE = "tu_codigo"
 # En local: crea un archivo .env con ACCESS_CODE=tu_codigo
+# Load environment variables
+# Debe ir ANTES de leer ACCESS_CODE: si no, os.getenv todavia no ve el .env.
+load_dotenv()
+
+# Sin valor por defecto a proposito: un PIN conocido es peor que un arranque
+# fallido, porque deja la app abierta sin que nadie se entere.
 try:
     SECRET_CODE = st.secrets["ACCESS_CODE"]
 except Exception:
-    SECRET_CODE = os.getenv("ACCESS_CODE", "1234")  # Fallback solo para desarrollo local
-# Force rebuild comment: f"Resetting system at 2026-03-06T11:32"
-
-# Load environment variables
-load_dotenv()
+    SECRET_CODE = os.getenv("ACCESS_CODE", "")
 
 # --- AUTHENTICATION ---
 if "authenticated" not in st.session_state:
@@ -34,6 +36,13 @@ def check_password():
 
 if not st.session_state.authenticated:
     st.set_page_config(page_title="Acceso Restringido", page_icon="🔒")
+
+    if not SECRET_CODE:
+        st.error("⚠️ No hay código de acceso configurado. La app no puede arrancar.")
+        st.markdown("En **Streamlit Cloud**: Settings → Secrets → `ACCESS_CODE = 'tu_codigo'`")
+        st.markdown("En **local**: añade `ACCESS_CODE=tu_codigo` al archivo `.env`")
+        st.stop()
+
     st.markdown("<h1 style='text-align: center;'>🔒 Acceso Restringido</h1>", unsafe_allow_html=True)
     st.markdown("<p style='text-align: center;'>Por favor, introduce el código de acceso para entrar en Antigravity.</p>", unsafe_allow_html=True)
     
@@ -1233,7 +1242,25 @@ with st.sidebar:
                 
                 for api_name, status in api_results.items():
                     st.markdown(f"**{api_name}**: {status}")
-        
+
+        # Fuentes de la cascada de multi_source_fetcher: si una no inicializa,
+        # la cascada sigue en silencio con la siguiente, asi que se muestra aqui.
+        try:
+            from src.data.multi_source_fetcher import get_source_status
+            fuentes = get_source_status()
+        except Exception:
+            fuentes = {}
+
+        if fuentes:
+            st.markdown('<p style="color:#fdffcc;font-size:0.75rem;font-weight:bold;margin-top:8px;">Fuentes de la cascada</p>', unsafe_allow_html=True)
+            for nombre, info in fuentes.items():
+                if info.get("ok"):
+                    st.markdown(f"**{nombre}**: ✅ activa")
+                else:
+                    st.markdown(f"**{nombre}**: ❌ {info.get('motivo') or 'no disponible'}")
+        else:
+            st.markdown('<p style="color:#888;font-size:0.7rem;">Fuentes de la cascada: sin datos todavía (se registran al primer uso).</p>', unsafe_allow_html=True)
+
         st.markdown('<p style="color:#888;font-size:0.7rem;">Las APIs proporcionan datos de árbitros, alineaciones, clasificación y H2H reales.</p>', unsafe_allow_html=True)
 
     # =====================================================================
