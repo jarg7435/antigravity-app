@@ -52,15 +52,37 @@ def _enrich(ref):
     return ref
 
 
+# Estado de la ultima inicializacion de cada fuente.
+# La cascada ignora a proposito las fuentes que fallan y sigue con la siguiente,
+# asi que sin este registro una fuente caida es invisible desde la interfaz.
+_ESTADO_FUENTES: Dict[str, Dict] = {}
+
+
+def _marcar_fuente(nombre: str, ok: bool, motivo: str = None):
+    _ESTADO_FUENTES[nombre] = {
+        "ok": ok,
+        "motivo": motivo,
+        "ts": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
+def get_source_status() -> Dict[str, Dict]:
+    """Resultado de la ultima inicializacion de cada fuente, para diagnostico."""
+    return dict(_ESTADO_FUENTES)
+
+
 def _get_api_football_client():
     """Inicializa lazy del cliente API-Football."""
     try:
         from src.data.api_football import APIFootballClient
         client = APIFootballClient()
         if client.is_configured:
+            _marcar_fuente("API-Football", True)
             return client
+        _marcar_fuente("API-Football", False, "sin API_FOOTBALL_KEY configurada")
     except Exception as e:
         print(f"  [MSF] API-Football init error: {e}")
+        _marcar_fuente("API-Football", False, f"{type(e).__name__}: {e}")
     return None
 
 
@@ -70,9 +92,12 @@ def _get_football_data_client():
         from src.data.football_data_org import FootballDataClient
         client = FootballDataClient()
         if client.is_configured:
+            _marcar_fuente("Football-Data.org", True)
             return client
+        _marcar_fuente("Football-Data.org", False, "sin FOOTBALL_DATA_API_KEY configurada")
     except Exception as e:
         print(f"  [MSF] Football-Data.org init error: {e}")
+        _marcar_fuente("Football-Data.org", False, f"{type(e).__name__}: {e}")
     return None
 
 
