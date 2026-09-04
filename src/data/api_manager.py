@@ -129,7 +129,9 @@ class APIFootballClient:
         if not self.api_key:
             logger.warning("[API-Football] Sin API key configurada")
         
-        self.rate_limiter = RateLimiter(calls_per_minute=28)
+        # La API declara x-ratelimit-limit: 10 por minuto en el plan gratuito.
+        # Estaba en 28, casi el triple, lo que provocaba 403 en rafaga.
+        self.rate_limiter = RateLimiter(calls_per_minute=9)
         self.detected_type = _detect_api_key_type(self.api_key)
         self.session = requests.Session()
         
@@ -295,12 +297,22 @@ class APIFootballClient:
 
     def get_head_to_head(self, team1_id: int, team2_id: int,
                          last: int = 10) -> List[dict]:
-        """Obtiene historial de enfrentamientos directos."""
-        params = {"h2h": f"{team1_id}-{team2_id}", "last": last}
-        data = self._get("fixtures/headtohead", params)
+        """
+        Historial de enfrentamientos directos, del mas reciente al mas antiguo.
+
+        No se envia el parametro "last": el plan gratuito lo rechaza con
+        "Free plans do not have access to the Last parameter" y devuelve cero
+        resultados. Se pide el historial completo y se recorta aqui, que
+        funciona en cualquier plan.
+        """
+        data = self._get("fixtures/headtohead", {"h2h": f"{team1_id}-{team2_id}"})
         if not data:
             return []
-        return data.get("response", [])
+        enfrentamientos = data.get("response", [])
+        enfrentamientos.sort(
+            key=lambda f: (f.get("fixture") or {}).get("date", ""), reverse=True
+        )
+        return enfrentamientos[:last] if last else enfrentamientos
 
     # =========================================================================
     # EQUIPOS Y ESTADÍSTICAS
@@ -354,12 +366,40 @@ class APIFootballClient:
     # =========================================================================
 
     def get_referees(self, league_id: int = None, season: int = None) -> List[dict]:
-        """Lista de árbitros disponibles."""
-        params = {}
-        if league_id: params["league"] = league_id
-        if season: params["season"] = season
-        data = self._get("referees", params)
-        return data.get("response", []) if data else []
+        """
+        Arbitros de una liga, con cuantos partidos se les ha visto.
+
+        API-Football NO tiene endpoint /referees: responde "The Referees
+        endpoint does not exist", y por eso este metodo devolvia siempre lista
+        vacia. El arbitro viaja en el campo "referee" de cada fixture, que es
+        de donde se extrae aqui.
+
+        Returns:
+            [{"name": str, "fixtures": int, "source": "api-football"}, ...]
+        """
+        if not league_id:
+            logger.warning("[API-Football] get_referees necesita league_id")
+            return []
+
+        params = {"league": league_id}
+        if season:
+            params["season"] = season
+        data = self._get("fixtures", params)
+        if not data:
+            return []
+
+        arbitros = {}
+        for f in data.get("response", []):
+            nombre = (f.get("fixture") or {}).get("referee")
+            if not nombre:
+                continue
+            nombre = nombre.split(",")[0].strip()
+            entrada = arbitros.setdefault(
+                nombre, {"name": nombre, "fixtures": 0, "source": "api-football"}
+            )
+            entrada["fixtures"] += 1
+
+        return sorted(arbitros.values(), key=lambda a: -a["fixtures"])
 
     # =========================================================================
     # ESTADÍSTICAS DE PARTIDO
