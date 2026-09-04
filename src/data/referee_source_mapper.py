@@ -156,21 +156,14 @@ class LaLigaRefereeScraper(BaseRefereeScraper):
             return self._fallback_referee()
     
     def _fallback_referee(self) -> Dict:
-        """Return a realistic La Liga referee as fallback."""
-        import random
-        pool = [
-            {'name': 'Gil Manzano', 'strictness': RefereeStrictness.HIGH, 'avg': 5.8},
-            {'name': 'Sánchez Martínez', 'strictness': RefereeStrictness.MEDIUM, 'avg': 4.5},
-            {'name': 'Hernández Hernández', 'strictness': RefereeStrictness.HIGH, 'avg': 5.5},
-            {'name': 'Díaz de Mera', 'strictness': RefereeStrictness.LOW, 'avg': 3.8},
-            {'name': 'Munuera Montero', 'strictness': RefereeStrictness.MEDIUM, 'avg': 4.2}
-        ]
-        ref = random.choice(pool)
+        """Return fallback when referee cannot be found.
+        NEVER returns a random referee — that causes incorrect data."""
         return {
-            'name': ref['name'],
-            'strictness': ref['strictness'],
-            'avg_cards': ref['avg'],
-            'source': 'Fallback Pool'
+            'name': 'No Detectado',
+            'strictness': RefereeStrictness.MEDIUM,
+            'avg_cards': 4.0,
+            'source': 'Fallback — introduce el árbitro manualmente',
+            '_is_fallback': True
         }
 
 
@@ -214,20 +207,13 @@ class PremierLeagueRefereeScraper(BaseRefereeScraper):
             return self._fallback_referee()
     
     def _fallback_referee(self) -> Dict:
-        import random
-        pool = [
-            {'name': 'Michael Oliver', 'strictness': RefereeStrictness.HIGH, 'avg': 4.9},
-            {'name': 'Anthony Taylor', 'strictness': RefereeStrictness.HIGH, 'avg': 5.1},
-            {'name': 'Craig Pawson', 'strictness': RefereeStrictness.LOW, 'avg': 3.4},
-            {'name': 'Paul Tierney', 'strictness': RefereeStrictness.MEDIUM, 'avg': 4.0},
-            {'name': 'Simon Hooper', 'strictness': RefereeStrictness.MEDIUM, 'avg': 4.2}
-        ]
-        ref = random.choice(pool)
+        """Return fallback when referee cannot be found."""
         return {
-            'name': ref['name'],
-            'strictness': ref['strictness'],
-            'avg_cards': ref['avg'],
-            'source': 'Fallback Pool'
+            'name': 'No Detectado',
+            'strictness': RefereeStrictness.MEDIUM,
+            'avg_cards': 4.0,
+            'source': 'Fallback — introduce el árbitro manualmente',
+            '_is_fallback': True
         }
 
 
@@ -268,19 +254,13 @@ class SerieARefereeScraper(BaseRefereeScraper):
             return self._fallback_referee()
     
     def _fallback_referee(self) -> Dict:
-        import random
-        pool = [
-            {'name': 'Daniele Orsato', 'strictness': RefereeStrictness.HIGH, 'avg': 5.3},
-            {'name': 'Marco Guida', 'strictness': RefereeStrictness.LOW, 'avg': 3.6},
-            {'name': 'Davide Massa', 'strictness': RefereeStrictness.MEDIUM, 'avg': 4.4},
-            {'name': 'Maurizio Mariani', 'strictness': RefereeStrictness.MEDIUM, 'avg': 4.1}
-        ]
-        ref = random.choice(pool)
+        """Return fallback when referee cannot be found."""
         return {
-            'name': ref['name'],
-            'strictness': ref['strictness'],
-            'avg_cards': ref['avg'],
-            'source': 'Fallback Pool'
+            'name': 'No Detectado',
+            'strictness': RefereeStrictness.MEDIUM,
+            'avg_cards': 4.0,
+            'source': 'Fallback — introduce el árbitro manualmente',
+            '_is_fallback': True
         }
 
 
@@ -320,19 +300,13 @@ class BundesligaRefereeScraper(BaseRefereeScraper):
             return self._fallback_referee()
     
     def _fallback_referee(self) -> Dict:
-        import random
-        pool = [
-            {'name': 'Felix Brych', 'strictness': RefereeStrictness.HIGH, 'avg': 4.8},
-            {'name': 'Tobias Stieler', 'strictness': RefereeStrictness.LOW, 'avg': 3.3},
-            {'name': 'Deniz Aytekin', 'strictness': RefereeStrictness.MEDIUM, 'avg': 4.0},
-            {'name': 'Marco Fritz', 'strictness': RefereeStrictness.MEDIUM, 'avg': 3.9}
-        ]
-        ref = random.choice(pool)
+        """Return fallback when referee cannot be found."""
         return {
-            'name': ref['name'],
-            'strictness': ref['strictness'],
-            'avg_cards': ref['avg'],
-            'source': 'Fallback Pool'
+            'name': 'No Detectado',
+            'strictness': RefereeStrictness.MEDIUM,
+            'avg_cards': 4.0,
+            'source': 'Fallback — introduce el árbitro manualmente',
+            '_is_fallback': True
         }
 
 
@@ -372,19 +346,13 @@ class Ligue1RefereeScraper(BaseRefereeScraper):
             return self._fallback_referee()
     
     def _fallback_referee(self) -> Dict:
-        import random
-        pool = [
-            {'name': 'Clément Turpin', 'strictness': RefereeStrictness.HIGH, 'avg': 4.7},
-            {'name': 'Benoît Bastien', 'strictness': RefereeStrictness.MEDIUM, 'avg': 4.0},
-            {'name': 'François Letexier', 'strictness': RefereeStrictness.MEDIUM, 'avg': 3.8},
-            {'name': 'Jérôme Brisard', 'strictness': RefereeStrictness.LOW, 'avg': 3.3}
-        ]
-        ref = random.choice(pool)
+        """Return fallback when referee cannot be found."""
         return {
-            'name': ref['name'],
-            'strictness': ref['strictness'],
-            'avg_cards': ref['avg'],
-            'source': 'Fallback Pool'
+            'name': 'No Detectado',
+            'strictness': RefereeStrictness.MEDIUM,
+            'avg_cards': 4.0,
+            'source': 'Fallback — introduce el árbitro manualmente',
+            '_is_fallback': True
         }
 
 
@@ -395,20 +363,13 @@ class InternationalRefereePoolScraper(BaseRefereeScraper):
         return self._fallback_referee()
             
     def _fallback_referee(self) -> Dict:
-        import random
-        pool = [
-            {'name': 'Glenn Nyberg', 'strictness': RefereeStrictness.MEDIUM, 'avg': 4.1},
-            {'name': 'Sandro Schärer', 'strictness': RefereeStrictness.HIGH, 'avg': 4.8},
-            {'name': 'Erik Lambrechts', 'strictness': RefereeStrictness.MEDIUM, 'avg': 3.9},
-            {'name': 'Donatas Rumšas', 'strictness': RefereeStrictness.LOW, 'avg': 3.4},
-            {'name': 'Irati Gallastegui', 'strictness': RefereeStrictness.MEDIUM, 'avg': 4.2}
-        ]
-        ref = random.choice(pool)
+        """Return fallback when referee cannot be found."""
         return {
-            'name': ref['name'],
-            'strictness': ref['strictness'],
-            'avg_cards': ref['avg'],
-            'source': 'International Pool'
+            'name': 'No Detectado',
+            'strictness': RefereeStrictness.MEDIUM,
+            'avg_cards': 4.0,
+            'source': 'International Pool — introduce el árbitro manualmente',
+            '_is_fallback': True
         }
 
 
@@ -416,17 +377,11 @@ class FallbackRefereeScraper(BaseRefereeScraper):
     """Fallback scraper for unsupported leagues."""
     
     def fetch_referee(self, home_team: str, away_team: str, match_date: datetime) -> Dict:
-        """Return a generic referee for unsupported leagues."""
-        import random
-        pool = [
-            {'name': 'Referee A', 'strictness': RefereeStrictness.MEDIUM, 'avg': 4.0},
-            {'name': 'Referee B', 'strictness': RefereeStrictness.HIGH, 'avg': 5.0},
-            {'name': 'Referee C', 'strictness': RefereeStrictness.LOW, 'avg': 3.5}
-        ]
-        ref = random.choice(pool)
+        """Return fallback when referee cannot be found."""
         return {
-            'name': ref['name'],
-            'strictness': ref['strictness'],
-            'avg_cards': ref['avg'],
-            'source': 'Generic Pool'
+            'name': 'No Detectado',
+            'strictness': RefereeStrictness.MEDIUM,
+            'avg_cards': 4.0,
+            'source': 'Generic Pool — introduce el árbitro manualmente',
+            '_is_fallback': True
         }

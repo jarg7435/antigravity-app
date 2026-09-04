@@ -94,6 +94,76 @@ REFEREE_DB = {
         "profile": "Árbitro FIFA. Gestión equilibrada.",
         "verification_url": "https://www.rfef.es/noticias/arbitros/designaciones"
     },
+    "Adrián Cordero Vega": {
+        "league": "La Liga", "country": "Spain",
+        "avg_cards": 4.3, "avg_yellows": 3.9, "avg_reds": 0.11,
+        "penalty_rate": 1.0, "strictness": "MEDIUM",
+        "profile": "Árbitro Segunda División con experiencia en Primera. Estilo equilibrado.",
+        "verification_url": "https://www.rfef.es/noticias/arbitros/designaciones"
+    },
+    "Cordero Vega": {
+        "league": "La Liga", "country": "Spain",
+        "avg_cards": 4.3, "avg_yellows": 3.9, "avg_reds": 0.11,
+        "penalty_rate": 1.0, "strictness": "MEDIUM",
+        "profile": "Árbitro Segunda División con experiencia en Primera. Estilo equilibrado.",
+        "verification_url": "https://www.rfef.es/noticias/arbitros/designaciones"
+    },
+    "Mateo Busquets Ferrer": {
+        "league": "La Liga", "country": "Spain",
+        "avg_cards": 4.2, "avg_yellows": 3.8, "avg_reds": 0.10,
+        "penalty_rate": 0.9, "strictness": "MEDIUM",
+        "profile": "Árbitro de La Liga. Consistente en sus decisiones.",
+        "verification_url": "https://www.rfef.es/noticias/arbitros/designaciones"
+    },
+    "Guillermo Cuadra Fernández": {
+        "league": "La Liga", "country": "Spain",
+        "avg_cards": 4.1, "avg_yellows": 3.7, "avg_reds": 0.10,
+        "penalty_rate": 0.9, "strictness": "MEDIUM",
+        "profile": "Árbitro de La Liga. Juego equilibrado.",
+        "verification_url": "https://www.rfef.es/noticias/arbitros/designaciones"
+    },
+    "Alejandro Muñiz Ruiz": {
+        "league": "La Liga", "country": "Spain",
+        "avg_cards": 4.5, "avg_yellows": 4.1, "avg_reds": 0.12,
+        "penalty_rate": 1.0, "strictness": "MEDIUM",
+        "profile": "Árbitro de La Liga. Activo con la tarjeta amarilla.",
+        "verification_url": "https://www.rfef.es/noticias/arbitros/designaciones"
+    },
+    "Javier Alberola Rojas": {
+        "league": "La Liga", "country": "Spain",
+        "avg_cards": 4.0, "avg_yellows": 3.6, "avg_reds": 0.09,
+        "penalty_rate": 0.8, "strictness": "LOW",
+        "profile": "Árbitro de La Liga. Permisivo con el contacto.",
+        "verification_url": "https://www.rfef.es/noticias/arbitros/designaciones"
+    },
+    "Iosu Galech Apezteguía": {
+        "league": "La Liga", "country": "Spain",
+        "avg_cards": 4.3, "avg_yellows": 3.9, "avg_reds": 0.11,
+        "penalty_rate": 1.0, "strictness": "MEDIUM",
+        "profile": "Árbitro de La Liga. Criterio moderno.",
+        "verification_url": "https://www.rfef.es/noticias/arbitros/designaciones"
+    },
+    "Miguel Ortiz Arias": {
+        "league": "La Liga", "country": "Spain",
+        "avg_cards": 4.2, "avg_yellows": 3.8, "avg_reds": 0.10,
+        "penalty_rate": 0.9, "strictness": "MEDIUM",
+        "profile": "Árbitro de La Liga. Correcto en sus decisiones.",
+        "verification_url": "https://www.rfef.es/noticias/arbitros/designaciones"
+    },
+    "César Soto Grado": {
+        "league": "La Liga", "country": "Spain",
+        "avg_cards": 4.4, "avg_yellows": 4.0, "avg_reds": 0.12,
+        "penalty_rate": 1.0, "strictness": "MEDIUM",
+        "profile": "Árbitro de La Liga. Estilo firme.",
+        "verification_url": "https://www.rfef.es/noticias/arbitros/designaciones"
+    },
+    "Víctor García Verdura": {
+        "league": "La Liga", "country": "Spain",
+        "avg_cards": 3.9, "avg_yellows": 3.5, "avg_reds": 0.08,
+        "penalty_rate": 0.8, "strictness": "LOW",
+        "profile": "Árbitro de La Liga. Deja jugar.",
+        "verification_url": "https://www.rfef.es/noticias/arbitros/designaciones"
+    },
 
     # =========================================================================
     # PREMIER LEAGUE (INGLATERRA)
