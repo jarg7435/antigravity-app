@@ -29,6 +29,8 @@ from typing import Dict, List, Optional, Any, Tuple
 import requests
 from dotenv import load_dotenv
 
+from src.data.api_football import LEAGUE_IDS as _LEAGUE_IDS_CANONICO
+
 load_dotenv()
 
 logger = logging.getLogger("LAGEMA_API")
@@ -94,28 +96,9 @@ class APIFootballClient:
     """
 
     # Mapping de ligas principales
-    LEAGUE_IDS = {
-        "La Liga": 140,
-        "Premier League": 39,
-        "Bundesliga": 78,
-        "Serie A": 135,
-        "Ligue 1": 61,
-        "Champions League": 2,
-        "Europa League": 3,
-        "Conference League": 848,
-        "Copa Libertadores": 13,
-        "Copa Sudamericana": 14,
-        "Eredivisie": 88,
-        "Primeira Liga": 94,
-        "Süper Lig": 203,
-        "Scottish Premiership": 179,
-        "Belgian Pro League": 144,
-        "Segunda División": 141,
-        "Championship": 40,
-        "Bundesliga 2": 79,
-        "Serie B": 136,
-        "Ligue 2": 62,
-    }
+    # Fuente unica: el mapa canonico vive en api_football. Cuando cada cliente
+    # tenia el suyo, divergieron (Copa Sudamericana era 14 aqui y 11 alli).
+    LEAGUE_IDS = _LEAGUE_IDS_CANONICO
 
     LEAGUE_NAME_BY_ID = {v: k for k, v in LEAGUE_IDS.items()}
 

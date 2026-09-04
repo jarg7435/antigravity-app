@@ -47,6 +47,17 @@ LEAGUE_IDS = {
     "Copa Sudamericana": 11,
     "Brasileirao": 71,
     "Primera División Argentina": 128,
+    # Segundas divisiones y otras ligas europeas
+    "Segunda División": 141,
+    "Championship": 40,
+    "Bundesliga 2": 79,
+    "Serie B": 136,
+    "Ligue 2": 62,
+    "Eredivisie": 88,
+    "Primeira Liga": 94,
+    "Süper Lig": 203,
+    "Scottish Premiership": 179,
+    "Belgian Pro League": 144,
 }
 
 # Reverse map: API id → nombre legible
