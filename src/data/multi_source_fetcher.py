@@ -74,8 +74,8 @@ def get_source_status() -> Dict[str, Dict]:
 def _get_api_football_client():
     """Inicializa lazy del cliente API-Football."""
     try:
-        from src.data.api_football import APIFootballClient
-        client = APIFootballClient()
+        from src.data.api_football import cliente_compartido
+        client = cliente_compartido()
         if client.is_configured:
             _marcar_fuente("API-Football", True)
             return client

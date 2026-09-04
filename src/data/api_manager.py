@@ -31,6 +31,8 @@ from dotenv import load_dotenv
 
 from src.data.api_football import LEAGUE_IDS as _LEAGUE_IDS_CANONICO
 from src.data.api_football import APIFootballClient as _ClienteCanonico
+from src.data.api_football import cliente_compartido as _cliente_compartido
+from src.data.cache_manager import TTLConfig as _TTL
 
 load_dotenv()
 
@@ -221,48 +223,65 @@ class APIFootballClient:
         self._working_mode = "failed"
         return "failed"
 
+    # TTL por endpoint, para que la cache del cliente canonico no sirva datos
+    # rancios ni vuelva a pedir lo que no cambia.
+    _TTL_POR_ENDPOINT = {
+        "fixtures/headtohead": _TTL.H2H_RECORDS,
+        "teams": _TTL.TEAM_INFO,
+        "teams/statistics": _TTL.SEASON_STATS,
+        "standings": _TTL.STANDINGS,
+        "injuries": _TTL.INJURIES,
+        "fixtures/lineups": _TTL.LINEUPS_CONFIRMED,
+        "fixtures/statistics": _TTL.SEASON_STATS,
+        "fixtures/events": _TTL.SEASON_STATS,
+    }
+
+    @staticmethod
+    def _clave_cache(endpoint: str, params: dict) -> Tuple[str, str]:
+        """Identificador estable de una peticion, para indexarla en la cache."""
+        partes = "&".join(f"{k}={v}" for k, v in sorted((params or {}).items()))
+        return endpoint.replace("/", "_"), partes or "sin_params"
+
+    def _ttl_de(self, endpoint: str, params: dict) -> float:
+        if params and params.get("live"):
+            return _TTL.LIVE_MATCH
+        return self._TTL_POR_ENDPOINT.get(endpoint, _TTL.FIXTURES_TODAY)
+
     def _get(self, endpoint: str, params: dict = None) -> Optional[dict]:
-        """Petición GET con rate limiting, probe automático y manejo de errores."""
-        self.rate_limiter.wait_if_needed()
-        
-        # Probe en la primera petición
+        """
+        Peticion GET delegada al cliente canonico compartido.
+
+        El transporte —sesion, cache y ritmo— vive en
+        api_football.cliente_compartido(). Mantener aqui un segundo transporte
+        contra la misma API duplicaba el gasto de un plan de 100 peticiones al
+        dia, porque cada cliente cacheaba por su cuenta.
+
+        Se conserva el probe local, que decide el modo de autenticacion
+        probandolo de verdad en lugar de deducirlo del patron de la llave, y se
+        mantiene el contrato de devolver None ante cualquier error.
+        """
         if not self._probed:
-            mode = self._probe_connection()
-            if mode == "failed":
+            if self._probe_connection() == "failed":
                 return None
-        
-        base_url = self._working_base_url or self._current_base_url
-        url = f"{base_url}/{endpoint}"
-        
+
+        canonico = _cliente_compartido()
+
+        # El resultado del probe manda sobre la deteccion por patron.
+        if self._working_base_url and canonico.BASE_URL != self._working_base_url:
+            canonico.BASE_URL = self._working_base_url
+            if self._working_headers:
+                canonico._session.headers.update(self._working_headers)
+
+        categoria, ident = self._clave_cache(endpoint, params)
         try:
-            response = self.session.get(url, params=params, timeout=15)
-            if response.status_code == 200:
-                data = response.json()
-                results = data.get("results", 0)
-                logger.info(f"[API-Football] {endpoint} -> {results} resultados")
-                return data
-            elif response.status_code in (401, 403):
-                logger.error(f"[API-Football] ❌ AUTH ERROR {response.status_code}")
-                # Re-probar con modo alternativo
-                if self._working_mode != "failed":
-                    old_mode = self._working_mode
-                    self._probed = False
-                    new_mode = self._probe_connection()
-                    if new_mode != "failed" and new_mode != old_mode:
-                        return self._get(endpoint, params)
-                return None
-            elif response.status_code == 429:
-                logger.warning("[API-Football] Rate limit alcanzado, esperando 60s...")
-                time.sleep(60)
-                return self._get(endpoint, params)
-            else:
-                logger.error(f"[API-Football] Error {response.status_code}: {response.text[:200]}")
-                return None
-        except requests.exceptions.Timeout:
-            logger.error(f"[API-Football] Timeout en {endpoint}")
-            return None
+            return canonico._request(
+                endpoint, params,
+                cache_category=categoria,
+                cache_id=ident,
+                cache_ttl=self._ttl_de(endpoint, params),
+            )
         except Exception as e:
-            logger.error(f"[API-Football] Error: {e}")
+            logger.error(f"[API-Football] {endpoint}: {type(e).__name__}: {str(e)[:120]}")
             return None
 
     # =========================================================================

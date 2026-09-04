@@ -124,8 +124,11 @@ class APIFootballClient:
                 "x-apisports-key": self._api_key,
                 "Accept": "application/json"
             })
-        self._last_request_time = 0
-        self._min_interval = 1.0  # Mínimo 1 segundo entre peticiones
+        # La API declara x-ratelimit-limit: 10 peticiones por minuto en el plan
+        # gratuito. Un intervalo fijo de 1s permitia hasta 60/min y provocaba
+        # 403 en rafaga; se usa una ventana deslizante con margen.
+        self._peticiones = []
+        self._max_por_minuto = 9
 
         if not self._api_key:
             logger.warning(
@@ -152,11 +155,17 @@ class APIFootballClient:
         return bool(self._api_key)
 
     def _rate_limit(self):
-        """Respeta el rate limit entre peticiones."""
-        elapsed = time.time() - self._last_request_time
-        if elapsed < self._min_interval:
-            time.sleep(self._min_interval - elapsed)
-        self._last_request_time = time.time()
+        """Espera lo justo para no superar el limite por minuto de la API."""
+        ahora = time.time()
+        self._peticiones = [t for t in self._peticiones if ahora - t < 60]
+        if len(self._peticiones) >= self._max_por_minuto:
+            espera = 60 - (ahora - self._peticiones[0]) + 0.1
+            if espera > 0:
+                logger.info(f"Rate limit local: esperando {espera:.1f}s")
+                time.sleep(espera)
+                ahora = time.time()
+                self._peticiones = [t for t in self._peticiones if ahora - t < 60]
+        self._peticiones.append(time.time())
 
     def _request(
         self,
@@ -798,3 +807,26 @@ class APIFootballClient:
         if responses:
             return responses[0].get("seasons", [{}])[0].get("coverage", {})
         return {}
+
+
+# =============================================================================
+# CLIENTE COMPARTIDO
+# =============================================================================
+
+_CLIENTE_COMPARTIDO = None
+
+
+def cliente_compartido() -> "APIFootballClient":
+    """
+    Devuelve el cliente unico del proceso.
+
+    Cada instancia nueva trae su propia CacheManager vacia y su propio contador
+    de ritmo. Con varios consumidores creando clientes por llamada, la cache no
+    llegaba a servir nada y el limite de 10 peticiones por minuto se podia
+    superar entre ellos. Compartir la instancia arregla las dos cosas, que en un
+    plan de 100 peticiones al dia no es un detalle menor.
+    """
+    global _CLIENTE_COMPARTIDO
+    if _CLIENTE_COMPARTIDO is None:
+        _CLIENTE_COMPARTIDO = APIFootballClient()
+    return _CLIENTE_COMPARTIDO
