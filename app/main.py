@@ -1,9 +1,16 @@
 import sys
 import os
-from dotenv import load_dotenv
 
 # Add the project root directory to Python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+# TLS contra el almacen de certificados del sistema. Tiene que ejecutarse antes
+# de que cualquier libreria cree su contexto SSL, de ahi que vaya lo primero:
+# los antivirus que inspeccionan HTTPS firman con una CA que solo esta ahi.
+from src.utils.tls import activar_tls
+activar_tls()
+
+from dotenv import load_dotenv
 
 import streamlit as st
 
