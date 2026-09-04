@@ -4,11 +4,14 @@ MultiSourceFetcher — Cascada de fuentes para árbitros y alineaciones
 Árbitros  → 0.API-Football  1.Claude API  2.SofaScore  3.RSS  4.LigaScraper  5.BeSoccer  6.Manual
 Alineaciones → 0.API-Football  1.SofaScore  2.LigaScraper  3.BeSoccer  4.BD interna
 
-ACTUALIZACIÓN: API-Football es ahora FUENTE 0 (máxima prioridad) para árbitros y alineaciones.
-Esto garantiza que los datos oficiales de la API se usen ANTES que cualquier scraper.
+ORDEN DE FUENTES: lo fija src/data/cascada.py. Para arbitros y alineaciones de
+proximos partidos, football-data.org y los scrapers van primero y API-Football
+queda de respaldo, porque su plan gratuito no cubre el calendario futuro.
 """
 from datetime import datetime
 from typing import Dict, Optional
+
+from src.data import cascada as _cascada
 
 
 def _norm_league(league):
@@ -200,53 +203,6 @@ class MultiSourceFetcher:
         except Exception:
             hours = 999
 
-        # ── FUENTE 0: API-Football (DATOS OFICIALES — MÁXIMA PRIORIDAD) ──────
-        # API-Football incluye el árbitro en el campo "referee" de cada fixture.
-        # Esta es la fuente más fiable: datos oficiales directamente de la API.
-        af_client = _get_api_football_client()
-        if af_client:
-            try:
-                fixture_id = _find_fixture_id(af_client, home, away, league, safe_date)
-                if fixture_id:
-                    ref_data = af_client.get_referee_from_fixture(fixture_id)
-                    if ref_data and ref_data.get("name"):
-                        ref_name = ref_data["name"]
-                        print(f"  [0-API-Football] ✅ {ref_name} (fixture_id={fixture_id})")
-                        # Obtener perfil estadístico del árbitro
-                        try:
-                            profile = af_client.compute_referee_profile(ref_name)
-                            avg_cards = profile.get("avg_cards", "?")
-                            strictness = profile.get("strictness", "MEDIUM")
-                            matches_count = profile.get("matches_count", 0)
-                        except Exception:
-                            avg_cards = "?"
-                            strictness = "MEDIUM"
-                            matches_count = 0
-
-                        # Mapear strictness al formato de la app
-                        from src.models.base import RefereeStrictness
-                        strict_map = {
-                            "HIGH": RefereeStrictness.HIGH,
-                            "LOW": RefereeStrictness.LOW,
-                            "MEDIUM": RefereeStrictness.MEDIUM,
-                        }
-                        ref_result = {
-                            "name": ref_name,
-                            "strictness": strict_map.get(strictness, RefereeStrictness.MEDIUM),
-                            "avg_cards": avg_cards if avg_cards != "?" else 4.0,
-                            "source": f"API-Football (oficial)",
-                            "verification_link": f"https://www.sofascore.com",
-                            "_is_fallback": False,
-                            "fixture_id": fixture_id,
-                            "profile": profile if 'profile' in dir() else {},
-                            "confidence": ref_data.get("confidence", "HIGH"),
-                        }
-                        return _enrich(ref_result)
-                else:
-                    print(f"  [0-API-Football] No se encontró fixture_id para {home} vs {away}")
-            except Exception as e:
-                print(f"  [0-API-Football] Error: {e}")
-
         # ── FUENTE 0b: Football-Data.org (verificación adicional) ─────────────
         fd_client = _get_football_data_client()
         if fd_client:
@@ -350,6 +306,59 @@ class MultiSourceFetcher:
         except Exception as e:
             print(f"  [5-BeSoccer] {e}")
 
+        # ── RESPALDO: API-Football ────────────────────────────────────────────
+        # Baja de primera fuente a respaldo por politica de cascada: el plan
+        # gratuito no cubre calendario futuro, asi que gastar aqui una peticion
+        # de las 100 diarias solo tiene sentido dentro de su ventana de fechas.
+        _tipo = _cascada.clasificar(safe_date)
+        if not _cascada.api_football_puede_responder(_tipo, fecha=safe_date):
+            print(f"  [resp-API-Football] Omitida: fuera del alcance del plan ({_tipo.value})")
+        else:
+            af_client = _get_api_football_client()
+            if af_client:
+                try:
+                    fixture_id = _find_fixture_id(af_client, home, away, league, safe_date)
+                    if fixture_id:
+                        ref_data = af_client.get_referee_from_fixture(fixture_id)
+                        if ref_data and ref_data.get("name"):
+                            ref_name = ref_data["name"]
+                            print(f"  [resp-API-Football] ✅ {ref_name} (fixture_id={fixture_id})")
+                            # Obtener perfil estadístico del árbitro
+                            try:
+                                profile = af_client.compute_referee_profile(ref_name)
+                                avg_cards = profile.get("avg_cards", "?")
+                                strictness = profile.get("strictness", "MEDIUM")
+                                matches_count = profile.get("matches_count", 0)
+                            except Exception:
+                                avg_cards = "?"
+                                strictness = "MEDIUM"
+                                matches_count = 0
+
+                            # Mapear strictness al formato de la app
+                            from src.models.base import RefereeStrictness
+                            strict_map = {
+                                "HIGH": RefereeStrictness.HIGH,
+                                "LOW": RefereeStrictness.LOW,
+                                "MEDIUM": RefereeStrictness.MEDIUM,
+                            }
+                            ref_result = {
+                                "name": ref_name,
+                                "strictness": strict_map.get(strictness, RefereeStrictness.MEDIUM),
+                                "avg_cards": avg_cards if avg_cards != "?" else 4.0,
+                                "source": f"API-Football (oficial)",
+                                "verification_link": f"https://www.sofascore.com",
+                                "_is_fallback": False,
+                                "fixture_id": fixture_id,
+                                "profile": profile if 'profile' in dir() else {},
+                                "confidence": ref_data.get("confidence", "HIGH"),
+                            }
+                            return _enrich(ref_result)
+                    else:
+                        print(f"  [resp-API-Football] No se encontró fixture_id para {home} vs {away}")
+                except Exception as e:
+                    print(f"  [resp-API-Football] Error: {e}")
+
+
         # ── FALLBACK: pedir al usuario ────────────────────────────────────────
         from src.models.base import RefereeStrictness
         print(f"  [MSF] ❌ No encontrado en ninguna fuente")
@@ -368,79 +377,6 @@ class MultiSourceFetcher:
     def fetch_lineup(self, home, away, match_date, league):
         print(f"\n[MSF] ALINEACIÓN: {home} vs {away} | {league}")
         safe_date = match_date if match_date else datetime.now()
-
-        # ── FUENTE 0: API-Football (DATOS OFICIALES — MÁXIMA PRIORIDAD) ──────
-        # API-Football proporciona alineaciones oficiales 20-40 min antes del partido
-        af_client = _get_api_football_client()
-        if af_client:
-            try:
-                fixture_id = _find_fixture_id(af_client, home, away, league, safe_date)
-                if fixture_id:
-                    lineups = af_client.get_lineups(fixture_id)
-                    if lineups and len(lineups) >= 2:
-                        home_players = []
-                        away_players = []
-                        home_formation = ""
-                        away_formation = ""
-
-                        for team_lu in lineups:
-                            team_name = team_lu.get("team", {}).get("name", "")
-                            formation = team_lu.get("formation", "")
-                            starters = []
-                            for p in team_lu.get("startXI", []):
-                                pname = p.get("player", {}).get("name", "")
-                                if pname:
-                                    starters.append(pname)
-
-                            if (_norm_team_name(team_name) in _norm_team_name(home) or
-                                _norm_team_name(home) in _norm_team_name(team_name)):
-                                home_players = starters
-                                home_formation = formation
-                            else:
-                                away_players = starters
-                                away_formation = formation
-
-                        if home_players or away_players:
-                            print(f"  [0-API-Football] ✅ {len(home_players)}+{len(away_players)} jugadores (formaciones: {home_formation}/{away_formation})")
-                            return {
-                                "home": home_players,
-                                "away": away_players,
-                                "bajas": [],
-                                "source": f"API-Football (oficial) — {home_formation} vs {away_formation}",
-                                "is_official": True,
-                                "verification_link": "https://www.sofascore.com",
-                                "_is_fallback": False,
-                                "formation_home": home_formation,
-                                "formation_away": away_formation,
-                            }
-
-                    # Si solo hay alineaciones predichas
-                    if lineups and len(lineups) == 1:
-                        team_lu = lineups[0]
-                        starters = [p.get("player", {}).get("name", "") for p in team_lu.get("startXI", [])]
-                        starters = [s for s in starters if s]
-                        team_name = team_lu.get("team", {}).get("name", "")
-                        formation = team_lu.get("formation", "")
-                        if starters:
-                            is_home = (_norm_team_name(team_name) in _norm_team_name(home) or
-                                      _norm_team_name(home) in _norm_team_name(team_name))
-                            result = {
-                                "bajas": [],
-                                "source": f"API-Football (parcial) — {formation}",
-                                "is_official": True,
-                                "verification_link": "https://www.sofascore.com",
-                                "_is_fallback": False,
-                            }
-                            if is_home:
-                                result["home"] = starters
-                                result["away"] = []
-                            else:
-                                result["home"] = []
-                                result["away"] = starters
-                            print(f"  [0-API-Football] ✅ Parcial: {len(starters)} jugadores de {team_name}")
-                            return result
-            except Exception as e:
-                print(f"  [0-API-Football] Error: {e}")
 
         # ── FUENTE 1: SofaScore API ───────────────────────────────────────────
         try:
@@ -474,6 +410,85 @@ class MultiSourceFetcher:
                 return bs
         except Exception as e:
             print(f"  [3-BeSoccer] {e}")
+
+        # ── RESPALDO: API-Football ────────────────────────────────────────────
+        # Baja de primera fuente a respaldo por politica de cascada: el plan
+        # gratuito no cubre calendario futuro, asi que gastar aqui una peticion
+        # de las 100 diarias solo tiene sentido dentro de su ventana de fechas.
+        _tipo = _cascada.clasificar(safe_date)
+        if not _cascada.api_football_puede_responder(_tipo, fecha=safe_date):
+            print(f"  [resp-API-Football] Omitida: fuera del alcance del plan ({_tipo.value})")
+        else:
+            if af_client:
+                try:
+                    fixture_id = _find_fixture_id(af_client, home, away, league, safe_date)
+                    if fixture_id:
+                        lineups = af_client.get_lineups(fixture_id)
+                        if lineups and len(lineups) >= 2:
+                            home_players = []
+                            away_players = []
+                            home_formation = ""
+                            away_formation = ""
+
+                            for team_lu in lineups:
+                                team_name = team_lu.get("team", {}).get("name", "")
+                                formation = team_lu.get("formation", "")
+                                starters = []
+                                for p in team_lu.get("startXI", []):
+                                    pname = p.get("player", {}).get("name", "")
+                                    if pname:
+                                        starters.append(pname)
+
+                                if (_norm_team_name(team_name) in _norm_team_name(home) or
+                                    _norm_team_name(home) in _norm_team_name(team_name)):
+                                    home_players = starters
+                                    home_formation = formation
+                                else:
+                                    away_players = starters
+                                    away_formation = formation
+
+                            if home_players or away_players:
+                                print(f"  [resp-API-Football] ✅ {len(home_players)}+{len(away_players)} jugadores (formaciones: {home_formation}/{away_formation})")
+                                return {
+                                    "home": home_players,
+                                    "away": away_players,
+                                    "bajas": [],
+                                    "source": f"API-Football (oficial) — {home_formation} vs {away_formation}",
+                                    "is_official": True,
+                                    "verification_link": "https://www.sofascore.com",
+                                    "_is_fallback": False,
+                                    "formation_home": home_formation,
+                                    "formation_away": away_formation,
+                                }
+
+                        # Si solo hay alineaciones predichas
+                        if lineups and len(lineups) == 1:
+                            team_lu = lineups[0]
+                            starters = [p.get("player", {}).get("name", "") for p in team_lu.get("startXI", [])]
+                            starters = [s for s in starters if s]
+                            team_name = team_lu.get("team", {}).get("name", "")
+                            formation = team_lu.get("formation", "")
+                            if starters:
+                                is_home = (_norm_team_name(team_name) in _norm_team_name(home) or
+                                          _norm_team_name(home) in _norm_team_name(team_name))
+                                result = {
+                                    "bajas": [],
+                                    "source": f"API-Football (parcial) — {formation}",
+                                    "is_official": True,
+                                    "verification_link": "https://www.sofascore.com",
+                                    "_is_fallback": False,
+                                }
+                                if is_home:
+                                    result["home"] = starters
+                                    result["away"] = []
+                                else:
+                                    result["home"] = []
+                                    result["away"] = starters
+                                print(f"  [resp-API-Football] ✅ Parcial: {len(starters)} jugadores de {team_name}")
+                                return result
+                except Exception as e:
+                    print(f"  [resp-API-Football] Error: {e}")
+
 
         # ── FUENTE 4: Sin datos web ───────────────────────────────────────────
         print(f"  [MSF] Sin alineaciones disponibles en fuentes web")

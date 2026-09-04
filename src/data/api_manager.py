@@ -33,6 +33,7 @@ from src.data.api_football import LEAGUE_IDS as _LEAGUE_IDS_CANONICO
 from src.data.api_football import APIFootballClient as _ClienteCanonico
 from src.data.api_football import cliente_compartido as _cliente_compartido
 from src.data.cache_manager import TTLConfig as _TTL
+from src.data import cascada as _cascada
 
 load_dotenv()
 
@@ -757,73 +758,100 @@ class APIManager:
 
     def get_fixtures_for_date(self, date: str,
                                league_name: str = None) -> List[dict]:
-        """Obtiene todos los partidos de una fecha."""
+        """
+        Partidos de una fecha, siguiendo la politica de src/data/cascada.py.
+
+        Para calendario (hoy y futuro) football-data.org va primero y
+        API-Football queda de respaldo, y solo se le consulta si la fecha entra
+        en la ventana que su plan gratuito permite. Antes se le preguntaba
+        primero y ademas con filtro de liga, combinacion que el plan rechaza
+        con "The Season field is required": la peticion se gastaba siempre en
+        balde y se caia a football-data.org por accidente, no por diseno.
+        """
         cache_key = self._cache_key("fixtures", date=date, league=league_name)
         cached = self._get_cached(cache_key)
         if cached is not None:
             return cached
 
+        tipo = _cascada.clasificar(date)
         results = []
 
-        # 1. Intentar API-Football
-        league_id = APIFootballClient.LEAGUE_IDS.get(league_name) if league_name else None
-        fixtures = self.api_football.get_fixtures(date=date, league_id=league_id)
-
-        if fixtures:
-            for f in fixtures:
-                league_info = f.get("league", {})
-                home = f.get("teams", {}).get("home", {})
-                away = f.get("teams", {}).get("away", {})
-                goals = f.get("goals", {})
-                score = f.get("score", {})
-
-                results.append({
-                    "fixture_id": f.get("fixture", {}).get("id"),
-                    "date": f.get("fixture", {}).get("date", ""),
-                    "league": league_info.get("name", ""),
-                    "league_id": league_info.get("id"),
-                    "league_country": league_info.get("country", ""),
-                    "home_team": home.get("name", ""),
-                    "away_team": away.get("name", ""),
-                    "home_team_id": home.get("id"),
-                    "away_team_id": away.get("id"),
-                    "home_logo": home.get("logo", ""),
-                    "away_logo": away.get("logo", ""),
-                    "status": f.get("fixture", {}).get("status", {}).get("short", ""),
-                    "home_score": goals.get("home"),
-                    "away_score": goals.get("away"),
-                    "ht_score": score.get("halftime", {}),
-                    "ft_score": score.get("fulltime", {}),
-                    "referee": f.get("fixture", {}).get("referee", ""),
-                    "venue": f.get("fixture", {}).get("venue", {}).get("name", ""),
-                    "source": "api-football"
-                })
-            self._set_cached(cache_key, results)
-            return results
-
-        # 2. Fallback a football-data.org
+        # 1. football-data.org, competicion concreta
         if league_name:
             comp_code = self._get_competition_code(league_name)
             if comp_code:
                 matches = self.football_data.get_competition_matches(
                     comp_code, date_from=date, date_to=date
                 )
-                for m in matches:
-                    results.append(self._normalize_fd_match(m))
-                if results:
-                    self._set_cached(cache_key, results)
-                    return results
+                results = [self._normalize_fd_match(m) for m in matches]
 
-        # 3. Último intento: football-data.org todas las competiciones
-        for comp_code in ["PD", "PL", "BL1", "SA", "FL1"]:
-            matches = self.football_data.get_competition_matches(
-                comp_code, date_from=date, date_to=date
-            )
-            for m in matches:
-                results.append(self._normalize_fd_match(m))
+        # 2. football-data.org, competiciones principales
+        if not results:
+            for comp_code in ["PD", "PL", "BL1", "SA", "FL1"]:
+                matches = self.football_data.get_competition_matches(
+                    comp_code, date_from=date, date_to=date
+                )
+                results.extend(self._normalize_fd_match(m) for m in matches)
+
+        # 3. Respaldo: API-Football, solo si su plan puede responder
+        if not results:
+            if _cascada.api_football_puede_responder(tipo, fecha=date):
+                results = self._fixtures_desde_api_football(date, league_name)
+            else:
+                logger.info(
+                    f"[Cascada] API-Football omitida para {date}: "
+                    f"fuera del alcance del plan ({tipo.value})"
+                )
 
         self._set_cached(cache_key, results)
         return results
+
+    def _fixtures_desde_api_football(self, date: str,
+                                      league_name: str = None) -> List[dict]:
+        """
+        Partidos de una fecha desde API-Football, normalizados.
+
+        Se consulta SIN filtro de liga a proposito: el plan gratuito rechaza
+        date+league pidiendo el campo season, que a su vez esta bloqueado para
+        la temporada en curso. Se pide el dia completo y se filtra aqui.
+        """
+        league_id = APIFootballClient.LEAGUE_IDS.get(league_name) if league_name else None
+        fixtures = self.api_football.get_fixtures(date=date) or []
+
+        salida = []
+        for f in fixtures:
+            league_info = f.get("league", {})
+            if league_id and league_info.get("id") != league_id:
+                continue
+
+            home = f.get("teams", {}).get("home", {})
+            away = f.get("teams", {}).get("away", {})
+            goals = f.get("goals", {})
+            score = f.get("score", {})
+            fixture = f.get("fixture", {})
+
+            salida.append({
+                "fixture_id": fixture.get("id"),
+                "date": fixture.get("date", ""),
+                "league": league_info.get("name", ""),
+                "league_id": league_info.get("id"),
+                "league_country": league_info.get("country", ""),
+                "home_team": home.get("name", ""),
+                "away_team": away.get("name", ""),
+                "home_team_id": home.get("id"),
+                "away_team_id": away.get("id"),
+                "home_logo": home.get("logo", ""),
+                "away_logo": away.get("logo", ""),
+                "status": fixture.get("status", {}).get("short", ""),
+                "home_score": goals.get("home"),
+                "away_score": goals.get("away"),
+                "ht_score": score.get("halftime", {}),
+                "ft_score": score.get("fulltime", {}),
+                "referee": fixture.get("referee", ""),
+                "venue": fixture.get("venue", {}).get("name", ""),
+                "source": "api-football"
+            })
+        return salida
 
     def get_team_stats(self, team_name: str, league_name: str,
                         season: int = None) -> Optional[dict]:
