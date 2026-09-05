@@ -190,7 +190,7 @@ if st.session_state.get("review_study"):
     # ── Botón 1: Alineación ───────────────────────────────────────────────
     with col_a:
         btn_label = "🔄 Alineación Oficial" if can_reanalyze_rs else "🔄 Alineación (probable)"
-        if st.button(btn_label, use_container_width=True,
+        if st.button(btn_label, width="stretch",
                      type="primary" if can_reanalyze_rs else "secondary", key="rv_lineup"):
             with st.spinner("Buscando alineación..."):
                 try:
@@ -265,7 +265,7 @@ if st.session_state.get("review_study"):
 
     # ── Botón 2: Prensa ───────────────────────────────────────────────────
     with col_b:
-        if st.button("📰 Actualizar Prensa", use_container_width=True, key="rv_press"):
+        if st.button("📰 Actualizar Prensa", width="stretch", key="rv_press"):
             with st.spinner("Buscando noticias..."):
                 try:
                     rss = _RSS()
@@ -318,7 +318,7 @@ if st.session_state.get("review_study"):
 
     # ── Botón 3: Árbitro ──────────────────────────────────────────────────
     with col_c:
-        if st.button("👨‍⚖️ Re-buscar Árbitro", use_container_width=True, key="rv_ref"):
+        if st.button("👨‍⚖️ Re-buscar Árbitro", width="stretch", key="rv_ref"):
             with st.spinner("Buscando árbitro en SofaScore y fuentes oficiales..."):
                 try:
                     lf_ref = _LF(data_provider)
@@ -358,7 +358,7 @@ if st.session_state.get("review_study"):
                                 key=f"manual_ref_input_{rs['match_id']}"
                             )
                             saved = st.form_submit_button("💾 Guardar árbitro",
-                                                          use_container_width=True,
+                                                          width="stretch",
                                                           type="primary")
                             if saved and manual_ref and manual_ref.strip():
                                 from src.data.referee_database import enrich_referee
@@ -387,7 +387,7 @@ if st.session_state.get("review_study"):
 
     # Botón meter resultado y cerrar revisión
     with col_d:
-        if st.button("📥 Meter Resultado", use_container_width=True, key="rv_result"):
+        if st.button("📥 Meter Resultado", width="stretch", key="rv_result"):
             st.session_state["direct_study"] = {
                 "match_id": rs["match_id"],
                 "home_team": home_name_rs,
@@ -531,7 +531,7 @@ if home_team and away_team and teams_valid:
                     unsafe_allow_html=True
                 )
             with c_ref2:
-                if st.button("🔄 Re-buscar", use_container_width=True, key="rebuscar_ref"):
+                if st.button("🔄 Re-buscar", width="stretch", key="rebuscar_ref"):
                     st.session_state.fetched_ref = None
                     st.rerun()
             
@@ -573,7 +573,7 @@ if home_team and away_team and teams_valid:
                         key="manual_ref_input"
                     )
                     submitted = st.form_submit_button("✅ Confirmar árbitro manual",
-                                                      use_container_width=True,
+                                                      width="stretch",
                                                       type="primary")
                     if submitted and manual_ref and manual_ref.strip():
                         from src.data.referee_database import enrich_referee
@@ -594,7 +594,7 @@ if home_team and away_team and teams_valid:
                         st.rerun()
 
             with c_ref2:
-                if st.button("🔍 Buscar Árbitro Auto", use_container_width=True):
+                if st.button("🔍 Buscar Árbitro Auto", width="stretch"):
                     with st.spinner("Buscando árbitro en APIs oficiales..."):
                         ref_data = None
                         search_log = []
@@ -831,7 +831,7 @@ if home_team and away_team and teams_valid:
         
         with c_conf2:
             button_label = "🛡️ CONFIRMAR DATOS (OFICIAL)" if can_fetch_official else "🔒 ANÁLISIS BLOQUEADO (Centinela)"
-            if st.button(button_label, type="primary", use_container_width=True, disabled=not can_fetch_official):
+            if st.button(button_label, type="primary", width="stretch", disabled=not can_fetch_official):
 
                 with st.spinner("🤖 Sincronizando datos desde APIs oficiales..."):
                     _fixture_id = st.session_state.fetched_ref.get("fixture_id") if st.session_state.fetched_ref else None
@@ -1005,7 +1005,7 @@ if home_team and away_team and teams_valid:
         if (not real_h or len(real_h) < 7) or (not real_a or len(real_a) < 7):
             st.markdown("---")
             st.warning("⚠️ **¿No quieres introducirlos a mano?** El sistema no pudo extraer las alineaciones a la primera.")
-            if st.button("🔄 FORZAR BÚSQUEDA PROFUNDA (Modo Insistente)", type="primary", use_container_width=True):
+            if st.button("🔄 FORZAR BÚSQUEDA PROFUNDA (Modo Insistente)", type="primary", width="stretch"):
                 with st.spinner("🤖 Aplicando combinatoria exhaustiva de búsqueda profunda..."):
                     l_fetcher = LineupFetcher(data_provider)
                     res = l_fetcher.fetch_smart_lineup(
@@ -1020,7 +1020,7 @@ if home_team and away_team and teams_valid:
 
         # --- PREDICTION ---
         st.divider()
-        if st.button("🚀 CALCULAR PREDICCIÓN FINAL", type="primary", use_container_width=True):
+        if st.button("🚀 CALCULAR PREDICCIÓN FINAL", type="primary", width="stretch"):
             # Strict Validation before allowing prediction calculation
             if len(c_home) < 7 or len(c_away) < 7:
                 st.error("❌ ERROR CRÍTICO: Debes confirmar al menos 7 jugadores reales por equipo para realizar el análisis confiable.")
@@ -1053,7 +1053,7 @@ if home_team and away_team and teams_valid:
             st.markdown("#### 📝 Confirmación del Estudio IA")
             c_conf1, c_conf2 = st.columns(2)
             
-            if c_conf1.button("✅ CONFIRMAR ESTUDIO (Guardar en Memoria)", type="primary", use_container_width=True):
+            if c_conf1.button("✅ CONFIRMAR ESTUDIO (Guardar en Memoria)", type="primary", width="stretch"):
                 try:
                     db_manager.save_match(selected_match)
                     db_manager.save_prediction(st.session_state.last_pred)
@@ -1062,7 +1062,7 @@ if home_team and away_team and teams_valid:
                 except Exception as e:
                     st.error(f"Error al guardar estudio: {e}")
 
-            if c_conf2.button("❌ CANCELAR / DESCARTAR", type="secondary", use_container_width=True):
+            if c_conf2.button("❌ CANCELAR / DESCARTAR", type="secondary", width="stretch"):
                 st.session_state.last_pred = None
                 st.session_state.last_val = None
                 st.rerun()
@@ -1079,7 +1079,7 @@ if home_team and away_team and teams_valid:
                     data=report_md,
                     file_name=f"report_{home_team.name[:3]}_{away_team.name[:3]}.md",
                     mime="text/markdown",
-                    use_container_width=True
+                    width="stretch"
                 )
             except Exception as e:
                 st.error(f"Error al generar reporte: {e}. Intenta usar el RESETEO NUCLEAR.")
@@ -1217,7 +1217,7 @@ with st.sidebar:
     # 🔌 DIAGNÓSTICO DE APIs
     # =====================================================================
     with st.expander("🔌 Estado de APIs", expanded=False):
-        if st.button("🔍 Verificar APIs", key="check_apis", use_container_width=True):
+        if st.button("🔍 Verificar APIs", key="check_apis", width="stretch"):
             with st.spinner("Verificando conexión con APIs..."):
                 api_results = {}
                 # 1. API-Football
@@ -1314,13 +1314,13 @@ with st.sidebar:
             st.markdown(f'<p style="color:#f87171;font-size:0.8rem;">⚠️ ¿Eliminar <b>{nombre_del}</b>?</p>', unsafe_allow_html=True)
             col_yes, col_no = st.columns(2)
             with col_yes:
-                if st.button("✅ Sí, eliminar", key="del_yes", use_container_width=True):
+                if st.button("✅ Sí, eliminar", key="del_yes", width="stretch"):
                     db_manager.delete_study(mid_del)
                     del st.session_state["confirm_delete"]
                     st.toast("🗑️ Estudio eliminado", icon="🗑️")
                     st.rerun()
             with col_no:
-                if st.button("❌ Cancelar", key="del_no", use_container_width=True):
+                if st.button("❌ Cancelar", key="del_no", width="stretch"):
                     del st.session_state["confirm_delete"]
                     st.rerun()
 
@@ -1364,7 +1364,7 @@ with st.sidebar:
                 if can_reanalyze:
                     col_r, col_m = st.columns(2)
                     with col_r:
-                        if st.button("🔄 Reanalizar", key=f"reanalyze_{s['match_id']}", use_container_width=True, type="primary"):
+                        if st.button("🔄 Reanalizar", key=f"reanalyze_{s['match_id']}", width="stretch", type="primary"):
                             with st.spinner("Buscando alineación oficial..."):
                                 match_obj_r = db_manager.get_match(s["match_id"])
                                 if match_obj_r:
@@ -1424,9 +1424,9 @@ with st.sidebar:
                                     except Exception as e:
                                         st.error(f"Error reanalizando: {e}")
                     with col_m:
-                        load_btn = st.button("📥 Resultado", key=f"load_{s['match_id']}", use_container_width=True)
+                        load_btn = st.button("📥 Resultado", key=f"load_{s['match_id']}", width="stretch")
                     # Botón prensa (fila separada, solo cuando hay partido próximo)
-                    if st.button("📰 Actualizar Prensa", key=f"press_{s['match_id']}", use_container_width=True):
+                    if st.button("📰 Actualizar Prensa", key=f"press_{s['match_id']}", width="stretch"):
                         match_obj_p = db_manager.get_match(s["match_id"])
                         if match_obj_p:
                             with st.spinner("📰 Buscando noticias actualizadas..."):
@@ -1466,7 +1466,7 @@ with st.sidebar:
                                 except Exception as e:
                                     st.error(f"Error prensa: {e}")
                 else:
-                    load_btn = st.button("📥 Meter resultado", key=f"load_{s['match_id']}", use_container_width=True)
+                    load_btn = st.button("📥 Meter resultado", key=f"load_{s['match_id']}", width="stretch")
 
                 if load_btn:
                     pred = db_manager.get_prediction(s["match_id"])
@@ -1490,7 +1490,7 @@ with st.sidebar:
 
                 # Botón eliminar (siempre visible, pide confirmación)
                 if st.button("🗑️ Eliminar estudio", key=f"del_{s['match_id']}",
-                             use_container_width=True):
+                             width="stretch"):
                     st.session_state["confirm_delete"] = s["match_id"]
                     st.rerun()
 
@@ -1514,7 +1514,7 @@ with st.sidebar:
         shots_t   = st.number_input("Remates totales", 0, 50, 20, key="ds_s")
         sot_t     = st.number_input("Remates a portería", 0, 30, 6, key="ds_sot")
 
-        if st.button("✅ GUARDAR Y RECALIBRAR IA", use_container_width=True, key="ds_save"):
+        if st.button("✅ GUARDAR Y RECALIBRAR IA", width="stretch", key="ds_save"):
             from src.models.base import MatchOutcome
             from src.logic.learning_engine import LearningEngine
             winner = "LOCAL" if g_home > g_away else ("VISITANTE" if g_away > g_home else "EMPATE")
@@ -1566,12 +1566,12 @@ with st.sidebar:
             del st.session_state["direct_study"]
             st.rerun()
 
-        if st.button("❌ Cancelar", key="ds_cancel", use_container_width=True):
+        if st.button("❌ Cancelar", key="ds_cancel", width="stretch"):
             del st.session_state["direct_study"]
             st.rerun()
 
     st.markdown('<h3 style="color: #ff4b4b;">☢️ ZONA DE EMERGENCIA</h3>', unsafe_allow_html=True)
-    if st.button("🚨 RESETEO NUCLEAR (Limpiar Todo)", type="secondary", use_container_width=True):
+    if st.button("🚨 RESETEO NUCLEAR (Limpiar Todo)", type="secondary", width="stretch"):
         st.session_state.clear()
         st.cache_data.clear()
         st.cache_resource.clear()
@@ -1579,10 +1579,10 @@ with st.sidebar:
     st.markdown('<p style="font-size: 0.8rem; color: #888;">Usa esto si ves errores persistentes tras reiniciar.</p>', unsafe_allow_html=True)
     
     st.divider()
-    if st.button("📈 Ver Dashboard Histórico", use_container_width=True):
+    if st.button("📈 Ver Dashboard Histórico", width="stretch"):
         st.session_state.sh = not st.session_state.get("sh", False)
         st.session_state.semaforos = False
-    if st.button("🚦 Ver Semáforos e Historial", use_container_width=True):
+    if st.button("🚦 Ver Semáforos e Historial", width="stretch"):
         st.session_state.semaforos = not st.session_state.get("semaforos", False)
         st.session_state.sh = False
 
@@ -1590,7 +1590,7 @@ with st.sidebar:
     st.divider()
     st.markdown('<p style="color:#fdffcc;font-size:0.8rem;font-weight:bold;">🔌 Estado de APIs</p>', unsafe_allow_html=True)
     
-    if st.button("🔍 Diagnosticar APIs", use_container_width=True, key="diag_apis_btn"):
+    if st.button("🔍 Diagnosticar APIs", width="stretch", key="diag_apis_btn"):
         with st.spinner("Verificando conectividad de APIs..."):
             try:
                 from src.data.multi_source_fetcher import MultiSourceFetcher
@@ -1627,7 +1627,7 @@ with st.sidebar:
     st.divider()
     st.markdown('<p style="color:#fdffcc;font-size:0.8rem;font-weight:bold;">🧠 Aprendizaje Retroactivo</p>', unsafe_allow_html=True)
     st.markdown('<p style="color:#888;font-size:0.72rem;">Procesa estudios completados que aún no han alimentado la IA.</p>', unsafe_allow_html=True)
-    if st.button("🔄 Recalibrar con estudios anteriores", use_container_width=True, type="primary"):
+    if st.button("🔄 Recalibrar con estudios anteriores", width="stretch", type="primary"):
         st.session_state["run_retrolearn"] = True
         st.rerun()
 

@@ -341,7 +341,7 @@ def render_value_analysis_chart(opportunities: List[Dict]):
                  labels={'market': 'Mercado', 'value_pct': 'Valor %'},
                  title="Análisis de Valor Detectado")
     fig.update_layout(template="plotly_dark", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 def render_bankroll_ui(manager):
     st.markdown("### 💰 Gestión de Bankroll y ROI")
@@ -364,7 +364,7 @@ def render_bankroll_ui(manager):
                       labels={'x': 'Apuesta #', 'y': 'Balance (€)'},
                       title="Curva de Equity")
         fig.update_layout(template="plotly_dark", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     st.divider()
 
@@ -375,10 +375,10 @@ def render_bankroll_ui(manager):
         for p in pending:
             col_info, col_won, col_lost = st.columns([3, 1, 1])
             col_info.markdown(f"**{p['market']}** @ {p['odds']} | Stake: {p['stake']}€")
-            if col_won.button("✅ GANADA", key=f"won_{p['id']}", use_container_width=True):
+            if col_won.button("✅ GANADA", key=f"won_{p['id']}", width="stretch"):
                 manager.settle_bet(p['id'], True)
                 st.rerun()
-            if col_lost.button("❌ FALLADA", key=f"lost_{p['id']}", use_container_width=True):
+            if col_lost.button("❌ FALLADA", key=f"lost_{p['id']}", width="stretch"):
                 manager.settle_bet(p['id'], False)
                 st.rerun()
         st.divider()
@@ -387,7 +387,7 @@ def render_bankroll_ui(manager):
     with st.expander("⚙️ Ajustes de Bankroll (Reset)"):
         col_reset, col_btn = st.columns([3, 1])
         new_cap = col_reset.number_input("Nuevo Capital Inicial (€)", min_value=1.0, value=10.0, step=10.0)
-        if col_btn.button("♻️ RESETEAR", type="secondary", use_container_width=True):
+        if col_btn.button("♻️ RESETEAR", type="secondary", width="stretch"):
             if hasattr(manager, "reset_bankroll"):
                 manager.reset_bankroll(new_cap)
                 st.success(f"Bankroll reseteado a {new_cap}€")
@@ -401,7 +401,7 @@ def render_bankroll_ui(manager):
         df_trans = pd.DataFrame(manager.data["transactions"]).tail(10)
         # Select relevant columns for display
         display_df = df_trans[["date", "market", "odds", "stake", "status"]]
-        st.dataframe(display_df, use_container_width=True)
+        st.dataframe(display_df, width="stretch")
         
         if st.button("🗑️ Limpiar Historial Total", type="secondary"):
             manager.data["transactions"] = []
@@ -434,10 +434,10 @@ def render_result_validation_form():
         c_btn1, c_btn2 = st.columns(2)
         
         # New "Auto-Fetch / Review" button
-        if c_btn1.form_submit_button("🔍 REVISAR RESULTADO (IA Web Access)", use_container_width=True):
+        if c_btn1.form_submit_button("🔍 REVISAR RESULTADO (IA Web Access)", width="stretch"):
             return {"action": "auto_fetch"}
             
-        submitted = c_btn2.form_submit_button("💾 Guardar y Re-Calibrar IA", use_container_width=True)
+        submitted = c_btn2.form_submit_button("💾 Guardar y Re-Calibrar IA", width="stretch")
         
         if submitted:
             return {
@@ -545,7 +545,7 @@ def render_historical_dashboard(db_manager=None, kb=None):
         if table_data:
             st.dataframe(
                 pd.DataFrame(table_data),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True
             )
     else:
