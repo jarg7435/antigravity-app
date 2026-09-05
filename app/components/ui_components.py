@@ -848,3 +848,68 @@ def render_lineup_check_ui(team_name: str, players: list[Player], side: str = "h
                 confirmed_players.append(player.name)
     
     return confirmed_players
+
+
+def render_supervisor_panel(informe):
+    """
+    Panel del agente supervisor, justo antes de la pantalla de estudio.
+
+    Existe porque no habia ningun sitio donde el usuario pudiera ver de un
+    vistazo si los datos sobre los que va a calcular son fiables. Cada
+    incidencia se muestra con su causa y con lo que hay que hacer para
+    resolverla: un bloqueo sin salida seria peor que no bloquear.
+
+    Args:
+        informe: src.logic.supervisor.Informe
+
+    Returns:
+        True si el estudio puede calcularse (APTO o ADVERTIDO).
+    """
+    from src.logic.supervisor import APTO, ADVERTIDO, BLOQUEADO, GRAVE
+
+    estilos = {
+        APTO:      ("#22c55e", "✅", "DATOS VERIFICADOS"),
+        ADVERTIDO: ("#facc15", "⚠️", "VERIFICADO CON AVISOS"),
+        BLOQUEADO: ("#ef4444", "⛔", "ANÁLISIS BLOQUEADO"),
+    }
+    color, icono, titulo = estilos.get(informe.veredicto, estilos[BLOQUEADO])
+
+    st.markdown(
+        f'<div style="background:#1e293b;border-radius:8px;padding:12px 16px;'
+        f'border-left:5px solid {color};margin:8px 0;">'
+        f'<div style="color:{color};font-size:1.05rem;font-weight:800;">'
+        f'{icono} Agente Supervisor · {titulo}</div>'
+        f'<div style="color:#e2e8f0;font-size:0.85rem;margin-top:4px;">'
+        f'{informe.resumen()}</div></div>',
+        unsafe_allow_html=True,
+    )
+
+    for inc in informe.incidencias:
+        c = "#ef4444" if inc.gravedad == GRAVE else "#facc15"
+        marca = "⛔" if inc.gravedad == GRAVE else "⚠️"
+        detalle = ""
+        if inc.detalle:
+            elementos = "".join(
+                f'<li style="color:#cbd5e1;">{d}</li>' for d in inc.detalle[:12]
+            )
+            detalle = (f'<ul style="margin:4px 0 0 16px;font-size:0.78rem;">'
+                       f'{elementos}</ul>')
+        st.markdown(
+            f'<div style="background:#0f172a;border-radius:6px;padding:8px 12px;'
+            f'border-left:3px solid {c};margin:4px 0;">'
+            f'<div style="color:{c};font-size:0.85rem;font-weight:700;">'
+            f'{marca} [{inc.ambito}] {inc.mensaje}</div>'
+            + (f'<div style="color:#94a3b8;font-size:0.78rem;margin-top:3px;">'
+               f'➜ {inc.solucion}</div>' if inc.solucion else "")
+            + detalle +
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+    if informe.comprobaciones:
+        with st.expander("🔍 Comprobaciones superadas"):
+            for c in informe.comprobaciones:
+                st.markdown(f'<p style="color:#4ade80;font-size:0.8rem;margin:2px 0;">'
+                            f'✓ {c}</p>', unsafe_allow_html=True)
+
+    return not informe.bloqueado

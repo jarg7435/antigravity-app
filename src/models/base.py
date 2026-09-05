@@ -9,6 +9,10 @@ class PlayerPosition(str, Enum):
     MIDFIELDER = "Centrocampista"
     FORWARD = "Delantero"
     MANAGER = "Entrenador"
+    # Demarcacion no determinada. Existe para poder decirlo en vez de
+    # inventarlo: la interfaz asignaba MIDFIELDER a todo el que no reconocia y
+    # asi es como Oblak aparecia agrupado entre los centrocampistas.
+    DESCONOCIDA = "Sin demarcación"
 
     @classmethod
     def _missing_(cls, value):
@@ -24,6 +28,8 @@ class PlayerPosition(str, Enum):
             "forward": cls.FORWARD, "attacker": cls.FORWARD, "striker": cls.FORWARD,
             "delantero": cls.FORWARD,
             "manager": cls.MANAGER, "coach": cls.MANAGER, "entrenador": cls.MANAGER,
+            "sin demarcacion": cls.DESCONOCIDA, "sin demarcación": cls.DESCONOCIDA,
+            "desconocida": cls.DESCONOCIDA, "unknown": cls.DESCONOCIDA, "": cls.DESCONOCIDA,
         }.get(value.strip().lower())
 
 class PlayerStatus(str, Enum):

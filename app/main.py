@@ -69,7 +69,8 @@ from app.components.ui_components import (
     render_lineup_check_ui, render_league_selector, render_date_selector, 
     render_team_selector, render_player_selector, render_time_selector,
     render_result_validation_form, render_historical_dashboard,
-    render_bankroll_ui, render_value_analysis_chart, render_semaforo_history
+    render_bankroll_ui, render_value_analysis_chart, render_semaforo_history,
+    render_supervisor_panel
 )
 from src.data.bankroll_manager import BankrollManager
 from src.logic.report_engine import ReportEngine
@@ -595,157 +596,58 @@ if home_team and away_team and teams_valid:
 
             with c_ref2:
                 if st.button("🔍 Buscar Árbitro Auto", width="stretch"):
-                    with st.spinner("Buscando árbitro en APIs oficiales..."):
-                        ref_data = None
+                    with st.spinner("Investigando la designación arbitral..."):
+                        # Este boton reimplementaba su propia cascada de fuentes,
+                        # en paralelo a la de MultiSourceFetcher y sin ninguna
+                        # corroboracion: aceptaba el primer nombre que devolviera
+                        # cualquier API. Ahora usa la cascada unica, que empieza
+                        # por el investigador web y solo da por bueno un nombre
+                        # respaldado por fuente oficial o por dos fuentes
+                        # independientes.
                         search_log = []
-
-                        # ── PASO 1: football-data.org (FUENTE PRIMARIA — CONFIRMADA FUNCIONAL) ──
+                        ref_data = None
                         try:
-                            from src.data.api_manager import APIManager
-                            api = APIManager()
-                            date_str = selected_date.strftime("%Y-%m-%d") if selected_date else None
-                            league_key = selected_league.split(" (")[0] if selected_league else ""
-                            # Mapear liga a código football-data.org
-                            _comp_codes = {
-                                "La Liga": "PD", "Premier League": "PL", "Bundesliga": "BL1",
-                                "Serie A": "SA", "Ligue 1": "FL1", "Champions League": "CL",
-                                "Europa League": "EL", "Conference League": "EC",
-                            }
-                            comp_code = _comp_codes.get(league_key)
-                            search_log.append(f"[1] football-data.org: fecha={date_str}, liga={league_key} (code={comp_code})")
-                            
-                            if comp_code and date_str:
-                                # Buscar en un rango de +/-3 días para mayor cobertura
-                                from datetime import timedelta
-                                date_from = (selected_date - timedelta(days=3)).strftime("%Y-%m-%d")
-                                date_to = (selected_date + timedelta(days=3)).strftime("%Y-%m-%d")
-                                matches = api.football_data.get_competition_matches(
-                                    comp_code, date_from=date_from, date_to=date_to
-                                )
-                                search_log.append(f"[1] Partidos encontrados: {len(matches) if matches else 0}")
-                                
-                                if matches:
-                                    for m in matches:
-                                        m_date = m.get("utcDate", "")[:10]
-                                        ht = m.get("homeTeam", {}).get("shortName", m.get("homeTeam", {}).get("name", ""))
-                                        at = m.get("awayTeam", {}).get("shortName", m.get("awayTeam", {}).get("name", ""))
-                                        h_match = home_team.name.lower().split()[0] in ht.lower() or ht.lower().split()[0] in home_team.name.lower()
-                                        a_match = away_team.name.lower().split()[0] in at.lower() or at.lower().split()[0] in away_team.name.lower()
-                                        if h_match and a_match:
-                                            referees = m.get("referees", [])
-                                            search_log.append(f"[1] Partido: {ht} vs {at} ({m_date}) — {len(referees)} árbitros")
-                                            for ref in referees:
-                                                ref_name = ref.get("name", "")
-                                                ref_role = ref.get("role", "")
-                                                if ref_name and len(ref_name.strip()) >= 5:
-                                                    ref_data = {
-                                                        "name": ref_name.strip(),
-                                                        "source": f"football-data.org ({ref_role or 'árbitro'})",
-                                                        "verification_link": None,
-                                                        "_is_fallback": False,
-                                                    }
-                                                    try:
-                                                        from src.data.referee_database import enrich_referee
-                                                        ref_data = enrich_referee(ref_data)
-                                                    except Exception:
-                                                        pass
-                                                    search_log.append(f"[1] ✅ ÁRBITRO OFICIAL: {ref_name.strip()} ({ref_role})")
-                                                    break
-                                            if ref_data and not ref_data.get("_is_fallback"):
-                                                break
+                            l_fetcher_ref = LineupFetcher(data_provider)
+                            ref_data = l_fetcher_ref.fetch_match_referee(
+                                home_team.name, away_team.name,
+                                match_datetime, selected_league
+                            )
+                            estado = ref_data.get("estado", "—")
+                            search_log.append(f"Estado: {estado}")
+                            search_log.append(f"Fuente: {ref_data.get('source', '?')}")
+                            if ref_data.get("motivo"):
+                                search_log.append(f"Motivo: {ref_data['motivo']}")
+                            for ev in ref_data.get("evidencias", []):
+                                search_log.append(
+                                    f"  · {ev.get('name')} — {ev.get('fuente')} "
+                                    f"{'[OFICIAL]' if ev.get('oficial') else ''}")
+                                if ev.get("url"):
+                                    search_log.append(f"    {ev['url']}")
+                            if not ref_data.get("evidencias"):
+                                search_log.append(
+                                    "  · Sin evidencias web; ninguna fuente publica "
+                                    "todavía la designación.")
                         except Exception as e:
-                            search_log.append(f"[1] ❌ Error football-data.org: {e}")
+                            search_log.append(f"❌ Error en la búsqueda: {type(e).__name__}: {e}")
 
-                        # ── PASO 2: API-Football (si la suscripción está activa) ──
-                        if not ref_data or ref_data.get("_is_fallback"):
-                            try:
-                                from src.data.api_manager import APIManager
-                                api = APIManager()
-                                date_str = selected_date.strftime("%Y-%m-%d") if selected_date else None
-                                league_key2 = selected_league.split(" (")[0] if selected_league else ""
-                                _lid_map = {
-                                    "La Liga": 140, "Premier League": 39, "Bundesliga": 78,
-                                    "Serie A": 135, "Ligue 1": 61, "Champions League": 2,
-                                    "Europa League": 3, "Conference League": 848,
-                                }
-                                lid = _lid_map.get(league_key2)
-                                search_log.append(f"[2] API-Football: fecha={date_str}, liga={league_key2} (ID={lid})")
-
-                                if date_str:
-                                    fixtures = api.api_football.get_fixtures(date=date_str, league_id=lid)
-                                    search_log.append(f"[2] Fixtures: {len(fixtures) if fixtures else 0} (si 0 = suscripción expirada)")
-                                    
-                                    if fixtures:
-                                        for f in fixtures:
-                                            ht = f.get("teams", {}).get("home", {}).get("name", "")
-                                            at = f.get("teams", {}).get("away", {}).get("name", "")
-                                            h_match = home_team.name.lower().split()[0] in ht.lower() or ht.lower().split()[0] in home_team.name.lower()
-                                            a_match = away_team.name.lower().split()[0] in at.lower() or at.lower().split()[0] in away_team.name.lower()
-                                            if h_match and a_match:
-                                                referee_name = f.get("fixture", {}).get("referee", "")
-                                                fixture_id = f.get("fixture", {}).get("id")
-                                                search_log.append(f"[2] Partido: {ht} vs {at} (ID={fixture_id}), árbitro='{referee_name}'")
-                                                
-                                                if referee_name and len(referee_name.strip()) >= 5:
-                                                    ref_data = {
-                                                        "name": referee_name.strip(),
-                                                        "source": "API-Football (Oficial)",
-                                                        "verification_link": f"https://www.api-football.com/",
-                                                        "_is_fallback": False,
-                                                        "fixture_id": fixture_id
-                                                    }
-                                                    try:
-                                                        from src.data.referee_database import enrich_referee
-                                                        ref_data = enrich_referee(ref_data)
-                                                    except Exception:
-                                                        pass
-                                                    search_log.append(f"[2] ✅ ÁRBITRO: {referee_name.strip()}")
-                                                    break
-                                                else:
-                                                    search_log.append(f"[2] ⚠️ Partido encontrado pero sin árbitro asignado")
-                                                    if not ref_data:
-                                                        ref_data = {
-                                                            "name": "No asignado aún",
-                                                            "source": f"API-Football: sin árbitro",
-                                                            "verification_link": "https://www.rfef.es/noticias/arbitros/designaciones",
-                                                            "_is_fallback": True,
-                                                            "fixture_id": fixture_id
-                                                        }
-                                                    break
-                            except Exception as e:
-                                search_log.append(f"[2] ❌ Error API-Football: {e}")
-
-                        # ── PASO 3: Scrapers (solo si APIs fallaron) ──
-                        if not ref_data or ref_data.get("_is_fallback"):
-                            search_log.append("[3] Intentando scrapers (menos fiables)...")
-                            try:
-                                l_fetcher = LineupFetcher(data_provider)
-                                ms_ref = l_fetcher.fetch_match_referee(
-                                    home_team.name, away_team.name,
-                                    selected_date, selected_league
-                                )
-                                if ms_ref and ms_ref.get("name") and not ms_ref.get("_is_fallback"):
-                                    ref_name = ms_ref.get("name", "")
-                                    if len(ref_name.split()) >= 2 and ref_name not in ["No Detectado", "Por Detectar"]:
-                                        ref_data = ms_ref
-                                        ref_data["source"] = ms_ref.get("source", "Scraper") + " (Verificar)"
-                                        search_log.append(f"[3] ⚠️ Scraper: {ref_name} — VERIFICAR")
-                                    else:
-                                        search_log.append(f"[3] Scraper: nombre inválido '{ref_name}'")
-                                else:
-                                    search_log.append(f"[3] Scrapers: sin árbitro fiable")
-                            except Exception as e:
-                                search_log.append(f"[3] ❌ Error scrapers: {e}")
-
-                        # Guardar resultado final
                         if not ref_data:
+                            _consulta = "https://www.sofascore.com"
+                            try:
+                                from src.data.investigador_web import _enlaces_de_consulta
+                                _enlaces = _enlaces_de_consulta(selected_league)
+                                if _enlaces:
+                                    _consulta = _enlaces[0]["url"]
+                            except Exception:
+                                pass
                             ref_data = {
-                                "name": "No Detectado",
-                                "source": "No encontrado en ninguna fuente",
-                                "verification_link": "https://www.rfef.es/noticias/arbitros/designaciones",
-                                "_is_fallback": True
+                                "name": "",
+                                "source": "Designación no publicada todavía",
+                                "verification_link": _consulta,
+                                "_is_fallback": True,
+                                "estado": "PENDIENTE",
+                                "motivo": ("No se ha podido determinar el árbitro. "
+                                           "Introdúcelo manualmente cuando se publique."),
                             }
-                            search_log.append("❌ No se encontró árbitro en ninguna fuente")
 
                         st.session_state.fetched_ref = ref_data
                         st.session_state.ref_search_logs = "\n".join(search_log)
@@ -967,9 +869,11 @@ if home_team and away_team and teams_valid:
         from src.data import plantillas as _plantillas
 
         def names_to_players(names, team_name, liga=None):
-            # La posicion sale de la plantilla vigente, no de un valor fijo:
-            # antes se asignaba MIDFIELDER a todos y Oblak figuraba como
-            # centrocampista. Si no se puede determinar, se deja MIDFIELDER.
+            # La demarcacion sale del listado de inscritos vigente. Cuando no se
+            # puede determinar se marca DESCONOCIDA y se dice, en lugar de
+            # rellenar el hueco con MIDFIELDER: ese valor por defecto era lo que
+            # agrupaba a todo el equipo como centrocampistas y ponia a Oblak
+            # entre ellos.
             players = []
             for i, name in enumerate(names):
                 try:
@@ -980,7 +884,7 @@ if home_team and away_team and teams_valid:
                     id=f"{team_name[:3]}_{i}",
                     name=name,
                     team_name=team_name,
-                    position=pos or PlayerPosition.MIDFIELDER,
+                    position=pos or PlayerPosition.DESCONOCIDA,
                     status=PlayerStatus.TITULAR,
                     rating_last_5=7.0
                 ))
@@ -1027,9 +931,38 @@ if home_team and away_team and teams_valid:
                     st.session_state.fetched_ref = ref_data
                     st.rerun()
 
+        # --- SUPERVISIÓN PREVIA AL ESTUDIO ---
+        # El agente supervisor contrasta arbitro, alineaciones y temporada antes
+        # de que se pinte nada. Es la capa que faltaba: cada fuente decidia por
+        # su cuenta si su respuesta valia y la interfaz pintaba lo que llegara,
+        # asi que un arbitro sin confirmar y un once con traspasados convivian
+        # sin que nada lo señalara.
+        st.divider()
+        try:
+            from src.logic.supervisor import supervisar
+            informe_sup = supervisar(
+                home=home_team.name,
+                away=away_team.name,
+                liga=selected_league,
+                fecha=match_datetime,
+                arbitro=st.session_state.get("fetched_ref"),
+                once_local=c_home,
+                once_visitante=c_away,
+            )
+            puede_calcular = render_supervisor_panel(informe_sup)
+        except Exception as e:
+            # Un fallo del supervisor no debe dejar la app inservible, pero
+            # tampoco puede pasar por un visto bueno.
+            st.warning(f"⚠️ El supervisor no pudo completar la verificación: {e}")
+            puede_calcular = False
+
         # --- PREDICTION ---
         st.divider()
-        if st.button("🚀 CALCULAR PREDICCIÓN FINAL", type="primary", width="stretch"):
+        if not puede_calcular:
+            st.button("🚀 CALCULAR PREDICCIÓN FINAL", type="primary",
+                      width="stretch", disabled=True,
+                      help="Resuelve las incidencias graves del supervisor para habilitarlo.")
+        elif st.button("🚀 CALCULAR PREDICCIÓN FINAL", type="primary", width="stretch"):
             # Strict Validation before allowing prediction calculation
             if len(c_home) < 7 or len(c_away) < 7:
                 st.error("❌ ERROR CRÍTICO: Debes confirmar al menos 7 jugadores reales por equipo para realizar el análisis confiable.")
@@ -1408,14 +1341,15 @@ with st.sidebar:
                                                     return None
 
                                             def _to_players(names, tname):
-                                                # Posicion real de la plantilla vigente; MIDFIELDER solo
-                                                # si no se puede determinar.
+                                                # Demarcacion real del listado vigente. Si no se puede
+                                                # determinar se marca DESCONOCIDA, nunca MIDFIELDER: ese
+                                                # relleno por defecto falseaba la composicion del equipo.
                                                 return [
                                                     Player(
                                                         id=f"{tname}_{i}",
                                                         name=n,
                                                         team_name=tname,
-                                                        position=_posicion(n, tname) or PlayerPosition.MIDFIELDER,
+                                                        position=_posicion(n, tname) or PlayerPosition.DESCONOCIDA,
                                                         node_role=roles[i] if i < len(roles) else NodeRole.CREATOR,
                                                         status=PlayerStatus.TITULAR,
                                                         rating_last_5=7.5

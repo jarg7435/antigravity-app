@@ -264,8 +264,28 @@ def fetch_referee(home, away):
 # =============================================================================
 # FUENTE 2: Google News RSS — busca "árbitro EQUIPO1 EQUIPO2"
 # =============================================================================
-def fetch_referee_rss(home, away):
-    """Busca el árbitro en Google News RSS — mismo método que rss_analyst."""
+def fetch_referee_rss(home, away, league=""):
+    """
+    Busca el arbitro en Google News RSS.
+
+    IMPORTANTE: la extraccion NO puede hacerse con _extract_from_text a secas.
+    Esa funcion solo comprueba que lo extraido tenga forma de nombre, no que la
+    noticia hable de ESTE partido, y el resultado era tomar arbitros de otros
+    encuentros. Caso real observado al probar esta misma busqueda: para
+    Athletic - Atletico de Madrid, el primer titular devuelto fue
+
+        "Ortiz Arias, el arbitro del FC Barcelona - Athletic..."
+
+    que trata del Barcelona - Athletic. El nombre es correcto para ESE partido y
+    tiene forma impecable de nombre propio, asi que pasaba todos los filtros y
+    se mostraba como designado del que no era.
+
+    Ahora se usa el extractor anclado del investigador, que exige que el nombre
+    aparezca en una frase que mencione a los dos equipos, o a uno de ellos junto
+    a una palabra de designacion.
+    """
+    from src.data.investigador_web import _extraer_designacion
+
     queries = [
         f"árbitro {home} {away}",
         f"árbitro partido {home} {away}",
@@ -282,12 +302,16 @@ def fetch_referee_rss(home, away):
             for item in root.findall('.//item')[:10]:
                 title = item.findtext('title', '') or ''
                 desc  = item.findtext('description', '') or ''
-                name = _extract_from_text(title + ' ' + desc)
+                name = _extraer_designacion(f"{title}. {desc}", home, away, league)
                 if name:
                     print(f"  [RSS] Árbitro: {name} (de: {title[:50]})")
                     return {"name": name, "source": "Google News",
                             "verification_link": item.findtext('link',''),
-                            "_is_fallback": False}
+                            # Un titular de prensa es un indicio, no una
+                            # designacion oficial: se marca sin confirmar para
+                            # que el supervisor pida corroborarlo.
+                            "estado": "PROBABLE",
+                            "_is_fallback": True}
         except Exception as e:
             print(f"  [RSS] {q[:30]}: {e}")
     return None

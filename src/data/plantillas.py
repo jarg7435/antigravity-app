@@ -110,23 +110,49 @@ def esta_en_plantilla(jugador: str, plantilla: List[str]) -> bool:
     Lo Celso", "Isco Alarcón"). Se acepta la coincidencia si un nombre está
     contenido en el otro, o si comparten el apellido.
     """
+    return resolver_en_plantilla(jugador, plantilla) is not None
+
+
+def resolver_en_plantilla(jugador: str, plantilla: List[str]) -> Optional[str]:
+    """
+    A quien de la plantilla corresponde este nombre, si es que a alguien.
+
+    Devuelve el nombre tal y como figura en el listado de inscritos, o None.
+    Se resuelve SIEMPRE contra la plantilla entera y nunca miembro a miembro:
+    la regla del apellido de abajo solo tiene sentido si puede ver a todos los
+    demas. Comprobar de uno en uno la anulaba —en una lista de un solo elemento
+    cualquier apellido es unico— y asi es como "Sergio Garcia" se resolvia como
+    "Pablo Garcia" y heredaba su demarcacion.
+    """
     j = _norm(jugador)
     if not j:
-        return False
+        return None
 
+    palabras_j = set(j.split())
+
+    # Primera pasada: coincidencia literal o por contencion de palabras. La
+    # contencion se comprueba sobre palabras completas y no sobre la cadena,
+    # porque "Ander" estaba contenido en "Anderson" y los daba por el mismo.
     for miembro in plantilla:
         m = _norm(miembro)
         if not m:
             continue
-        if j == m or j in m or m in j:
-            return True
+        palabras_m = set(m.split())
+        if j == m or palabras_j <= palabras_m or palabras_m <= palabras_j:
+            return miembro
 
-        # Apellido compartido, exigiendo longitud para no casar por azar.
-        apellido = j.split()[-1]
-        if len(apellido) >= 4 and apellido in m.split():
-            return True
+    # Segunda pasada: apellido compartido. Solo se acepta si ese apellido
+    # identifica a UN unico miembro de la plantilla. Antes bastaba con que
+    # coincidiera, y en un equipo con dos Garcia cualquiera de los dos valia
+    # por el otro: un traspasado sobrevivia al filtro gracias a su homonimo.
+    if len(palabras_j) >= 2:
+        apellido = _norm(jugador).split()[-1]
+        if len(apellido) >= 4:
+            portadores = [m for m in plantilla if apellido in _norm(m).split()]
+            if len(portadores) == 1:
+                return portadores[0]
 
-    return False
+    return None
 
 
 # =============================================================================
@@ -239,23 +265,42 @@ def plantilla_actual(equipo: str, liga: str = None) -> List[str]:
 # Validación de alineaciones
 # =============================================================================
 
-def filtrar_alineacion(jugadores: List[str], equipo: str,
-                       liga: str = None) -> Tuple[List[str], List[str]]:
+def auditar_alineacion(jugadores: List[str], equipo: str,
+                       liga: str = None) -> Dict:
     """
-    Separa una alineación en jugadores vigentes y jugadores que ya no están.
+    Contrasta una alineacion con el listado de inscritos vigente.
 
-    Si no se puede obtener la plantilla, se devuelve la alineación intacta: sin
-    plantilla de referencia no hay motivo para descartar a nadie.
+    Devuelve el resultado Y si ha podido comprobarse, que son dos cosas
+    distintas que antes se confundian: filtrar_alineacion devolvia la
+    alineacion intacta cuando no lograba la plantilla, y quien la llamaba no
+    tenia forma de distinguir "todos vigentes" de "no he podido mirarlo". Por
+    ahi seguian entrando los fichajes obsoletos cada vez que la API fallaba.
 
     Returns:
-        (vigentes, descartados)
+        {
+          "vigentes": [...],       # confirmados en el listado de inscritos
+          "descartados": [...],    # ya no pertenecen al club
+          "verificada": bool,      # False = no hay plantilla de referencia
+          "plantilla": int,        # tamano del listado consultado
+          "motivo": str,           # explicacion cuando no se ha podido verificar
+        }
     """
+    base = {"vigentes": list(jugadores or []), "descartados": [],
+            "verificada": False, "plantilla": 0, "motivo": ""}
+
     if not jugadores:
-        return [], []
+        base["verificada"] = True
+        return base
 
     plantilla = plantilla_actual(equipo, liga)
     if not plantilla:
-        return list(jugadores), []
+        base["motivo"] = (
+            f"No se ha podido obtener el listado de inscritos vigente de "
+            f"{equipo}. Sin esa referencia no se puede garantizar que no haya "
+            f"jugadores traspasados en la alineación."
+        )
+        logger.warning(base["motivo"])
+        return base
 
     vigentes, descartados = [], []
     for jugador in jugadores:
@@ -266,7 +311,24 @@ def filtrar_alineacion(jugadores: List[str], equipo: str,
             f"{equipo}: {len(descartados)} jugador(es) ya no estan en plantilla: "
             f"{', '.join(descartados)}"
         )
-    return vigentes, descartados
+
+    return {"vigentes": vigentes, "descartados": descartados,
+            "verificada": True, "plantilla": len(plantilla), "motivo": ""}
+
+
+def filtrar_alineacion(jugadores: List[str], equipo: str,
+                       liga: str = None) -> Tuple[List[str], List[str]]:
+    """
+    Separa una alineación en jugadores vigentes y jugadores que ya no están.
+
+    Se mantiene por compatibilidad con quien ya la usa. Para saber ademas si la
+    comprobacion ha llegado a hacerse, usa auditar_alineacion.
+
+    Returns:
+        (vigentes, descartados)
+    """
+    informe = auditar_alineacion(jugadores, equipo, liga)
+    return informe["vigentes"], informe["descartados"]
 
 
 def temporada_vigente(liga: str = None) -> Optional[Dict]:
@@ -316,25 +378,57 @@ def plantilla_detallada(equipo: str, liga: str = None) -> List[Dict]:
     return list(cacheado)
 
 
+def demarcacion_de(jugador: str, equipo: str, liga: str = None) -> Dict:
+    """
+    Demarcacion del jugador segun el listado de inscritos, con su procedencia.
+
+    Devuelve tambien POR QUE no se ha podido determinar, que es lo que permite
+    a la interfaz escribir "sin demarcación" en lugar de rellenar el hueco con
+    un centrocampista imaginario.
+
+    Returns:
+        {
+          "posicion": PlayerPosition | None,
+          "etiqueta": str,    # lo que dice la fuente ("Centre-Back", "Offence")
+          "motivo": str,      # vacio si se ha determinado
+        }
+    """
+    from src.models.base import PlayerPosition
+
+    detalle = plantilla_detallada(equipo, liga)
+    if not detalle:
+        return {"posicion": None, "etiqueta": "",
+                "motivo": f"Sin listado de inscritos vigente de {equipo}."}
+
+    # Se resuelve contra el listado completo, no miembro a miembro: ver
+    # resolver_en_plantilla.
+    nombre_inscrito = resolver_en_plantilla(jugador, [m["nombre"] for m in detalle])
+    if nombre_inscrito is None:
+        return {"posicion": None, "etiqueta": "",
+                "motivo": f"{jugador} no aparece en el listado de inscritos de {equipo}."}
+
+    miembro = next(m for m in detalle if m["nombre"] == nombre_inscrito)
+    etiqueta = (miembro.get("posicion") or "").strip()
+    clave_texto = etiqueta.lower()
+    for clave, nombre_enum in _MAPA_POSICION:
+        if clave in clave_texto:
+            return {"posicion": getattr(PlayerPosition, nombre_enum),
+                    "etiqueta": etiqueta, "motivo": ""}
+
+    return {"posicion": None, "etiqueta": etiqueta,
+            "motivo": (f"La fuente da la demarcación como «{etiqueta}», que no "
+                       f"se corresponde con ninguna conocida.")
+                      if etiqueta else
+                      f"{nombre_inscrito} figura sin demarcación en el listado."}
+
+
 def posicion_de(jugador: str, equipo: str, liga: str = None):
     """
     Posicion real del jugador segun la plantilla vigente.
 
     Devuelve un PlayerPosition, o None si no se puede determinar. Existe porque
     la interfaz asignaba MIDFIELDER a todos los jugadores por defecto y
-    mostraba a Oblak como centrocampista.
+    mostraba a Oblak como centrocampista. Para saber ademas el motivo, usa
+    demarcacion_de.
     """
-    from src.models.base import PlayerPosition
-
-    detalle = plantilla_detallada(equipo, liga)
-    if not detalle:
-        return None
-
-    for miembro in detalle:
-        if esta_en_plantilla(jugador, [miembro["nombre"]]):
-            etiqueta = (miembro.get("posicion") or "").lower()
-            for clave, nombre_enum in _MAPA_POSICION:
-                if clave in etiqueta:
-                    return getattr(PlayerPosition, nombre_enum)
-            return None
-    return None
+    return demarcacion_de(jugador, equipo, liga)["posicion"]

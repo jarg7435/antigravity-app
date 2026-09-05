@@ -236,13 +236,31 @@ class LineupFetcher:
         descartar a nadie.
         """
         try:
-            casa, fuera_casa = _plantillas.filtrar_alineacion(result.home, home_team_name, league)
-            visit, fuera_visit = _plantillas.filtrar_alineacion(result.away, away_team_name, league)
+            audit_casa = _plantillas.auditar_alineacion(result.home, home_team_name, league)
+            audit_visit = _plantillas.auditar_alineacion(result.away, away_team_name, league)
         except Exception as e:
             logger.warning(f"No se pudo validar la vigencia de la alineacion: {e}")
+            result.metadata = dict(result.metadata or {})
+            result.metadata["plantilla_verificada"] = False
+            result.metadata["plantilla_motivo"] = f"{type(e).__name__}: {e}"
             return result
 
-        descartados = fuera_casa + fuera_visit
+        result.metadata = dict(result.metadata or {})
+
+        # Se anota SIEMPRE si la comprobacion ha llegado a hacerse, y no solo su
+        # resultado. Antes, no encontrar la plantilla y encontrarla sin bajas
+        # producian exactamente la misma salida, de modo que un fallo de la API
+        # se presentaba como un once verificado. El supervisor necesita poder
+        # distinguirlos para bloquear el segundo caso.
+        verificada = audit_casa["verificada"] and audit_visit["verificada"]
+        result.metadata["plantilla_verificada"] = verificada
+        if not verificada:
+            motivo = audit_casa["motivo"] or audit_visit["motivo"]
+            result.metadata["plantilla_motivo"] = motivo
+            logger.warning(f"Alineacion sin contrastar: {motivo}")
+            return result
+
+        descartados = audit_casa["descartados"] + audit_visit["descartados"]
         if not descartados:
             return result
 
@@ -250,10 +268,9 @@ class LineupFetcher:
             f"Descartados {len(descartados)} jugador(es) que ya no estan en plantilla: "
             f"{', '.join(descartados)}"
         )
-        result.home = casa
-        result.away = visit
-        result.count = len(casa) + len(visit)
-        result.metadata = dict(result.metadata or {})
+        result.home = audit_casa["vigentes"]
+        result.away = audit_visit["vigentes"]
+        result.count = len(result.home) + len(result.away)
         result.metadata["descartados_por_plantilla"] = descartados
         return result
 

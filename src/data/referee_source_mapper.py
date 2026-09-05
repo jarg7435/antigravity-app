@@ -1,387 +1,191 @@
-import requests
-from bs4 import BeautifulSoup
-from typing import Optional, Dict
+"""
+Fuentes de designacion arbitral por competicion — La Gema JARG74.
+
+QUE CAMBIO Y POR QUE
+--------------------
+Este modulo contenia un scraper por liga, y los cinco hacian lo mismo:
+descargar la PORTADA de la federacion y aplicarle esta expresion regular al
+texto completo de la pagina:
+
+    ({local}).*?({visitante}).*?:?\\s*([A-Z][a-z]+(?:\\s[A-Z][a-z]+)+)
+
+El `.*?` recorre la pagina entera sin limite, asi que enlazaba la palabra
+"Athletic" de una noticia con la palabra "Atletico" de otra completamente
+distinta y se quedaba con el primer par de palabras capitalizadas que viniera
+detras. Ese par podia ser cualquier nombre propio de la portada. De ahi salio
+mostrar a Ortiz Arias como arbitro del Athletic - Atletico de Madrid cuando la
+designacion del CTA era Munuera Montero: el nombre tiene forma perfecta de
+nombre de persona, de modo que ningun filtro posterior podia detectar el error.
+
+El problema no era la fuente, era el metodo. Buscar la designacion exige
+buscar, no raspar una portada: consultar por el partido concreto, exigir que el
+nombre aparezca en una frase que hable de ese partido y no darlo por bueno
+hasta que lo corrobore una segunda fuente. Eso es lo que hace
+src/data/investigador_web.py, y este modulo delega ahi.
+
+Se conserva la clase RefereeSourceMapper con su interfaz de siempre —
+get_scraper(liga).fetch_referee(local, visitante, fecha) — para no romper a
+quien ya la llama (MultiSourceFetcher y LineupFetcher). Lo que cambia es lo que
+hay debajo.
+
+Autor: Antigravity - La Gema JARG74
+"""
+
 from datetime import datetime
-import re
-from src.models.base import Referee, RefereeStrictness
+from typing import Dict
+
+from src.models.base import RefereeStrictness
 
 
 class RefereeSourceMapper:
     """
-    Maps leagues to their official referee appointment sources.
+    Enruta cada competicion a su fuente de designaciones.
+
+    Los portales oficiales viven ahora en investigador_web.PORTALES_OFICIALES,
+    que es tambien quien decide que dominios cuentan como oficiales. Aqui se
+    exponen por compatibilidad con el codigo que leia LEAGUE_SOURCES.
     """
-    
+
     LEAGUE_SOURCES = {
         "La Liga": "https://www.rfef.es/noticias/arbitros/designaciones",
         "Premier League": "https://www.premierleague.com/referees/overview",
         "Serie A": "https://www.aia-figc.it/designazioni/cana/",
         "Bundesliga": "https://www.dfb.de/sportl-strukturen/schiedsrichter/ansetzungen/",
-        "Ligue 1": "http://arbitrezvous.blogspot.com/",
+        "Ligue 1": "https://www.ligue1.fr/calendrier-resultats",
     }
-    
+
     @classmethod
     def _normalize_league(cls, league: str) -> str:
-        """
-        Normalizes league name for robust matching.
-        """
-        if not league:
-            return ""
-        
-        # Lowercase, strip whitespace, remove common suffixes/prefixes
-        norm = league.lower().strip()
-        
-        # Remove parenthetical info: "La Liga (España)" -> "la liga"
-        if "(" in norm:
-            norm = norm.split("(")[0].strip()
-            
-        # Handle "EA Sports", "Santander", etc.
-        norm = norm.replace("ea sports", "").replace("santander", "").strip()
-        
-        # Map aliases to canonical names
-        if "la liga" in norm or "primera division" in norm or "espana" in norm:
-            return "La Liga"
-        if "premier" in norm or "england" in norm:
-            return "Premier League"
-        if "serie a" in norm or "italy" in norm:
-            return "Serie A"
-        if "bundesliga" in norm or "germany" in norm:
-            return "Bundesliga"
-        if "ligue 1" in norm or "france" in norm:
-            return "Ligue 1"
-            
-        return norm
+        """Nombre canonico de la competicion, tolerante a las variantes de la UI."""
+        from src.data.referee_database import liga_canonica
+
+        canonica = liga_canonica(league)
+        if canonica and canonica != "UEFA":
+            return canonica
+        if canonica == "UEFA":
+            return "UEFA"
+        return (league or "").strip()
 
     @classmethod
     def get_scraper(cls, league: str):
         """
-        Returns appropriate referee scraper for the league.
+        Buscador de designaciones para esa competicion.
+
+        Ya no hay una clase por liga: el comportamiento correcto es el mismo
+        para todas —buscar el partido concreto y corroborar— y solo cambia el
+        portal oficial, que el investigador resuelve por su cuenta a partir del
+        nombre de la liga. Mantener cinco copias de la misma logica fue
+        justamente lo que propago el mismo fallo a las cinco.
         """
-        norm_league = cls._normalize_league(league)
-        
-        if norm_league == "La Liga":
-            return LaLigaRefereeScraper()
-        elif norm_league == "Premier League":
-            return PremierLeagueRefereeScraper()
-        elif norm_league == "Serie A":
-            return SerieARefereeScraper()
-        elif norm_league == "Bundesliga":
-            return BundesligaRefereeScraper()
-        elif norm_league == "Ligue 1":
-            return Ligue1RefereeScraper()
-        else:
-            # Generic international pool for all other matches (UEFA, Extra, Mixta)
-            return InternationalRefereePoolScraper()
+        return BuscadorDesignaciones(cls._normalize_league(league))
 
 
-class BaseRefereeScraper:
-    """Base class for referee scrapers."""
-    
+class BuscadorDesignaciones:
+    """
+    Adaptador entre la interfaz antigua de scraper y el investigador web.
+
+    Traduce el veredicto del investigador (VERIFICADO / PROBABLE / PENDIENTE) al
+    diccionario que espera la cascada, conservando el estado: un PROBABLE sale
+    marcado como fallback para que el supervisor pida confirmarlo, en lugar de
+    colarse como dato bueno.
+    """
+
+    def __init__(self, league: str = ""):
+        self.league = league or ""
+
+    def fetch_referee(self, home_team: str, away_team: str,
+                      match_date: datetime = None) -> Dict:
+        try:
+            from src.data import investigador_web as iw
+        except Exception as e:
+            print(f"⚠️ Investigador web no disponible: {e}")
+            return self._sin_designacion()
+
+        try:
+            veredicto = iw.investigar_arbitro(home_team, away_team,
+                                              match_date or datetime.now(),
+                                              self.league)
+        except Exception as e:
+            print(f"⚠️ Búsqueda de designación falló: {type(e).__name__}: {e}")
+            return self._sin_designacion()
+
+        if veredicto.get("estado") == iw.PENDIENTE or not veredicto.get("name"):
+            return self._sin_designacion(veredicto)
+
+        return iw.a_formato_cascada(veredicto)
+
+    def _sin_designacion(self, veredicto: Dict = None) -> Dict:
+        """
+        Respuesta cuando no hay designacion publicada.
+
+        Nunca devuelve un nombre. La version anterior tenia un _fallback_referee
+        por scraper que al menos ya no inventaba, pero el codigo que llamaba no
+        podia distinguir "no la hay todavia" de "no he sabido encontrarla"; aqui
+        se dice cual de las dos cosas es.
+        """
+        veredicto = veredicto or {}
+        consultar = veredicto.get("consultar") or []
+        if not consultar:
+            try:
+                from src.data.investigador_web import _enlaces_de_consulta
+                consultar = _enlaces_de_consulta(self.league)
+            except Exception:
+                consultar = []
+
+        return {
+            "name": "",
+            "strictness": RefereeStrictness.MEDIUM,
+            "avg_cards": 4.0,
+            "source": "Designación no publicada todavía",
+            "verification_link": consultar[0]["url"] if consultar else "",
+            "consultar": consultar,
+            "estado": "PENDIENTE",
+            "motivo": veredicto.get(
+                "motivo",
+                "Ninguna fuente publica todavía la designación de este partido."),
+            "_is_fallback": True,
+        }
+
+
+# -----------------------------------------------------------------------------
+# Compatibilidad: nombres antiguos que otros modulos pueden seguir importando.
+# Todos apuntan al mismo buscador; la liga la lleva el investigador.
+# -----------------------------------------------------------------------------
+
+class BaseRefereeScraper(BuscadorDesignaciones):
+    """Alias historico. Toda la logica esta en BuscadorDesignaciones."""
+
+
+class LaLigaRefereeScraper(BuscadorDesignaciones):
     def __init__(self):
-        self.headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-    
-    def fetch_referee(self, home_team: str, away_team: str, match_date: datetime) -> Dict:
-        """
-        Fetch referee for a specific match.
-        Returns: {'name': str, 'strictness': RefereeStrictness, 'avg_cards': float}
-        """
-        raise NotImplementedError
-    
-    def _infer_strictness(self, referee_name: str) -> RefereeStrictness:
-        """
-        Infer strictness based on known referee profiles.
-        This is a heuristic - in production, use a database.
-        """
-        # Known strict referees
-        strict_refs = ['gil manzano', 'mateu lahoz', 'hernández hernández', 'michael oliver', 
-                       'anthony taylor', 'daniele orsato', 'felix brych']
-        
-        # Known lenient referees
-        lenient_refs = ['díaz de mera', 'munuera montero', 'craig pawson', 
-                        'marco guida', 'tobias stieler']
-        
-        name_lower = referee_name.lower()
-        
-        if any(ref in name_lower for ref in strict_refs):
-            return RefereeStrictness.HIGH
-        elif any(ref in name_lower for ref in lenient_refs):
-            return RefereeStrictness.LOW
-        else:
-            return RefereeStrictness.MEDIUM
+        super().__init__("La Liga")
 
 
-class LaLigaRefereeScraper(BaseRefereeScraper):
-    """Scraper for La Liga referees from RFEF."""
-    
-    def fetch_referee(self, home_team: str, away_team: str, match_date: datetime) -> Dict:
-        """
-        Scrape RFEF website for La Liga referee appointments.
-        """
-        try:
-            url = "https://www.rfef.es/noticias/arbitros/designaciones"
-            resp = requests.get(url, headers=self.headers, timeout=10)
-            resp.raise_for_status()
-            soup = BeautifulSoup(resp.text, 'html.parser')
-            
-            # Look for match containing both team names
-            home_keywords = home_team.lower().split()
-            away_keywords = away_team.lower().split()
-            
-            # Search in text content
-            text = soup.get_text().lower()
-            
-            # Find referee name near team mentions
-            # Pattern: "Team A - Team B: Referee Name"
-            pattern = rf'({"|".join(home_keywords)}).*?({"|".join(away_keywords)}).*?:?\s*([A-Z][a-z]+(?:\s[A-Z][a-z]+)+)'
-            match = re.search(pattern, soup.get_text(), re.IGNORECASE)
-            
-            if match:
-                referee_name = match.group(3).strip()
-                strictness = self._infer_strictness(referee_name)
-                avg_cards = 5.0 if strictness == RefereeStrictness.HIGH else 3.5
-                
-                return {
-                    'name': referee_name,
-                    'strictness': strictness,
-                    'avg_cards': avg_cards,
-                    'source': 'RFEF'
-                }
-            
-            # Fallback: return a common La Liga referee
-            return self._fallback_referee()
-            
-        except Exception as e:
-            print(f"⚠️ RFEF scraping failed: {e}")
-            return self._fallback_referee()
-    
-    def _fallback_referee(self) -> Dict:
-        """Return fallback when referee cannot be found.
-        NEVER returns a random referee — that causes incorrect data."""
-        return {
-            'name': 'No Detectado',
-            'strictness': RefereeStrictness.MEDIUM,
-            'avg_cards': 4.0,
-            'source': 'Fallback — introduce el árbitro manualmente',
-            '_is_fallback': True
-        }
+class PremierLeagueRefereeScraper(BuscadorDesignaciones):
+    def __init__(self):
+        super().__init__("Premier League")
 
 
-class PremierLeagueRefereeScraper(BaseRefereeScraper):
-    """Scraper for Premier League referees."""
-    
-    def fetch_referee(self, home_team: str, away_team: str, match_date: datetime) -> Dict:
-        """
-        Scrape Premier League official site for referee appointments.
-        """
-        try:
-            url = "https://www.premierleague.com/referees/overview"
-            resp = requests.get(url, headers=self.headers, timeout=10)
-            resp.raise_for_status()
-            soup = BeautifulSoup(resp.text, 'html.parser')
-            
-            # Similar pattern matching as La Liga
-            home_keywords = home_team.lower().split()
-            away_keywords = away_team.lower().split()
-            
-            text = soup.get_text()
-            pattern = rf'({"|".join(home_keywords)}).*?({"|".join(away_keywords)}).*?:?\s*([A-Z][a-z]+(?:\s[A-Z][a-z]+)+)'
-            match = re.search(pattern, text, re.IGNORECASE)
-            
-            if match:
-                referee_name = match.group(3).strip()
-                strictness = self._infer_strictness(referee_name)
-                avg_cards = 4.8 if strictness == RefereeStrictness.HIGH else 3.2
-                
-                return {
-                    'name': referee_name,
-                    'strictness': strictness,
-                    'avg_cards': avg_cards,
-                    'source': 'Premier League Official'
-                }
-            
-            return self._fallback_referee()
-            
-        except Exception as e:
-            print(f"⚠️ Premier League scraping failed: {e}")
-            return self._fallback_referee()
-    
-    def _fallback_referee(self) -> Dict:
-        """Return fallback when referee cannot be found."""
-        return {
-            'name': 'No Detectado',
-            'strictness': RefereeStrictness.MEDIUM,
-            'avg_cards': 4.0,
-            'source': 'Fallback — introduce el árbitro manualmente',
-            '_is_fallback': True
-        }
+class SerieARefereeScraper(BuscadorDesignaciones):
+    def __init__(self):
+        super().__init__("Serie A")
 
 
-class SerieARefereeScraper(BaseRefereeScraper):
-    """Scraper for Serie A referees from AIA."""
-    
-    def fetch_referee(self, home_team: str, away_team: str, match_date: datetime) -> Dict:
-        try:
-            url = "https://www.aia-figc.it/designazioni/cana/"
-            resp = requests.get(url, headers=self.headers, timeout=10)
-            resp.raise_for_status()
-            soup = BeautifulSoup(resp.text, 'html.parser')
-            
-            # Pattern matching
-            home_keywords = home_team.lower().split()
-            away_keywords = away_team.lower().split()
-            
-            text = soup.get_text()
-            pattern = rf'({"|".join(home_keywords)}).*?({"|".join(away_keywords)}).*?:?\s*([A-Z][a-z]+(?:\s[A-Z][a-z]+)+)'
-            match = re.search(pattern, text, re.IGNORECASE)
-            
-            if match:
-                referee_name = match.group(3).strip()
-                strictness = self._infer_strictness(referee_name)
-                avg_cards = 5.2 if strictness == RefereeStrictness.HIGH else 3.8
-                
-                return {
-                    'name': referee_name,
-                    'strictness': strictness,
-                    'avg_cards': avg_cards,
-                    'source': 'AIA-FIGC'
-                }
-            
-            return self._fallback_referee()
-            
-        except Exception as e:
-            print(f"⚠️ AIA scraping failed: {e}")
-            return self._fallback_referee()
-    
-    def _fallback_referee(self) -> Dict:
-        """Return fallback when referee cannot be found."""
-        return {
-            'name': 'No Detectado',
-            'strictness': RefereeStrictness.MEDIUM,
-            'avg_cards': 4.0,
-            'source': 'Fallback — introduce el árbitro manualmente',
-            '_is_fallback': True
-        }
+class BundesligaRefereeScraper(BuscadorDesignaciones):
+    def __init__(self):
+        super().__init__("Bundesliga")
 
 
-class BundesligaRefereeScraper(BaseRefereeScraper):
-    """Scraper for Bundesliga referees from DFB."""
-    
-    def fetch_referee(self, home_team: str, away_team: str, match_date: datetime) -> Dict:
-        try:
-            url = "https://www.dfb.de/sportl-strukturen/schiedsrichter/ansetzungen/"
-            resp = requests.get(url, headers=self.headers, timeout=10)
-            resp.raise_for_status()
-            soup = BeautifulSoup(resp.text, 'html.parser')
-            
-            home_keywords = home_team.lower().split()
-            away_keywords = away_team.lower().split()
-            
-            text = soup.get_text()
-            pattern = rf'({"|".join(home_keywords)}).*?({"|".join(away_keywords)}).*?:?\s*([A-Z][a-z]+(?:\s[A-Z][a-z]+)+)'
-            match = re.search(pattern, text, re.IGNORECASE)
-            
-            if match:
-                referee_name = match.group(3).strip()
-                strictness = self._infer_strictness(referee_name)
-                avg_cards = 4.6 if strictness == RefereeStrictness.HIGH else 3.4
-                
-                return {
-                    'name': referee_name,
-                    'strictness': strictness,
-                    'avg_cards': avg_cards,
-                    'source': 'DFB'
-                }
-            
-            return self._fallback_referee()
-            
-        except Exception as e:
-            print(f"⚠️ DFB scraping failed: {e}")
-            return self._fallback_referee()
-    
-    def _fallback_referee(self) -> Dict:
-        """Return fallback when referee cannot be found."""
-        return {
-            'name': 'No Detectado',
-            'strictness': RefereeStrictness.MEDIUM,
-            'avg_cards': 4.0,
-            'source': 'Fallback — introduce el árbitro manualmente',
-            '_is_fallback': True
-        }
+class Ligue1RefereeScraper(BuscadorDesignaciones):
+    def __init__(self):
+        super().__init__("Ligue 1")
 
 
-class Ligue1RefereeScraper(BaseRefereeScraper):
-    """Scraper for Ligue 1 referees from Arbitrez-Vous blog."""
-    
-    def fetch_referee(self, home_team: str, away_team: str, match_date: datetime) -> Dict:
-        try:
-            url = "http://arbitrezvous.blogspot.com/"
-            resp = requests.get(url, headers=self.headers, timeout=10)
-            resp.raise_for_status()
-            soup = BeautifulSoup(resp.text, 'html.parser')
-            
-            home_keywords = home_team.lower().split()
-            away_keywords = away_team.lower().split()
-            
-            text = soup.get_text()
-            pattern = rf'({"|".join(home_keywords)}).*?({"|".join(away_keywords)}).*?:?\s*([A-Z][a-z]+(?:\s[A-Z][a-z]+)+)'
-            match = re.search(pattern, text, re.IGNORECASE)
-            
-            if match:
-                referee_name = match.group(3).strip()
-                strictness = self._infer_strictness(referee_name)
-                avg_cards = 4.4 if strictness == RefereeStrictness.HIGH else 3.2
-                
-                return {
-                    'name': referee_name,
-                    'strictness': strictness,
-                    'avg_cards': avg_cards,
-                    'source': 'Arbitrez-Vous'
-                }
-            
-            return self._fallback_referee()
-            
-        except Exception as e:
-            print(f"⚠️ Arbitrez-Vous scraping failed: {e}")
-            return self._fallback_referee()
-    
-    def _fallback_referee(self) -> Dict:
-        """Return fallback when referee cannot be found."""
-        return {
-            'name': 'No Detectado',
-            'strictness': RefereeStrictness.MEDIUM,
-            'avg_cards': 4.0,
-            'source': 'Fallback — introduce el árbitro manualmente',
-            '_is_fallback': True
-        }
+class InternationalRefereePoolScraper(BuscadorDesignaciones):
+    def __init__(self):
+        super().__init__("UEFA")
 
 
-class InternationalRefereePoolScraper(BaseRefereeScraper):
-    """Generic pool for international and other matches."""
-    
-    def fetch_referee(self, home_team: str, away_team: str, match_date: datetime) -> Dict:
-        return self._fallback_referee()
-            
-    def _fallback_referee(self) -> Dict:
-        """Return fallback when referee cannot be found."""
-        return {
-            'name': 'No Detectado',
-            'strictness': RefereeStrictness.MEDIUM,
-            'avg_cards': 4.0,
-            'source': 'International Pool — introduce el árbitro manualmente',
-            '_is_fallback': True
-        }
-
-
-class FallbackRefereeScraper(BaseRefereeScraper):
-    """Fallback scraper for unsupported leagues."""
-    
-    def fetch_referee(self, home_team: str, away_team: str, match_date: datetime) -> Dict:
-        """Return fallback when referee cannot be found."""
-        return {
-            'name': 'No Detectado',
-            'strictness': RefereeStrictness.MEDIUM,
-            'avg_cards': 4.0,
-            'source': 'Generic Pool — introduce el árbitro manualmente',
-            '_is_fallback': True
-        }
+class FallbackRefereeScraper(BuscadorDesignaciones):
+    def __init__(self):
+        super().__init__("")

@@ -12,6 +12,8 @@ Strictness:
 penalty_rate → penaltis señalados por cada 10 partidos (aprox)
 """
 
+from typing import Optional
+
 REFEREE_DB = {
 
     # =========================================================================
@@ -645,5 +647,118 @@ def es_nombre_plausible(nombre: str) -> bool:
 
 
 def es_arbitro_conocido(nombre: str) -> bool:
-    """¿Figura en la base local? Sirve para graduar la confianza, no para descartar."""
-    return get_referee_data(nombre) is not None
+    """
+    ¿Figura en la base local? Sirve para graduar la confianza, no para descartar.
+
+    Devolvia True siempre: get_referee_data no devuelve None cuando no encuentra
+    a nadie, sino un diccionario vacio, y `{} is not None` es True. Con ese fallo
+    cualquier nombre inventado se daba por conocido, que es justo lo contrario de
+    lo que este filtro existe para hacer.
+    """
+    return bool(get_referee_data(nombre))
+
+
+# =============================================================================
+# CENSO ARBITRAL POR COMPETICION
+# =============================================================================
+
+# Ligas cuyo censo esta lo bastante cubierto en REFEREE_DB como para que "no
+# figura en el censo" sea una senal fiable de error. Fuera de estas, la
+# ausencia no significa nada y no debe usarse para descartar.
+_LIGAS_CON_CENSO = {"La Liga", "Premier League", "Serie A", "Bundesliga", "Ligue 1"}
+
+# Equivalencias entre como nombra la app a la competicion y la etiqueta que usa
+# REFEREE_DB. Se resuelve por palabra clave para tolerar "La Liga EA Sports
+# (Espana)" y demas variantes de la interfaz.
+_ALIAS_LIGA = (
+    ("la liga", "La Liga"), ("primera", "La Liga"), ("espa", "La Liga"),
+    ("premier", "Premier League"), ("ingla", "Premier League"),
+    ("serie a", "Serie A"), ("itali", "Serie A"),
+    ("bundesliga", "Bundesliga"), ("aleman", "Bundesliga"),
+    ("ligue 1", "Ligue 1"), ("franc", "Ligue 1"),
+    ("champions", "UEFA"), ("europa league", "UEFA"), ("uefa", "UEFA"),
+    ("conference", "UEFA"),
+)
+
+
+def liga_canonica(liga: str) -> str:
+    """Etiqueta de liga tal y como la usa REFEREE_DB, o cadena vacia."""
+    if not liga:
+        return ""
+    n = _sin_tildes(liga).lower()
+    for clave, canonica in _ALIAS_LIGA:
+        if clave in n:
+            return canonica
+    return ""
+
+
+def _sin_tildes(texto: str) -> str:
+    import unicodedata
+    return "".join(
+        c for c in unicodedata.normalize("NFD", str(texto))
+        if unicodedata.category(c) != "Mn"
+    )
+
+
+def censo_de_liga(liga: str) -> list:
+    """
+    Colegiados que la base local reconoce como pertenecientes a esa competicion.
+
+    Devuelve lista vacia cuando la liga no tiene censo suficiente: quien llame
+    debe interpretarlo como "no puedo comprobarlo", nunca como "no hay nadie".
+    """
+    canonica = liga_canonica(liga)
+    if canonica not in _LIGAS_CON_CENSO:
+        return []
+    return [n for n, d in REFEREE_DB.items() if d.get("league") == canonica]
+
+
+def _tokens_apellido(nombre: str) -> set:
+    """
+    Palabras identificativas de un nombre, sin tildes ni particulas.
+
+    El umbral es de 3 letras y no de 4 a proposito: con 4 se perdia "Gil" y
+    "Jesus Gil Manzano" dejaba de casar con su propia entrada del censo.
+    """
+    palabras = _sin_tildes(nombre).lower().replace("-", " ").split()
+    limpias = [p.strip(".,;:()'\"") for p in palabras]
+    return {p for p in limpias if len(p) >= 3 and p not in _PARTICULAS}
+
+
+def pertenece_al_censo(nombre: str, liga: str) -> Optional[bool]:
+    """
+    ¿Este colegiado pita en esa competicion?
+
+    Tres respuestas, y la tercera importa tanto como las otras dos:
+        True  -> figura en el censo de la liga.
+        False -> la liga tiene censo y este nombre no esta en el.
+        None  -> no se puede comprobar (liga sin censo). No es un aprobado.
+
+    Un arbitro real recien ascendido dara False, asi que un False es motivo
+    para pedir verificacion, no para descartar sin mas.
+    """
+    censo = censo_de_liga(liga)
+    if not censo:
+        return None
+
+    objetivo = _tokens_apellido(nombre)
+    if not objetivo:
+        return False
+
+    for conocido in censo:
+        propios = _tokens_apellido(conocido)
+        if not propios:
+            continue
+        comunes = objetivo & propios
+        # Se exigen DOS palabras en comun con la MISMA entrada del censo. Con
+        # una sola bastaba, y entonces un nombre inventado como "Rodrigo Perez
+        # Lopez" casaba con "Melero Lopez" por un apellido tan repartido como
+        # Lopez. La comparacion es entrada por entrada, nunca contra el censo
+        # en bloque: asi "Miguel Sanchez" no se arma juntando el "Miguel" de
+        # Ortiz Arias con el "Sanchez" de Sanchez Martinez.
+        if len(comunes) >= 2:
+            return True
+        # Entradas de una sola palabra util: se exige esa palabra exacta.
+        if len(propios) == 1 and comunes == propios:
+            return True
+    return False

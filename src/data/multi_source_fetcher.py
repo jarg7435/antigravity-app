@@ -1,8 +1,15 @@
 """
 MultiSourceFetcher — Cascada de fuentes para árbitros y alineaciones
 =====================================================================
-Árbitros  → 0.API-Football  1.Claude API  2.SofaScore  3.RSS  4.LigaScraper  5.BeSoccer  6.Manual
-Alineaciones → 0.API-Football  1.SofaScore  2.LigaScraper  3.BeSoccer  4.BD interna
+Árbitros → 0.Investigador web  0b.Football-Data  1.Claude  2.SofaScore  3.RSS
+           4.LigaScraper  5.BeSoccer  resp.API-Football  6.Manual
+Alineaciones → 1.SofaScore  2.LigaScraper  3.BeSoccer  resp.API-Football  4.BD interna
+
+El investigador web (src/data/investigador_web.py) va el primero porque es la
+unica fuente que corrobora antes de contestar: solo devuelve un nombre si lo
+respalda una fuente oficial o dos fuentes independientes. Las demas devuelven
+el primer nombre que encuentran, y cortar la cascada con un nombre sin
+confirmar es como se llego a mostrar un arbitro que no era el designado.
 
 ORDEN DE FUENTES: lo fija src/data/cascada.py. Para arbitros y alineaciones de
 proximos partidos, football-data.org y los scrapers van primero y API-Football
@@ -59,7 +66,22 @@ def _arbitro_valido(nombre, fuente):
     return False
 
 
-def _enrich(ref):
+def _enrich(ref, estado="PROBABLE"):
+    """
+    Anade el perfil estadistico del arbitro y fija su estado de verificacion.
+
+    El estado por defecto es PROBABLE y no confirmado, porque las fuentes que
+    pasan por aqui (SofaScore, prensa, scrapers de liga, BeSoccer) devuelven el
+    primer nombre que encuentran sin contrastarlo con nadie. Antes esta funcion
+    ponia _is_fallback=False a todo lo que le llegara, con lo que un titular
+    sobre otro partido salia de la cascada indistinguible de una designacion
+    oficial. Solo el investigador web, football-data.org y API-Football, que
+    leen el dato de un feed del propio partido, pasan VERIFICADO.
+
+    Ojo con enrich_referee: pone _is_fallback=False en cuanto reconoce el
+    nombre en la base local, y eso significa "sabemos quien es", nunca "esta
+    designado para este partido". Por eso el estado se aplica DESPUES.
+    """
     try:
         from src.data.referee_database import enrich_referee
         ref = enrich_referee(ref)
@@ -67,7 +89,9 @@ def _enrich(ref):
         from src.models.base import RefereeStrictness
         ref.setdefault("strictness", RefereeStrictness.MEDIUM)
         ref.setdefault("avg_cards", 4.0)
-    ref.setdefault("_is_fallback", False)
+
+    ref["estado"] = ref.get("estado") or estado
+    ref["_is_fallback"] = ref["estado"] != "VERIFICADO"
     return ref
 
 
@@ -212,12 +236,34 @@ class MultiSourceFetcher:
         print(f"\n[MSF] ÁRBITRO: {home} vs {away} | {league}")
         safe_date = match_date if match_date else datetime.now()
         sofa_link = None
+        _pendiente_investigador = None
 
         # Calcular horas para el partido
         try:
             hours = (safe_date - datetime.now()).total_seconds() / 3600
         except Exception:
             hours = 999
+
+        # ── FUENTE 0: Investigador web ────────────────────────────────────────
+        # Va primero porque es la unica que corrobora antes de responder: exige
+        # fuente oficial o dos fuentes independientes de acuerdo. Las de mas
+        # abajo devuelven el primer nombre que encuentran, y cortar la cascada
+        # con un nombre sin confirmar es exactamente como se llego a mostrar un
+        # arbitro que no era el designado.
+        try:
+            from src.data import investigador_web as _iw
+            veredicto = _iw.investigar_arbitro(home, away, safe_date, league)
+            if veredicto.get("estado") == _iw.VERIFICADO:
+                print(f"  [0-Investigador] ✅ {veredicto['name']} — {veredicto['motivo']}")
+                return _iw.a_formato_cascada(veredicto)
+            # PROBABLE y PENDIENTE se guardan y se deciden al final: puede que
+            # una fuente posterior corrobore el mismo nombre.
+            _pendiente_investigador = veredicto
+            print(f"  [0-Investigador] {veredicto.get('estado')}: "
+                  f"{veredicto.get('motivo', '')}")
+        except Exception as e:
+            _pendiente_investigador = None
+            print(f"  [0-Investigador] Error: {type(e).__name__}: {e}")
 
         # ── FUENTE 0b: Football-Data.org (verificación adicional) ─────────────
         fd_client = _get_football_data_client()
@@ -253,6 +299,8 @@ class MultiSourceFetcher:
                                                             "name": ref_name,
                                                             "strictness": RefereeStrictness.MEDIUM,
                                                             "avg_cards": 4.0,
+                                                            "estado": "VERIFICADO",
+                                                            "motivo": "Confirmado por football-data.org (oficiales del partido).",
                                                             "source": "Football-Data.org (oficial)",
                                                             "verification_link": f"https://www.sofascore.com",
                                                             "_is_fallback": False,
@@ -290,11 +338,11 @@ class MultiSourceFetcher:
         # ── FUENTE 3: Google News RSS ─────────────────────────────────────────
         try:
             from src.data.scrapers.sofascore_api import fetch_referee_rss
-            rss = fetch_referee_rss(home, away)
+            rss = fetch_referee_rss(home, away, league)
             if rss and rss.get("name") and _arbitro_valido(rss["name"], "3-RSS"):
-                print(f"  [3-RSS] ✅ {rss['name']}")
+                print(f"  [3-RSS] {rss['name']} (sin corroborar)")
                 if sofa_link: rss.setdefault("verification_link", sofa_link)
-                return _enrich(rss)
+                return _enrich(rss, estado="PROBABLE")
         except Exception as e:
             print(f"  [3-RSS] {e}")
 
@@ -360,6 +408,8 @@ class MultiSourceFetcher:
                             }
                             ref_result = {
                                 "name": ref_name,
+                                "estado": "VERIFICADO",
+                                "motivo": "Confirmado por API-Football (dato oficial del fixture).",
                                 "strictness": strict_map.get(strictness, RefereeStrictness.MEDIUM),
                                 "avg_cards": avg_cards if avg_cards != "?" else 4.0,
                                 "source": f"API-Football (oficial)",
@@ -377,15 +427,31 @@ class MultiSourceFetcher:
 
 
         # ── FALLBACK: pedir al usuario ────────────────────────────────────────
+        # Si el investigador tenia un candidato sin corroborar, se devuelve
+        # marcado como PROBABLE en lugar de tirarlo: el supervisor lo pedira
+        # confirmar, que es mejor que no dar ninguna pista.
+        if _pendiente_investigador and _pendiente_investigador.get("name"):
+            from src.data import investigador_web as _iw
+            print(f"  [MSF] Sin confirmar; se devuelve el candidato del investigador "
+                  f"({_pendiente_investigador['name']}) para validación manual")
+            salida = _iw.a_formato_cascada(_pendiente_investigador)
+            if sofa_link:
+                salida.setdefault("verification_link", sofa_link)
+            return salida
+
         from src.models.base import RefereeStrictness
         print(f"  [MSF] ❌ No encontrado en ninguna fuente")
+        consultar = (_pendiente_investigador or {}).get("consultar", [])
         return {
             "name": "Por Detectar",
             "strictness": RefereeStrictness.MEDIUM,
             "avg_cards": 4.0,
             "source": "Introduce el árbitro manualmente",
             "verification_link": sofa_link or "https://www.sofascore.com",
-            "_is_fallback": True
+            "_is_fallback": True,
+            "estado": "PENDIENTE",
+            "motivo": "Ninguna fuente publica todavía la designación de este partido.",
+            "consultar": consultar,
         }
 
     # =========================================================================
@@ -436,6 +502,11 @@ class MultiSourceFetcher:
         if not _cascada.api_football_puede_responder(_tipo, fecha=safe_date):
             print(f"  [resp-API-Football] Omitida: fuera del alcance del plan ({_tipo.value})")
         else:
+            # af_client se leia aqui sin haberse creado nunca en esta funcion:
+            # solo existia en fetch_referee. Era un NameError que reventaba la
+            # obtencion de alineaciones cada vez que la fecha caia dentro de la
+            # ventana de API-Football, justo cuando esta fuente podia responder.
+            af_client = _get_api_football_client()
             if af_client:
                 try:
                     fixture_id = _find_fixture_id(af_client, home, away, league, safe_date)
