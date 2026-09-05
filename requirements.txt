@@ -11,3 +11,5 @@ requests-cache
 retry_requests
 Pillow
 truststore
+numpy
+plotly

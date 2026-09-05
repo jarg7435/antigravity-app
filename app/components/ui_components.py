@@ -326,19 +326,13 @@ def render_prediction_cards(result: PredictionResult):
             st.success(f"**Mercado {opp['market']}**: Valor del {opp['value_pct']}% | Cuota: {opp['odds']} | Stake Kelly: {opp['suggested_stake_pct']}%")
 
 def render_value_analysis_chart(opportunities: List[Dict]):
-    if not px or not opportunities: return
-    
-    st.markdown("#### 📊 Distribución de Valor por Mercado")
-    df = pd.DataFrame(opportunities)
-    fig = px.bar(df, x='market', y='value_pct', color='value_pct',
-                 color_continuous_scale="Viridis",
-                 labels={'market': 'Mercado', 'value_pct': 'Valor %'},
-                 title="Valor Detectado")
-    fig.update_layout(template="plotly_dark", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
-    st.plotly_chart(fig, use_container_width=True)
-
-def render_value_analysis_chart(opportunities: List[Dict]):
-    if not px or not opportunities: return
+    if not opportunities:
+        return
+    if not px:
+        # Salir en silencio ocultaba el problema: los graficos llevaban sin
+        # dibujarse desde que plotly falto en requirements.txt.
+        st.caption("Grafico no disponible: falta la dependencia plotly.")
+        return
     
     st.markdown("#### 📊 Distribución de Valor por Mercado")
     df = pd.DataFrame(opportunities)
@@ -360,6 +354,8 @@ def render_bankroll_ui(manager):
     c4.metric("ROI Global", f"{summary['roi']}%")
     
     # Advanced Analytics (Phase 4)
+    if not px and summary['roi'] != 0:
+        st.caption("Curva de equity no disponible: falta la dependencia plotly.")
     if px and summary['roi'] != 0:
         st.markdown("#### 📈 Evolución del Capital")
         # Generate dummy equity curve from balance history
