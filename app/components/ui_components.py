@@ -62,17 +62,43 @@ def render_league_selector():
     ]
     return st.selectbox("Seleccionar Competición:", options=leagues)
 
-def render_date_selector():
-    return st.date_input("Fecha del Encuentro:", value=pd.to_datetime("today"))
+def render_date_selector(valor=None):
+    """
+    Fecha del encuentro.
 
-def render_time_selector():
-    times = []
-    for h in range(24):
-        for m in [0, 15, 30, 45]:
-            times.append(f"{h:02d}:{m:02d}")
-    
-    # Default to 21:00 if found
-    default_index = times.index("21:00") if "21:00" in times else 0
+    Admite un valor por defecto para que la aplicacion pueda rellenarla con la
+    fecha real del partido en cuanto sabe que dos equipos se enfrentan. Antes
+    proponia siempre "hoy", y como la fecha se pide antes de elegir los equipos
+    habia que acertarla a mano: asi se analizo un Valencia - Barcelona del dia 6
+    con fecha del dia 5.
+    """
+    return st.date_input("Fecha del Encuentro:",
+                         value=valor if valor is not None else pd.to_datetime("today"))
+
+def render_time_selector(valor=None):
+    """
+    Hora del encuentro, en tramos de cuarto de hora.
+
+    Si la hora real no cae en un cuarto exacto (las hay a las 16:15, pero
+    tambien a las 18:30 o a las 21:00), se elige el tramo mas cercano en vez de
+    volver al 21:00 por defecto, que era una hora inventada.
+    """
+    times = [f"{h:02d}:{m:02d}" for h in range(24) for m in (0, 15, 30, 45)]
+
+    default_index = times.index("21:00")
+    if valor:
+        if valor in times:
+            default_index = times.index(valor)
+        else:
+            try:
+                h, m = (int(x) for x in str(valor).split(":")[:2])
+                cercano = min(times,
+                              key=lambda t: abs((int(t[:2]) * 60 + int(t[3:]))
+                                                - (h * 60 + m)))
+                default_index = times.index(cercano)
+            except (ValueError, IndexError):
+                pass
+
     return st.selectbox("Hora del Encuentro:", options=times, index=default_index)
 
 def render_team_selector(label: str, teams: list[str], key: str):

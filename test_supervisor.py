@@ -292,6 +292,33 @@ plantillas.plantilla_actual = _original_actual
 
 
 # =============================================================================
+# 6. Calendario: la fecha del partido y su hora local
+# =============================================================================
+print("\n--- 6. Calendario: hora de la competicion, no del servidor ---")
+
+from src.data import calendario as cal
+
+# El caso real: Valencia - Barcelona se jugaba a las 14:15 UTC, que son las
+# 16:15 en Espana. Convertirlo con la hora del proceso daria 14:15 en Streamlit
+# Cloud, que va en UTC, y el partido apareceria dos horas antes.
+comprobar("14:15 UTC en LaLiga son las 16:15 peninsulares",
+          cal._a_local("2026-09-06T14:15:00Z", "La Liga (España)").strftime("%Y-%m-%d %H:%M"),
+          "2026-09-06 16:15")
+comprobar("La misma hora en enero son las 15:15 (sin horario de verano)",
+          cal._a_local("2026-01-06T14:15:00Z", "La Liga").strftime("%H:%M"), "15:15")
+comprobar("La Premier se anuncia en hora de Londres",
+          cal._a_local("2026-09-06T14:00:00Z", "Premier League").strftime("%H:%M"), "15:00")
+comprobar("La Serie A, en hora de Italia",
+          cal._a_local("2026-09-06T18:45:00Z", "Serie A").strftime("%H:%M"), "20:45")
+comprobar("Una marca de tiempo ilegible no revienta, devuelve None",
+          cal._a_local("no-es-una-fecha", "La Liga"), None)
+comprobar("Sin equipos no se inventa fecha",
+          cal.fecha_del_partido("", "", "La Liga"), None)
+comprobar("La etiqueta de zona se nombra para poder mostrarla",
+          cal._zona("La Liga (España)")[1], "hora peninsular")
+
+
+# =============================================================================
 print("\n" + "=" * 62)
 if _fallos:
     print(f"FALLOS: {len(_fallos)}")

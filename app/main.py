@@ -450,9 +450,19 @@ st.markdown('<h3 style="color: #ffffff;">🛠️ Configuración Estratégica</h3
 with st.container():
     col1, col2 = st.columns(2)
     with col1:
-        selected_date = render_date_selector()
+        # La fecha se rellena sola con la del partido en cuanto se eligen los dos
+        # equipos (mas abajo). Aqui solo se lee lo que quedo guardado en la
+        # pasada anterior: Streamlit pinta de arriba abajo, y estos selectores
+        # van antes que los equipos.
+        selected_date = render_date_selector(st.session_state.get("fecha_partido_auto"))
     with col2:
-        selected_time = render_time_selector()
+        selected_time = render_time_selector(st.session_state.get("hora_partido_auto"))
+        _origen_fecha = st.session_state.get("origen_fecha_auto")
+        if _origen_fecha:
+            st.markdown(
+                f'<p style="color:#4ade80; font-size:0.82rem;">📅 Fecha y hora '
+                f'tomadas de {_origen_fecha}. Cámbialas si no coinciden.</p>',
+                unsafe_allow_html=True)
         st.markdown('<p style="color: #fdffcc; font-size: 0.9rem;">🕒 La confirmación oficial de alineaciones se habilita 1h antes del inicio.</p>', unsafe_allow_html=True)
 
 ALL_LEAGUES = [
@@ -512,6 +522,43 @@ selected_league = st.selectbox(
      "Europa League", "Conference League", "Otra competición"],
     key="match_competition"
 )
+
+# --- FECHA REAL DEL PARTIDO ---
+# Ya se sabe quien juega y en que competicion, asi que se puede preguntar a las
+# fuentes cuando se juega y rellenar la fecha en lugar de proponer "hoy a las
+# 21:00". La consulta se hace UNA vez por pareja de equipos: la clave se marca
+# como resuelta ANTES de buscar, de modo que un fallo de red no deje la
+# aplicacion reintentando en cada repintado.
+if home_team and away_team and home_team.name != away_team.name:
+    _clave_par = f"{home_team.name}|{away_team.name}|{selected_league}"
+    if st.session_state.get("par_fecha_resuelto") != _clave_par:
+        st.session_state["par_fecha_resuelto"] = _clave_par
+        try:
+            from src.data.calendario import fecha_del_partido
+            with st.spinner("📅 Buscando la fecha real del encuentro..."):
+                _hallazgo = fecha_del_partido(home_team.name, away_team.name,
+                                              selected_league)
+        except Exception as e:
+            # No es motivo para interrumpir nada: si no se encuentra la fecha,
+            # se queda la que haya y el usuario la ajusta.
+            print(f"[LAGEMA] Búsqueda de fecha falló: {type(e).__name__}: {e}")
+            _hallazgo = None
+
+        if _hallazgo:
+            _nueva_fecha = _hallazgo["cuando"].date()
+            _nueva_hora = _hallazgo["cuando"].strftime("%H:%M")
+            # Solo se repinta si de verdad cambia algo, para no encadenar
+            # recargas innecesarias.
+            if (st.session_state.get("fecha_partido_auto") != _nueva_fecha
+                    or st.session_state.get("hora_partido_auto") != _nueva_hora):
+                st.session_state["fecha_partido_auto"] = _nueva_fecha
+                st.session_state["hora_partido_auto"] = _nueva_hora
+                st.session_state["origen_fecha_auto"] = (
+                    f"{_hallazgo['fuente']} ({_hallazgo['zona']})")
+                st.rerun()
+        else:
+            # Sin fecha encontrada no se toca lo que haya puesto el usuario.
+            st.session_state["origen_fecha_auto"] = None
 
 # CORRECCIÓN CRÍTICA: Validar que los equipos no sean iguales
 teams_valid = True

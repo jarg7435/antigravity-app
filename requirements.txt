@@ -44,3 +44,9 @@ openmeteo-requests==1.7.5
 # --- Utilidades ---
 python-dotenv==1.2.2
 Pillow==12.1.0
+
+# Base de datos de zonas horarias para zoneinfo. src/data/calendario.py la
+# necesita para pasar la hora UTC de los feeds a la hora de la competicion.
+# En Linux la trae el sistema, pero en Windows no existe, y hasta ahora solo
+# llegaba de rebote como dependencia de pandas. Se declara para que se vea.
+tzdata==2026.3
