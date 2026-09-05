@@ -65,13 +65,51 @@ from src.logic.predictors import Predictor
 from src.logic.validator import Validator
 from src.logic.lineup_fetcher import LineupFetcher
 from app.components.ui_components import (
-    render_header, render_bpa_display, render_prediction_cards, 
-    render_lineup_check_ui, render_league_selector, render_date_selector, 
+    render_header, render_bpa_display, render_prediction_cards,
+    render_lineup_check_ui, render_league_selector, render_date_selector,
     render_team_selector, render_player_selector, render_time_selector,
     render_result_validation_form, render_historical_dashboard,
-    render_bankroll_ui, render_value_analysis_chart, render_semaforo_history,
-    render_supervisor_panel
+    render_bankroll_ui, render_value_analysis_chart, render_semaforo_history
 )
+
+# render_supervisor_panel se importa aparte y de forma tolerante.
+#
+# Es el componente mas reciente, y en Streamlit Cloud se dio un arranque en el
+# que main.py ya estaba actualizado pero ui_components.py se servia todavia de
+# la copia anterior. Al ir el nombre dentro del import conjunto, el
+# ImportError tumbaba la aplicacion entera antes de pintar nada: un panel de
+# interfaz no puede impedir que arranque la app.
+#
+# El respaldo NO es cosmetico ni relaja nada. Devuelve exactamente lo mismo que
+# el panel bueno —False cuando el supervisor bloquea— porque saltarse el
+# bloqueo seria dejar pasar justo los datos sin verificar que este trabajo
+# existe para detener. Solo cambia el aspecto, nunca la decision.
+try:
+    from app.components.ui_components import render_supervisor_panel
+except ImportError:
+    def render_supervisor_panel(informe):
+        """Render minimo del veredicto, si el componente no esta disponible."""
+        st.warning(
+            "⚠️ El panel del supervisor no está disponible en esta versión de "
+            "la interfaz (`ui_components.py` desactualizado). La verificación "
+            "sigue activa y se muestra en formato reducido."
+        )
+        if informe.bloqueado:
+            st.error(f"⛔ Agente Supervisor · ANÁLISIS BLOQUEADO — {informe.resumen()}")
+        elif informe.incidencias:
+            st.warning(f"⚠️ Agente Supervisor · CON AVISOS — {informe.resumen()}")
+        else:
+            st.success(f"✅ Agente Supervisor · {informe.resumen()}")
+
+        for inc in informe.incidencias:
+            marca = "⛔" if inc.gravedad == "grave" else "⚠️"
+            st.markdown(f"{marca} **[{inc.ambito}]** {inc.mensaje}")
+            if inc.solucion:
+                st.caption(f"➜ {inc.solucion}")
+            for d in inc.detalle[:12]:
+                st.caption(f"   · {d}")
+
+        return not informe.bloqueado
 from src.data.bankroll_manager import BankrollManager
 from src.logic.report_engine import ReportEngine
 from src.models.base import Match, MatchConditions, Referee, RefereeStrictness, Player, PlayerPosition, PlayerStatus, NodeRole
