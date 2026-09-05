@@ -557,3 +557,93 @@ def enrich_referee(ref_dict: dict) -> dict:
         ref_dict.setdefault("profile", "Árbitro no encontrado en base de datos local.")
 
     return ref_dict
+
+
+# =============================================================================
+# VALIDACION DE NOMBRES
+# =============================================================================
+
+# Palabras que nunca forman parte del nombre de un arbitro. Vienen de titulares
+# de prensa: al colarse por los patrones de extraccion, la aplicacion llego a
+# mostrar "que no vio" como arbitro designado.
+_PALABRAS_FUNCIONALES = {
+    "el", "la", "los", "las", "un", "una", "unos", "unas", "del", "de", "al",
+    "en", "por", "para", "con", "sin", "sobre", "tras", "entre", "hasta",
+    "que", "qué", "no", "si", "sí", "su", "sus", "este", "esta", "esa", "ese",
+    "lo", "le", "les", "se", "y", "o", "u", "e", "mas", "más", "pero",
+}
+
+# Estas nunca forman parte de un nombre, vayan como vayan escritas.
+_NUNCA_NOMBRE = {
+    # verbos frecuentes en titulares
+    "vio", "ver", "vera", "verá", "dijo", "dice", "fue", "era", "sera", "será",
+    "tiene", "hizo", "dio", "paso", "pasó", "está", "hay", "van", "va",
+    "pita", "pitara", "pitará", "dirige", "dirigira", "dirigirá", "arbitra",
+    "señala", "senala", "expulsa", "anula", "revisa",
+    # vocabulario futbolistico
+    "partido", "arbitro", "árbitro", "colegiado", "juez", "designado",
+    "designacion", "designación", "liga", "equipo", "jugador", "gol", "goles",
+    "penalti", "penalty", "tarjeta", "roja", "amarilla", "var", "minuto",
+    "jornada", "temporada", "entrenador", "aficion", "afición", "polemica",
+    "polémica", "error", "errores",
+}
+
+# Particulas de los apellidos compuestos espanoles. Son validas dentro de un
+# nombre ("Ricardo de Burgos Bengoetxea", "Isidro Diaz de Mera"), pero no al
+# principio ni al final, donde delatan un fragmento de frase.
+_PARTICULAS = {"de", "del", "la", "las", "los", "y", "da", "dos", "van", "von", "di"}
+
+
+def es_nombre_plausible(nombre: str) -> bool:
+    """
+    ¿Este texto parece el nombre de una persona?
+
+    Filtro de cordura para lo que devuelven las fuentes de prensa, que extraen
+    de titulares y pueden colar fragmentos de frase. No comprueba que el
+    arbitro exista —los hay nuevos cada temporada— sino que lo devuelto tenga
+    forma de nombre propio.
+    """
+    if not nombre or not isinstance(nombre, str):
+        return False
+
+    limpio = nombre.strip()
+    if len(limpio) < 6:
+        return False
+
+    palabras = limpio.split()
+    if not (2 <= len(palabras) <= 5):
+        return False
+
+    # Una particula en minuscula al principio o al final delata un fragmento de
+    # frase. En mayuscula es legitima: "Del Cerro Grande".
+    if palabras[0].lower() in _PARTICULAS and not palabras[0][0].isupper():
+        return False
+    if palabras[-1].lower() in _PARTICULAS:
+        return False
+
+    propias = []
+    for palabra in palabras:
+        minus = palabra.lower()
+        if minus in _NUNCA_NOMBRE:
+            return False
+        # Las particulas se saltan antes de nada: "de" es a la vez particula y
+        # palabra funcional, y en "Ricardo de Burgos" es lo primero.
+        if minus in _PARTICULAS:
+            continue
+        # Las funcionales solo descalifican si van en minuscula: la mayuscula
+        # distingue "Ben El Hadj" de "que el partido".
+        if minus in _PALABRAS_FUNCIONALES and not palabra[0].isupper():
+            return False
+        if len(palabra) < 2 or not palabra[0].isupper():
+            return False
+        if not palabra.replace("-", "").replace("'", "").isalpha():
+            return False
+        propias.append(palabra)
+
+    # Al menos nombre y apellido, y alguna palabra con cuerpo suficiente.
+    return len(propias) >= 2 and any(len(p) >= 4 for p in propias)
+
+
+def es_arbitro_conocido(nombre: str) -> bool:
+    """¿Figura en la base local? Sirve para graduar la confianza, no para descartar."""
+    return get_referee_data(nombre) is not None

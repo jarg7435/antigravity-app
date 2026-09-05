@@ -220,10 +220,17 @@ def plantilla_actual(equipo: str, liga: str = None) -> List[str]:
         logger.warning(f"Error obteniendo plantilla de {equipo}: {e}")
         return []
 
-    jugadores = [j.get("name", "") for j in datos.get("squad", []) if j.get("name")]
+    detalle = [
+        {"nombre": j.get("name", ""), "posicion": j.get("position") or ""}
+        for j in datos.get("squad", []) if j.get("name")
+    ]
+    if detalle:
+        _CACHE.set("plantilla_detalle", clave, detalle, "football-data.org", TTL_PLANTILLA)
+        logger.info(f"Plantilla vigente de {equipo}: {len(detalle)} jugadores")
+
+    jugadores = [j["nombre"] for j in detalle]
     if jugadores:
         _CACHE.set("plantilla", clave, jugadores, "football-data.org", TTL_PLANTILLA)
-        logger.info(f"Plantilla vigente de {equipo}: {len(jugadores)} jugadores")
 
     return jugadores
 
@@ -280,3 +287,54 @@ def temporada_vigente(liga: str = None) -> Optional[Dict]:
         "fin": temporada.get("endDate"),
         "jornada": temporada.get("currentMatchday"),
     }
+
+
+# =============================================================================
+# Posiciones
+# =============================================================================
+
+# football-data.org usa etiquetas en ingles, unas genericas ("Defence") y otras
+# especificas ("Centre-Back", "Left Winger"). Se resuelven por palabra clave.
+_MAPA_POSICION = (
+    ("goalkeeper", "GOALKEEPER"), ("keeper", "GOALKEEPER"),
+    ("defence", "DEFENDER"), ("defender", "DEFENDER"), ("back", "DEFENDER"),
+    ("midfield", "MIDFIELDER"),
+    ("offence", "FORWARD"), ("forward", "FORWARD"), ("winger", "FORWARD"),
+    ("striker", "FORWARD"), ("attack", "FORWARD"),
+)
+
+
+def plantilla_detallada(equipo: str, liga: str = None) -> List[Dict]:
+    """Plantilla vigente con la posicion de cada jugador."""
+    if not equipo:
+        return []
+    clave = _clave_equipo(equipo)
+    cacheado = _CACHE.get("plantilla_detalle", clave)
+    if cacheado is None:
+        plantilla_actual(equipo, liga)          # rellena ambas caches
+        cacheado = _CACHE.get("plantilla_detalle", clave) or []
+    return list(cacheado)
+
+
+def posicion_de(jugador: str, equipo: str, liga: str = None):
+    """
+    Posicion real del jugador segun la plantilla vigente.
+
+    Devuelve un PlayerPosition, o None si no se puede determinar. Existe porque
+    la interfaz asignaba MIDFIELDER a todos los jugadores por defecto y
+    mostraba a Oblak como centrocampista.
+    """
+    from src.models.base import PlayerPosition
+
+    detalle = plantilla_detallada(equipo, liga)
+    if not detalle:
+        return None
+
+    for miembro in detalle:
+        if esta_en_plantilla(jugador, [miembro["nombre"]]):
+            etiqueta = (miembro.get("posicion") or "").lower()
+            for clave, nombre_enum in _MAPA_POSICION:
+                if clave in etiqueta:
+                    return getattr(PlayerPosition, nombre_enum)
+            return None
+    return None

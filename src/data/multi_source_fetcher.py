@@ -43,6 +43,22 @@ def _get_liga_scraper(league):
     return None
 
 
+def _arbitro_valido(nombre, fuente):
+    """
+    ¿Aceptamos este nombre como arbitro designado?
+
+    Se aplica a TODAS las fuentes, no solo a la prensa. Una fuente que devuelve
+    basura y "acierta" corta la cascada antes de llegar a las siguientes: asi
+    es como un fragmento de titular ("que no vio") se mostro como arbitro
+    designado en lugar de dejar que respondieran BeSoccer o el scraper de liga.
+    """
+    from src.data.referee_database import es_nombre_plausible
+    if es_nombre_plausible(nombre):
+        return True
+    print(f"  [{fuente}] descartado, no parece un nombre: {nombre!r}")
+    return False
+
+
 def _enrich(ref):
     try:
         from src.data.referee_database import enrich_referee
@@ -230,7 +246,7 @@ class MultiSourceFetcher:
                                             for ref_info in match_detail["referees"]:
                                                 if ref_info.get("role") in ("REFEREE", None, ""):
                                                     ref_name = ref_info.get("name", "")
-                                                    if ref_name:
+                                                    if ref_name and _arbitro_valido(ref_name, "0b-FootballData"):
                                                         print(f"  [0b-FootballData] ✅ {ref_name}")
                                                         from src.models.base import RefereeStrictness
                                                         return _enrich({
@@ -253,7 +269,7 @@ class MultiSourceFetcher:
             try:
                 from src.data.scrapers.sofascore_api import fetch_referee_via_claude
                 r = fetch_referee_via_claude(home, away, league)
-                if r and r.get("name"):
+                if r and r.get("name") and _arbitro_valido(r["name"], "1-Claude"):
                     print(f"  [1-Claude] ✅ {r['name']}")
                     return _enrich(r)
             except Exception as e:
@@ -265,7 +281,7 @@ class MultiSourceFetcher:
             sf = sf_ref(home, away)
             if sf:
                 sofa_link = sf.get("verification_link")
-                if sf.get("name") and not sf.get("_is_fallback"):
+                if sf.get("name") and not sf.get("_is_fallback") and _arbitro_valido(sf["name"], "2-SofaScore"):
                     print(f"  [2-SofaScore] ✅ {sf['name']}")
                     return _enrich(sf)
         except Exception as e:
@@ -275,7 +291,7 @@ class MultiSourceFetcher:
         try:
             from src.data.scrapers.sofascore_api import fetch_referee_rss
             rss = fetch_referee_rss(home, away)
-            if rss and rss.get("name"):
+            if rss and rss.get("name") and _arbitro_valido(rss["name"], "3-RSS"):
                 print(f"  [3-RSS] ✅ {rss['name']}")
                 if sofa_link: rss.setdefault("verification_link", sofa_link)
                 return _enrich(rss)
@@ -288,7 +304,8 @@ class MultiSourceFetcher:
             if scraper:
                 r = scraper.fetch_referee(home, away, safe_date)
                 name = r.get("name","")
-                if name and name not in ["Por Detectar",""] and not r.get("_is_fallback"):
+                if (name and name not in ["Por Detectar", ""] and not r.get("_is_fallback")
+                        and _arbitro_valido(name, "4-LigaScraper")):
                     print(f"  [4-LigaScraper] ✅ {name}")
                     if sofa_link: r.setdefault("verification_link", sofa_link)
                     return _enrich(r)
@@ -299,7 +316,7 @@ class MultiSourceFetcher:
         try:
             from src.data.scrapers.besoccer_scraper import fetch_referee as bs_ref
             bs = bs_ref(home, away)
-            if bs and bs.get("name"):
+            if bs and bs.get("name") and _arbitro_valido(bs["name"], "5-BeSoccer"):
                 print(f"  [5-BeSoccer] ✅ {bs['name']}")
                 if sofa_link: bs.setdefault("verification_link", sofa_link)
                 return _enrich(bs)

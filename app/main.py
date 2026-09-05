@@ -964,14 +964,23 @@ if home_team and away_team and teams_valid:
             return " gk" in n or " ld" in n or " ct" in n or " li" in n or " mc" in n or " dc" in n or "jugador " in n or "mo" in n or "ed" in n or "ei" in n
         
         from src.models.base import Player, PlayerPosition, PlayerStatus
-        def names_to_players(names, team_name):
+        from src.data import plantillas as _plantillas
+
+        def names_to_players(names, team_name, liga=None):
+            # La posicion sale de la plantilla vigente, no de un valor fijo:
+            # antes se asignaba MIDFIELDER a todos y Oblak figuraba como
+            # centrocampista. Si no se puede determinar, se deja MIDFIELDER.
             players = []
             for i, name in enumerate(names):
+                try:
+                    pos = _plantillas.posicion_de(name, team_name, liga)
+                except Exception:
+                    pos = None
                 players.append(Player(
                     id=f"{team_name[:3]}_{i}",
                     name=name,
                     team_name=team_name,
-                    position=PlayerPosition.MIDFIELDER,
+                    position=pos or PlayerPosition.MIDFIELDER,
                     status=PlayerStatus.TITULAR,
                     rating_last_5=7.0
                 ))
@@ -989,7 +998,7 @@ if home_team and away_team and teams_valid:
                 manual_h = st.text_area(f"Alineación Manual: {home_team.name}", key="man_home", placeholder="Jugador 1, Jugador 2...")
                 if manual_h:
                     real_h = [x.strip() for x in manual_h.split(',') if x.strip()]
-            home_players_ui = names_to_players(real_h, home_team.name)
+            home_players_ui = names_to_players(real_h, home_team.name, home_team.league)
             c_home = render_lineup_check_ui(home_team.name, home_players_ui, side="home")
 
         with v2:
@@ -998,7 +1007,7 @@ if home_team and away_team and teams_valid:
                 manual_a = st.text_area(f"Alineación Manual: {away_team.name}", key="man_away", placeholder="Jugador 1, Jugador 2...")
                 if manual_a:
                     real_a = [x.strip() for x in manual_a.split(',') if x.strip()]
-            away_players_ui = names_to_players(real_a, away_team.name)
+            away_players_ui = names_to_players(real_a, away_team.name, away_team.league)
             c_away = render_lineup_check_ui(away_team.name, away_players_ui, side="away")
 
         # Insistent Deep Search Action Button
@@ -1389,17 +1398,28 @@ with st.sidebar:
                                                 NodeRole.FINALIZER, NodeRole.FINALIZER, NodeRole.FINALIZER
                                             ]
                                             
+                                            from src.data import plantillas as _pl_re
+                                            _liga_re = match_obj_r.competition or ""
+
+                                            def _posicion(nombre, tname):
+                                                try:
+                                                    return _pl_re.posicion_de(nombre, tname, _liga_re)
+                                                except Exception:
+                                                    return None
+
                                             def _to_players(names, tname):
+                                                # Posicion real de la plantilla vigente; MIDFIELDER solo
+                                                # si no se puede determinar.
                                                 return [
                                                     Player(
-                                                        id=f"{tname}_{i}", 
-                                                        name=n, 
+                                                        id=f"{tname}_{i}",
+                                                        name=n,
                                                         team_name=tname,
-                                                        position=PlayerPosition.MIDFIELDER,
+                                                        position=_posicion(n, tname) or PlayerPosition.MIDFIELDER,
                                                         node_role=roles[i] if i < len(roles) else NodeRole.CREATOR,
-                                                        status=PlayerStatus.TITULAR, 
+                                                        status=PlayerStatus.TITULAR,
                                                         rating_last_5=7.5
-                                                    ) 
+                                                    )
                                                     for i, n in enumerate(names[:11])
                                                 ]
                                             

@@ -145,28 +145,93 @@ def _find_event(home, away, timeout=10):
     return None
 
 
+def _expandir_nombre(texto, ini, fin):
+    """
+    Amplia un tramo de texto a las palabras propias contiguas.
+
+    Partiendo de un arbitro conocido, incorpora las palabras vecinas que van en
+    mayuscula o son particulas ("de", "del"), de modo que "Hernandez Hernandez"
+    dentro de "Alejandro Hernandez Hernandez" devuelva el nombre completo.
+    """
+    particulas = {"de", "del", "la"}
+
+    from src.data.referee_database import _NUNCA_NOMBRE
+
+    def es_parte(palabra):
+        # Un token terminado en dos puntos, coma o punto y coma es una
+        # frontera: "Arbitro: Alejandro ..." no debe absorber "Arbitro".
+        if palabra[-1] in ":;,":
+            return False
+        limpia = palabra.strip(".,;:()[]«»\"'")
+        if not limpia or not limpia.replace("-", "").replace("'", "").isalpha():
+            return False
+        if limpia.lower() in _NUNCA_NOMBRE:
+            return False
+        return limpia[0].isupper() or limpia.lower() in particulas
+
+    # Tokens con sus posiciones dentro del texto original
+    tokens = [(m.start(), m.end(), m.group()) for m in re.finditer(r'\S+', texto)]
+    dentro = [i for i, (a, b, _) in enumerate(tokens) if a < fin and b > ini]
+    if not dentro:
+        return texto[ini:fin]
+
+    primero, ultimo = dentro[0], dentro[-1]
+    while primero > 0 and es_parte(tokens[primero - 1][2]) and (ultimo - primero) < 4:
+        primero -= 1
+    while ultimo < len(tokens) - 1 and es_parte(tokens[ultimo + 1][2]) and (ultimo - primero) < 4:
+        ultimo += 1
+
+    # No terminar en particula
+    while ultimo > primero and tokens[ultimo][2].lower() in particulas:
+        ultimo -= 1
+
+    return texto[tokens[primero][0]:tokens[ultimo][1]].strip(".,;:")
+
+
 def _extract_from_text(text):
-    """Extrae nombre de árbitro de un texto."""
+    """
+    Extrae el nombre del arbitro de un texto de prensa.
+
+    Los patrones exigen mayuscula inicial en cada palabra del nombre, y por eso
+    NO se aplica re.IGNORECASE al conjunto: ese flag anulaba las clases
+    [A-ZAEIOUN][a-zaeioun]+ y hacia que cualquier palabra en minuscula valiera
+    como nombre. Asi es como la aplicacion llego a mostrar "que no vio" como
+    arbitro designado. La insensibilidad a mayusculas se limita a la palabra
+    clave mediante (?i:...).
+
+    Devuelve None si lo extraido no tiene forma de nombre propio.
+    """
+    from src.data.referee_database import es_nombre_plausible
+
     tl = text.lower()
-    # 1. Buscar árbitros conocidos directamente
-    for ref in KNOWN_REFEREES:
-        if ref.lower() in tl:
-            idx = tl.find(ref.lower())
-            return text[idx:idx+len(ref)]
-    # 2. Patrones
-    for p in [
-        r'(?:árbitro|arbitro)[:\s]+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?)',
-        r'(?:pitará|dirigirá|pita|dirige)\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)',
-        r'([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?)\s+(?:pitará|dirigirá|será el árbitro)',
-    ]:
-        m = re.search(p, text, re.IGNORECASE)
-        if m:
-            name = m.group(1).strip()
-            parts = [w for w in name.split()
-                     if w.lower() not in {'el','la','los','las','un','una','del','de','en','al','por','para'}]
-            if 2 <= len(parts) <= 3:
-                return ' '.join(parts)
+
+    # 1. Arbitro conocido como ancla, expandiendo a las palabras propias
+    # contiguas. La lista contiene fragmentos ("Hernandez Hernandez",
+    # "Ricardo de Burgos"), y devolverlos tal cual truncaba el nombre real.
+    coincidencias = [ref for ref in KNOWN_REFEREES if ref.lower() in tl]
+    if coincidencias:
+        mejor = max(coincidencias, key=len)
+        idx = tl.find(mejor.lower())
+        completo = _expandir_nombre(text, idx, idx + len(mejor))
+        return completo if es_nombre_plausible(completo) else text[idx:idx + len(mejor)]
+
+    # 2. Patrones sobre el texto original, respetando mayusculas
+    NOMBRE = r'([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+(?:de|del|la)\s+|\s+)[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?)'
+    patrones = [
+        r'(?i:árbitro|arbitro|colegiado)[:\s]+' + NOMBRE,
+        r'(?i:pitará|pitara|dirigirá|dirigira|pita|dirige|arbitrará|arbitrara)\s+' + NOMBRE,
+        NOMBRE + r'\s+(?i:pitará|pitara|dirigirá|dirigira|será el árbitro|sera el arbitro)',
+    ]
+    for patron in patrones:
+        m = re.search(patron, text)
+        if not m:
+            continue
+        candidato = m.group(1).strip()
+        if es_nombre_plausible(candidato):
+            return candidato
+
     return None
+
 
 
 # =============================================================================
