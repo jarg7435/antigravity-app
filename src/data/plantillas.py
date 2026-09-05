@@ -278,15 +278,18 @@ def auditar_alineacion(jugadores: List[str], equipo: str,
 
     Returns:
         {
-          "vigentes": [...],       # confirmados en el listado de inscritos
-          "descartados": [...],    # ya no pertenecen al club
-          "verificada": bool,      # False = no hay plantilla de referencia
-          "plantilla": int,        # tamano del listado consultado
-          "motivo": str,           # explicacion cuando no se ha podido verificar
+          "vigentes": [...],        # aparecen en el listado de inscritos
+          "descartados": [...],     # no aparecen en el listado
+          "verificada": bool,       # False = no hay listado de referencia
+          "plantilla": int,         # tamano del listado consultado
+          "nombres": [...],         # el listado en si, para poder auditarlo
+          "listado_dudoso": bool,   # demasiados fallos: sospecha del listado
+          "motivo": str,            # explicacion cuando no se ha podido verificar
         }
     """
     base = {"vigentes": list(jugadores or []), "descartados": [],
-            "verificada": False, "plantilla": 0, "motivo": ""}
+            "verificada": False, "plantilla": 0, "nombres": [],
+            "listado_dudoso": False, "motivo": ""}
 
     if not jugadores:
         base["verificada"] = True
@@ -306,14 +309,26 @@ def auditar_alineacion(jugadores: List[str], equipo: str,
     for jugador in jugadores:
         (vigentes if esta_en_plantilla(jugador, plantilla) else descartados).append(jugador)
 
+    # ¿Que es mas probable, que se hayan ido cuatro titulares o que el listado
+    # este incompleto? Lo segundo, casi siempre. Un once real arrastra como
+    # mucho uno o dos nombres de la temporada pasada; cuando falla un tercio
+    # entero, el que no es de fiar es el listado, y acusar uno a uno a los
+    # jugadores convierte un fallo de la fuente en cuatro acusaciones falsas.
+    # Se marca la sospecha aqui y decide el supervisor que hacer con ella.
+    umbral = max(2, -(-len(jugadores) // 3))          # un tercio, redondeando
+    listado_dudoso = len(descartados) > umbral
+
     if descartados:
         logger.warning(
-            f"{equipo}: {len(descartados)} jugador(es) ya no estan en plantilla: "
-            f"{', '.join(descartados)}"
+            f"{equipo}: {len(descartados)}/{len(jugadores)} no aparecen en el "
+            f"listado de {len(plantilla)} inscritos: {', '.join(descartados)}"
+            + ("  [listado sospechoso]" if listado_dudoso else "")
         )
 
     return {"vigentes": vigentes, "descartados": descartados,
-            "verificada": True, "plantilla": len(plantilla), "motivo": ""}
+            "verificada": True, "plantilla": len(plantilla),
+            "nombres": list(plantilla), "listado_dudoso": listado_dudoso,
+            "motivo": ""}
 
 
 def filtrar_alineacion(jugadores: List[str], equipo: str,

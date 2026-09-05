@@ -62,6 +62,34 @@ comprobar("Una frase con los dos equipos gana a otra con uno solo",
           iw._extraer_designacion(TRAMPA, "Athletic Club", "Atlético de Madrid", "La Liga"),
           "Munuera Montero")
 
+# Nombres compuestos espanoles. La expresion regular anterior admitia tres
+# palabras y una particula, asi que partia "Isidro Diaz de Mera Escuderos" en
+# "Isidro Diaz" y "Mera Escuderos"; ninguno de los dos casaba con el censo y la
+# designacion del Valencia - Barcelona se perdia entera.
+print("  (nombres compuestos)")
+for texto, esperado in [
+    ("Isidro Díaz de Mera Escuderos, árbitro del Valencia - Barcelona",
+     "Isidro Díaz de Mera Escuderos"),
+    ("Designaciones J04: Isidro Díaz de Mera dirigirá el Valencia CF - FC Barcelona",
+     "Isidro Díaz de Mera"),
+    ("El Valencia - Barcelona lo arbitrará Díaz de Mera Escuderos",
+     "Díaz de Mera Escuderos"),
+    ("Ricardo de Burgos Bengoetxea dirigirá el Valencia - Barcelona",
+     "Ricardo de Burgos Bengoetxea"),
+    ("Alejandro Hernández Hernández, colegiado del Valencia - Barcelona",
+     "Alejandro Hernández Hernández"),
+    # "Del" en mayuscula es parte del nombre y no se recorta por delante.
+    ("Del Cerro Grande arbitrará el Valencia - Barcelona", "Del Cerro Grande"),
+]:
+    comprobar(f"    {esperado}",
+              iw._extraer_designacion(texto, "Valencia", "FC Barcelona", "La Liga"),
+              esperado)
+
+comprobar("Un nombre compuesto ajeno al partido sigue sin colarse",
+          iw._extraer_designacion("Isidro Díaz de Mera arbitró la final de Copa.",
+                                  "Valencia", "FC Barcelona", "La Liga"),
+          None)
+
 
 # =============================================================================
 # 2. Corroboracion: cuando se acepta un nombre y cuando no
@@ -209,6 +237,39 @@ r = sup.supervisar("Real Betis", "Sevilla FC", "La Liga", None,
 comprobar("Demarcacion desconocida avisa pero NO bloquea", r.bloqueado, False)
 comprobar("  y queda registrada como aviso",
           [i.codigo for i in r.leves], ["DEMARCACION_DESCONOCIDA"])
+
+# Falso positivo masivo. Cuando falla un tercio del once, el sospechoso es el
+# listado de inscritos, no los jugadores: la app llego a acusar a cuatro
+# titulares del Barcelona de haberse ido del club a la vez.
+ONCE_AJENO = ONCE_OK[:5] + ["Fulano Uno", "Mengano Dos", "Zutano Tres", "Perengano Cuatro"]
+r = sup.supervisar("Real Betis", "Sevilla FC", "La Liga", None,
+                   ARB_VERIFICADO, ONCE_AJENO, ONCE_OK, revisar_temporada=False)
+comprobar("4 de 9 sin casar -> se sospecha del listado, no de los jugadores",
+          [i.codigo for i in r.graves], ["ONCE_LISTADO_DUDOSO"])
+
+# Uno o dos si son un traspaso plausible y se senalan como tales.
+r = sup.supervisar("Real Betis", "Sevilla FC", "La Liga", None,
+                   ARB_VERIFICADO, ONCE_OK + ["Rui Silva"], ONCE_OK,
+                   revisar_temporada=False)
+comprobar("1 de 8 sin casar -> se senala al jugador",
+          [i.codigo for i in r.graves], ["ONCE_TRASPASADOS"])
+
+# El listado usado queda a la vista para poder auditarlo.
+comprobar("El listado de inscritos se muestra en las comprobaciones",
+          any("Listado de inscritos" in c for c in r.comprobaciones), True)
+
+# Salida de emergencia: con la alineacion confirmada a mano, el once deja de
+# bloquear, pero el arbitro y la temporada se siguen comprobando igual.
+r = sup.supervisar("Real Betis", "Sevilla FC", "La Liga", None,
+                   ARB_VERIFICADO, ONCE_AJENO, ONCE_OK, revisar_temporada=False,
+                   alineacion_verificada=True)
+comprobar("Confirmar la alineacion a mano desbloquea el once", r.bloqueado, False)
+
+r = sup.supervisar("Real Betis", "Sevilla FC", "La Liga", None,
+                   ARB_PROBABLE, ONCE_AJENO, ONCE_OK, revisar_temporada=False,
+                   alineacion_verificada=True)
+comprobar("...pero NO desbloquea un árbitro sin confirmar",
+          [i.codigo for i in r.graves], ["ARB_SIN_CONFIRMAR"])
 
 # Un nombre que llega sin decir como se ha verificado no puede aprobarse: era
 # la via por la que salian arbitros tomados de noticias de otros partidos.

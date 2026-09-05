@@ -536,7 +536,19 @@ if home_team and away_team and teams_valid:
         
         if "fetched_ref" not in st.session_state:
             st.session_state.fetched_ref = None
-        st.markdown('<p style="color: #fdffcc; font-size: 0.9rem;">🤖 El sistema accederá automáticamente a fuentes oficiales para árbitros (RFEF, SofaScore, BeSoccer, FutbolFantasy).</p>', unsafe_allow_html=True)
+        # El texto anterior prometia leer la RFEF, y no es posible: el CTA
+        # publica las designaciones de cada jornada dentro de una IMAGEN, no
+        # como texto, asi que ningun lector automatico puede sacarlas de ahi.
+        # Se enlaza igualmente para que la consultes tu, que si sabes leerla.
+        st.markdown(
+            '<p style="color: #fdffcc; font-size: 0.9rem;">🤖 El sistema busca la '
+            'designación en football-data.org, SofaScore y la prensa deportiva, y '
+            'solo la da por buena si la confirma una fuente oficial o coinciden dos '
+            'independientes.<br>'
+            '<span style="color:#94a3b8; font-size:0.82rem;">La RFEF publica las '
+            'designaciones en imagen, así que no se pueden leer automáticamente: '
+            'ese enlace es para consultarla tú.</span></p>',
+            unsafe_allow_html=True)
 
         ref_source = st.session_state.fetched_ref.get("source", "Automático") if st.session_state.fetched_ref else "Automático"
         is_fallback = st.session_state.fetched_ref.get("_is_fallback", False) if st.session_state.fetched_ref else False
@@ -976,6 +988,22 @@ if home_team and away_team and teams_valid:
         # asi que un arbitro sin confirmar y un once con traspasados convivian
         # sin que nada lo señalara.
         st.divider()
+
+        # Salida de emergencia. El listado de inscritos que sirve de referencia
+        # viene de football-data.org y a veces llega incompleto: entonces el
+        # supervisor senala como ausentes a jugadores que si estan en el club y
+        # el analisis se queda atascado, con la unica salida de teclear once
+        # nombres a mano. Marcando esto, el usuario responde de la alineacion y
+        # las incidencias del once bajan a aviso. El arbitro y la temporada
+        # siguen comprobandose igual: esto solo cubre lo que el usuario puede
+        # comprobar de un vistazo en la pantalla.
+        alineacion_ok = st.checkbox(
+            "✅ He revisado la alineación y es correcta "
+            "(desbloquea si el listado de inscritos viene incompleto)",
+            key="override_alineacion",
+            help="No afecta a la verificación del árbitro ni de la temporada.",
+        )
+
         try:
             from src.logic.supervisor import supervisar
             informe_sup = supervisar(
@@ -986,6 +1014,7 @@ if home_team and away_team and teams_valid:
                 arbitro=st.session_state.get("fetched_ref"),
                 once_local=c_home,
                 once_visitante=c_away,
+                alineacion_verificada=alineacion_ok,
             )
             puede_calcular = render_supervisor_panel(informe_sup)
         except Exception as e:

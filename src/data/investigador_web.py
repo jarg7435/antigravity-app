@@ -80,6 +80,13 @@ _CABECERAS = {"User-Agent": _UA, "Accept-Language": "es-ES,es;q=0.9,en;q=0.8"}
 # Portales donde se publica la designacion de cada competicion. Se ofrecen al
 # usuario como enlace de consulta cuando la busqueda queda en PENDIENTE, y su
 # dominio marca a una fuente como oficial.
+#
+# OJO con la RFEF: el CTA publica las designaciones de cada jornada dentro de
+# una IMAGEN (el cartel "DESIGNACIONES J04"), no como texto. El nombre del
+# arbitro no esta en el HTML de la pagina, asi que ningun lector automatico
+# puede sacarlo de ahi por muy bien que la descargue. El enlace sirve para que
+# lo mire una persona; para la busqueda automatica, la via real es la prensa,
+# que si publica los nombres en el titular.
 PORTALES_OFICIALES = {
     "La Liga": [
         ("CTA / RFEF — designaciones",
@@ -173,27 +180,101 @@ def _frases(texto: str) -> List[str]:
     return [f.strip() for f in re.split(r"(?<=[.!?;•|])\s+|\n", limpio) if f.strip()]
 
 
+# Particulas que pueden ir DENTRO de un nombre compuesto, nunca en los extremos.
+_PARTICULAS_NOMBRE = {
+    "de", "del", "la", "las", "los", "y", "van", "von", "di", "da", "dos",
+    "ben", "el", "al", "bin", "mac", "mc",
+}
+
+# Signos que cierran un nombre: lo que va detras ya es otra cosa.
+_CIERRA_NOMBRE = ",;:.!?)»\"'"
+
+
 def _candidatos_en_frase(frase: str) -> List[str]:
     """
     Nombres propios que aparecen en una frase.
 
-    Se exige mayuscula inicial en cada palabra y se descartan los que no pasan
-    es_nombre_plausible, que ya sabe rechazar fragmentos como "que no vio".
-    """
-    from src.data.referee_database import es_nombre_plausible
+    Antes esto era una expresion regular que admitia como mucho TRES palabras y
+    UNA particula. Los nombres de los colegiados espanoles no caben ahi: al
+    buscar el Valencia - Barcelona, el titular
 
-    patron = (r"[A-ZÁÉÍÓÚÑÜ][a-záéíóúñü]+"
-              r"(?:\s+(?:de|del|la|las|los|y|van|von|di|da|ben|el)\s+|\s+)"
-              r"[A-ZÁÉÍÓÚÑÜ][a-záéíóúñü]+"
-              r"(?:\s+[A-ZÁÉÍÓÚÑÜ][a-záéíóúñü]+)?")
-    vistos, salida = set(), []
-    for m in re.finditer(patron, frase):
-        c = m.group(0).strip()
-        if c.lower() in vistos:
+        "Isidro Diaz de Mera Escuderos, arbitro del Valencia - Barcelona"
+
+    se partia en dos trozos, "Isidro Diaz" y "Mera Escuderos". Ninguno de los
+    dos casa con la entrada "Diaz de Mera" del censo, que exige dos palabras en
+    comun, asi que los dos se descartaban y la designacion se perdia pese a
+    estar escrita con todas sus letras.
+
+    Ahora se recorren las palabras y se construye la SERIE MAS LARGA de palabras
+    con mayuscula inicial, admitiendo particulas por dentro. "Isidro Diaz de
+    Mera Escuderos" sale entero.
+    """
+    from src.data.referee_database import es_nombre_plausible, _NUNCA_NOMBRE
+
+    def clasificar(token: str):
+        """(texto_limpio, tipo, cierra) para un token suelto."""
+        limpio = token.strip("«»\"'()[]¿?¡!,;:.")
+        cierra = bool(token) and token[-1] in _CIERRA_NOMBRE
+        if not limpio:
+            return None, None, cierra
+        if not limpio.replace("-", "").replace("'", "").isalpha():
+            return None, None, cierra
+        minus = limpio.lower()
+        if minus in _NUNCA_NOMBRE:
+            return None, None, cierra
+        if minus in _PARTICULAS_NOMBRE and not limpio[0].isupper():
+            return limpio, "particula", cierra
+        if limpio[0].isupper():
+            # Una particula en MAYUSCULA es parte del nombre y no se recorta por
+            # delante: el colegiado se llama "Del Cerro Grande", no "Cerro
+            # Grande". La minuscula si delata relleno de frase ("del Valencia").
+            return limpio, "nombre", cierra
+        return None, None, cierra
+
+    salida, vistos = [], set()
+
+    def emitir(serie):
+        # Por delante solo se recortan las particulas en minuscula, que son
+        # relleno de la frase. Por detras se recortan siempre, vayan como
+        # vayan: ningun nombre termina en "de" ni en "y".
+        r = list(serie)
+        while r and r[0][1] == "particula":
+            r.pop(0)
+        while r and r[-1][0].lower() in _PARTICULAS_NOMBRE:
+            r.pop()
+        if len(r) < 2:
+            return
+        palabras = [p[0] for p in r]
+        # es_nombre_plausible admite hasta cinco palabras. Una serie mas larga
+        # suele ser dos nombres pegados, asi que se ofrecen tambien ventanas
+        # mas cortas y que decida el censo cual de ellas es un colegiado.
+        tramos = [palabras]
+        if len(palabras) > 5:
+            tramos = [palabras[i:i + n]
+                      for n in (5, 4, 3)
+                      for i in range(len(palabras) - n + 1)]
+        for tramo in tramos:
+            nombre = " ".join(tramo)
+            clave = nombre.lower()
+            if clave in vistos:
+                continue
+            if es_nombre_plausible(nombre):
+                vistos.add(clave)
+                salida.append(nombre)
+
+    serie = []
+    for token in frase.split():
+        texto, tipo, cierra = clasificar(token)
+        if tipo is None:
+            emitir(serie)
+            serie = []
             continue
-        vistos.add(c.lower())
-        if es_nombre_plausible(c):
-            salida.append(c)
+        serie.append((texto, tipo))
+        if cierra:
+            emitir(serie)
+            serie = []
+    emitir(serie)
+
     return salida
 
 
@@ -242,9 +323,13 @@ def _extraer_designacion(texto: str, home: str, away: str,
             en_censo = pertenece_al_censo(candidato, liga)
             if en_censo is True:
                 return candidato          # colegiado real de esa competicion
-            if en_censo is None and mejor_debil is None:
-                # Liga sin censo comprobable: se guarda, pero no se da por bueno
-                # todavia; hara falta que otra fuente lo repita.
+            if mejor_debil is None:
+                # Se guarda tambien cuando el censo dice que NO lo conoce. El
+                # censo local son 21 nombres de LaLiga y cada temporada asciende
+                # gente: descartar en silencio a quien no figure en el convertia
+                # "no lo tengo fichado" en "no existe". Se devuelve como ultimo
+                # recurso, y el veredicto lo dejara en PROBABLE para que el
+                # supervisor pida confirmarlo.
                 mejor_debil = candidato
 
     return mejor_debil

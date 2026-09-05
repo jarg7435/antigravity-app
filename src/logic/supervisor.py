@@ -260,13 +260,48 @@ def _revisar_once(once: List[str], equipo: str, liga: str, lado: str,
         return
 
     if informe["descartados"]:
-        incidencias.append(Incidencia(
-            codigo="ONCE_TRASPASADOS", gravedad=GRAVE, ambito="alineación",
-            mensaje=(f"{len(informe['descartados'])} jugador(es) del once de "
-                     f"{equipo} ya no están en el club."),
-            solucion="Se han retirado del análisis. Complétalo con los titulares reales.",
-            detalle=list(informe["descartados"]),
-        ))
+        faltan = informe["descartados"]
+        total = len(once)
+        inscritos = informe["plantilla"]
+
+        if informe.get("listado_dudoso"):
+            # Cuando falla un tercio del once, el sospechoso es el listado. Se
+            # decia "ya no están en el club" de cada uno, que es mas de lo que
+            # se sabe: lo unico comprobado es que no figuran en el listado que
+            # publica football-data.org, y ese listado puede venir incompleto.
+            incidencias.append(Incidencia(
+                codigo="ONCE_LISTADO_DUDOSO", gravedad=GRAVE, ambito="alineación",
+                mensaje=(f"{len(faltan)} de los {total} titulares de {equipo} no "
+                         f"aparecen en el listado de inscritos consultado "
+                         f"({inscritos} jugadores). Con esa proporción lo más "
+                         f"probable es que el listado esté incompleto, no que se "
+                         f"hayan ido {len(faltan)} titulares."),
+                solucion=("Revisa el listado en «Comprobaciones» antes de decidir. "
+                          "Si la alineación es correcta, márcala como verificada "
+                          "para desbloquear el análisis."),
+                detalle=list(faltan),
+            ))
+        else:
+            incidencias.append(Incidencia(
+                codigo="ONCE_TRASPASADOS", gravedad=GRAVE, ambito="alineación",
+                mensaje=(f"{len(faltan)} jugador(es) del once de {equipo} no "
+                         f"aparecen en el listado de inscritos vigente "
+                         f"({inscritos} jugadores)."),
+                solucion=("Se han retirado del análisis. Si siguen en el club, "
+                          "marca la alineación como verificada; si no, "
+                          "complétala con los titulares reales."),
+                detalle=list(faltan),
+            ))
+
+    # El listado que se ha usado como referencia queda a la vista. Sin esto, el
+    # supervisor afirmaba que un jugador no esta en el club sin ensenar contra
+    # que lo habia comprobado, y no habia forma de ver si la fuente venia
+    # incompleta.
+    if informe.get("nombres"):
+        comprobaciones.append(
+            f"Listado de inscritos de {equipo} ({informe['plantilla']} jugadores, "
+            f"football-data.org): " + ", ".join(informe["nombres"])
+        )
 
     vigentes = informe["vigentes"]
     if len(vigentes) < MINIMO_TITULARES:
@@ -358,13 +393,22 @@ def supervisar(home: str, away: str, liga: str = "", fecha=None,
                arbitro: Optional[Dict] = None,
                once_local: Optional[List[str]] = None,
                once_visitante: Optional[List[str]] = None,
-               revisar_temporada: bool = True) -> Informe:
+               revisar_temporada: bool = True,
+               alineacion_verificada: bool = False) -> Informe:
     """
     Contrasta todo el material del partido y emite un veredicto.
 
     Es la unica puerta por la que deberia pasar un estudio antes de pintarse.
     No corrige nada por su cuenta: informa de lo que esta mal, de por que lo
     esta y de como arreglarlo, y deja la decision en manos de quien mira.
+
+    alineacion_verificada es la salida de emergencia. El listado de inscritos
+    que se usa como referencia viene de football-data.org y puede llegar
+    incompleto; cuando eso pasa, el supervisor acusa a jugadores que si estan en
+    el club y deja el analisis en un callejon sin salida cuya unica salida seria
+    teclear once nombres a mano. Con esta marca, el usuario dice que ha mirado
+    la alineacion y responde de ella: las incidencias del once bajan a aviso.
+    NO afecta al arbitro ni a la temporada, que se comprueban igual.
     """
     incidencias: List[Incidencia] = []
     comprobaciones: List[str] = []
@@ -374,6 +418,18 @@ def supervisar(home: str, away: str, liga: str = "", fecha=None,
     _revisar_once(once_visitante or [], away, liga, "visitante", incidencias, comprobaciones)
     if revisar_temporada:
         _revisar_temporada(fecha, liga, incidencias, comprobaciones)
+
+    if alineacion_verificada:
+        rebajadas = [i for i in incidencias
+                     if i.ambito == "alineación" and i.gravedad == GRAVE]
+        for inc in rebajadas:
+            inc.gravedad = LEVE
+            inc.solucion = (inc.solucion + " (Aceptado bajo tu confirmación "
+                            "manual de la alineación.)").strip()
+        if rebajadas:
+            comprobaciones.append(
+                f"Alineación confirmada manualmente: {len(rebajadas)} incidencia(s) "
+                f"del once rebajadas a aviso bajo tu responsabilidad.")
 
     if any(i.gravedad == GRAVE for i in incidencias):
         veredicto = BLOQUEADO
