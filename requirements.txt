@@ -1,15 +1,46 @@
-streamlit
-pandas
-requests
-beautifulsoup4
-scikit-learn
-xgboost
-pydantic
-python-dotenv
-openmeteo-requests
-requests-cache
-retry_requests
-Pillow
-truststore
-numpy
-plotly
+# Dependencias de La Gema JARG74 — VERSIONES FIJADAS
+#
+# Estaban sin fijar, y eso significa que cada vez que Streamlit Cloud
+# reconstruia el entorno se traia la ultima version de todo. La aplicacion
+# podia romperse sin que nadie tocara una linea de codigo, y el fallo no era
+# reproducible en local porque las versiones instaladas alli eran otras.
+#
+# Cuando se fijaron, la diferencia ya era seria: en local habia pandas 2.3.3 y
+# Cloud instalaba pandas 3.0.5, un salto de version MAYOR con cambios que
+# rompen compatibilidad. Lo mismo con streamlit (1.53.1 frente a 1.63.0).
+#
+# Las versiones de abajo son las del entorno local, donde la aplicacion y las
+# pruebas se ejecutan de verdad. La excepcion es xgboost, que no esta instalado
+# en local —ml_engine.py lo importa dentro de un try/except y funciona sin el—
+# y se fija a la version que resuelve pip hoy.
+#
+# PARA ACTUALIZAR: sube una sola dependencia, ejecuta test_supervisor.py y
+# verify_referee_mapping.py, y arranca la app. Subirlas todas a la vez deja sin
+# saber cual rompio que.
+
+# --- Interfaz ---
+streamlit==1.53.1
+
+# --- Datos y calculo ---
+pandas==2.3.3
+numpy==2.4.1
+plotly==7.0.0
+
+# --- Modelos ---
+scikit-learn==1.8.0
+xgboost==3.4.1
+pydantic==2.13.4
+
+# --- Red y scraping ---
+requests==2.33.0
+beautifulsoup4==4.14.3
+requests-cache==1.3.0
+retry-requests==2.0.0
+truststore==0.10.4
+
+# --- Meteorologia ---
+openmeteo-requests==1.7.5
+
+# --- Utilidades ---
+python-dotenv==1.2.2
+Pillow==12.1.0
