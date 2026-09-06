@@ -164,6 +164,137 @@ def _menciona_equipo(texto_norm: str, equipo: str) -> bool:
     return any(t in texto_norm for t in tokens) if tokens else False
 
 
+_CLUBES_CONOCIDOS = None
+
+
+def _clubes_conocidos():
+    """
+    Nombres de club, en tokens, para no tomarlos por arbitros.
+
+    Se cargan una sola vez, de las dos listas locales que hay: no hace falta red
+    ni claves para saber que "Real Madrid" es un equipo.
+
+    Hacen falta las dos porque ninguna basta sola. european_teams.py cubre las
+    ligas secundarias —Eredivisie, Portugal, Turquia, Sudamerica— y NO incluye
+    las cinco grandes; los equipos de LaLiga, Premier, Bundesliga, Serie A y
+    Ligue 1 estan en el proveedor de equipos. Con solo la primera, "Real Madrid"
+    seguia colandose como arbitro.
+    """
+    global _CLUBES_CONOCIDOS
+    if _CLUBES_CONOCIDOS is None:
+        nombres = []
+        try:
+            from src.logic.european_teams import EUROPEAN_TEAMS
+            nombres.extend(EUROPEAN_TEAMS.keys())
+        except Exception:
+            pass
+        try:
+            from src.data.mock_provider import MockDataProvider
+            nombres.extend(MockDataProvider().teams_db.keys())
+        except Exception:
+            pass
+        _CLUBES_CONOCIDOS = {
+            frozenset(_tokens_equipo(n)) for n in nombres if _tokens_equipo(n)
+        }
+    return _CLUBES_CONOCIDOS
+
+
+def _es_nombre_de_equipo(candidato: str) -> bool:
+    """
+    ¿Lo capturado es el nombre de un club, y no el de una persona?
+
+    Ya se descartaban los nombres de los DOS equipos del partido buscado, pero
+    no los de terceros, y las busquedas de prensa traen titulares de otros
+    encuentros. Caso real, buscando Alaves - Athletic:
+
+        "¿Quien es Juan Martinez Munuera? Arbitro del Real Madrid - ..."
+
+    de donde salia "Real Madrid" como arbitro designado. Es un club, y ningun
+    club arbitra: se descarta antes de mirar el censo.
+    """
+    tokens = set(_tokens_equipo(candidato))
+    if not tokens:
+        return False
+    return any(tokens <= club for club in _clubes_conocidos())
+
+
+def _palabras(texto_norm: str) -> set:
+    """Palabras sueltas de un texto ya normalizado."""
+    return set(re.split(r"[^a-z0-9]+", texto_norm)) - {""}
+
+
+def _menciona_otro_club(frase_norm: str, home: str, away: str) -> bool:
+    """
+    ¿La frase nombra a un club que no es ninguno de los dos del partido?
+
+    Es la senal de que habla de OTRO encuentro. Caso real, buscando el
+    Alaves - Athletic:
+
+        "Garcia Verdura, arbitro del Valencia-Athletic, y ..."
+
+    El nombre es de un colegiado de verdad y la frase habla de arbitrar, asi que
+    pasaba todos los filtros; pero es la designacion del Valencia - Athletic,
+    no la nuestra. Aparece "Valencia", que no es ni el local ni el visitante.
+
+    Se comparan palabras enteras, no fragmentos: buscando "real" por dentro del
+    texto, "realmente" daria por mencionado al Real Madrid.
+    """
+    palabras = _palabras(frase_norm)
+    nuestros = set(_tokens_equipo(home)) | set(_tokens_equipo(away))
+    for club in _clubes_conocidos():
+        if club <= palabras and not (club & nuestros):
+            return True
+    return False
+
+
+# Lo que separa a los dos equipos de un emparejamiento: "Alaves - Athletic",
+# "Valencia-Athletic", "Alaves vs Athletic".
+_SEPARADOR_PAREJA = re.compile(r"(?:\s[-–—]\s|[-–—]|\svs\.?\s|\scontra\s)")
+
+# Palabras a cada lado de la raya que se miran para saber a que equipo se
+# refiere. Suficiente para "Real Sociedad" o "Atletico de Madrid" sin invadir
+# el emparejamiento siguiente.
+_VENTANA_PAREJA = 4
+
+
+def _parejas(frase_norm: str):
+    """Emparejamientos 'equipo - equipo' que aparecen en la frase."""
+    trozos = _SEPARADOR_PAREJA.split(frase_norm)
+    if len(trozos) < 2:
+        return []
+    return [(" ".join(trozos[i].split()[-_VENTANA_PAREJA:]),
+             " ".join(trozos[i + 1].split()[:_VENTANA_PAREJA]))
+            for i in range(len(trozos) - 1)]
+
+
+def _pareja_es_nuestra(frase_norm: str, home: str, away: str) -> Optional[bool]:
+    """
+    ¿Los dos equipos aparecen emparejados ENTRE SI?
+
+    True si alguna raya del texto tiene a uno a un lado y al otro al otro,
+    False si hay emparejamientos pero ninguno es el nuestro, y None cuando no
+    hay ninguno y por tanto no se puede decidir.
+
+    Hace falta porque un titular puede nombrar a los dos equipos sin hablar de
+    nuestro partido. Caso real, buscando el Alaves - Athletic:
+
+        "Garcia Verdura, arbitro del Valencia-Athletic, y Quintero Gonzalez
+         del Alaves-Real Sociedad"
+
+    Salen los dos, si, pero cada uno emparejado con OTRO club: son las
+    designaciones de dos partidos que no son el nuestro. Comprobar que aparecen
+    los dos no bastaba; hay que comprobar que aparecen juntos.
+    """
+    parejas = _parejas(frase_norm)
+    if not parejas:
+        return None
+    for izq, der in parejas:
+        if ((_menciona_equipo(izq, home) and _menciona_equipo(der, away)) or
+                (_menciona_equipo(izq, away) and _menciona_equipo(der, home))):
+            return True
+    return False
+
+
 def _es_oficial(url: str) -> bool:
     u = (url or "").lower()
     return any(d in u for d in _DOMINIOS_OFICIALES)
@@ -188,6 +319,29 @@ _PARTICULAS_NOMBRE = {
 
 # Signos que cierran un nombre: lo que va detras ya es otra cosa.
 _CIERRA_NOMBRE = ",;:.!?)»\"'"
+
+# Linea de un listado de designaciones: "Alaves - Athletic Club: Munuera
+# Montero". El nombre va detras de los dos puntos, despues del emparejamiento.
+_LINEA_LISTADO = re.compile(r":\s*(?P<cola>[^:]+)$")
+
+
+def _cola_de_listado(frase: str) -> Optional[str]:
+    """
+    La parte del nombre en una linea de listado, o None si no lo parece.
+
+    Sirve para el unico caso en que se acepta una frase que no habla de
+    arbitrar: las lineas de un cartel de designaciones, donde la palabra
+    ("Designaciones de la jornada 4") esta en el encabezado y no se repite en
+    cada linea. Se devuelve solo lo que va tras los dos puntos, para no volver a
+    abrir la puerta a cualquier nombre propio de la frase: en "El Athletic
+    recibe al Atletico este sabado en San Mames" no hay dos puntos, y aunque los
+    hubiera, "San Mames" no quedaria detras de ellos.
+    """
+    m = _LINEA_LISTADO.search(frase or "")
+    if not m:
+        return None
+    cola = m.group("cola").strip()
+    return cola or None
 
 # Palabras que delatan que lo capturado es una competicion, una cadena o un
 # producto, no una persona. Vienen de los titulares de programacion, que son
@@ -307,10 +461,27 @@ def _extraer_designacion(texto: str, home: str, away: str,
     """
     Nombre del arbitro designado, exigiendo que la frase hable del partido.
 
-    Una frase sirve si menciona a los dos equipos, o si menciona a uno de ellos
-    junto a una palabra clave de designacion. Sin ese anclaje se devuelve None:
-    es preferible no saber a repetir el error de tomar un nombre de otra
-    noticia de la misma pagina.
+    Una frase sirve si habla de arbitraje —lleva alguna palabra de designacion—
+    Y ademas nombra al partido: a los dos equipos, o a uno solo. Sin ese anclaje
+    se devuelve None: es preferible no saber a repetir el error de tomar un
+    nombre de otra noticia de la misma pagina.
+
+    La palabra de designacion se exige SIEMPRE, tambien cuando la frase nombra a
+    los dos equipos. Antes bastaba con los dos equipos, y esa puerta dejaba
+    entrar las cronicas del partido, que por definicion los nombran a los dos y
+    estan llenas de nombres propios que no son el arbitro. Caso real, buscando
+    Alaves - Athletic:
+
+        "La mejor version de Nico Williams impulsa al Athletic y deja tocado
+         al Alaves"
+
+    de donde salia "Nico Williams" —un jugador— como arbitro designado. La
+    frase no dice nada de arbitrar, asi que ya no se mira siquiera.
+
+    Los dos equipos siguen valiendo mas que uno: una frase que los nombra a los
+    dos habla casi con seguridad de este encuentro, y por eso se recorren antes.
+    Lo que cambia es que ahora ninguna de las dos clases entra sin hablar de
+    arbitraje.
     """
     from src.data.referee_database import pertenece_al_censo
 
@@ -321,15 +492,41 @@ def _extraer_designacion(texto: str, home: str, away: str,
     # esta prioridad, la segunda podia ganarle a la designacion real solo por
     # aparecer antes en la pagina.
     fuertes, debiles = [], []
+    hay_encabezado = False        # alguna frase anterior anuncio designaciones
     for frase in _frases(texto):
         fn = _norm(frase)
         tiene_local = _menciona_equipo(fn, home)
         tiene_visit = _menciona_equipo(fn, away)
         tiene_clave = any(k in fn for k in _CLAVES_DESIGNACION)
 
+        if not tiene_clave:
+            # Unica excepcion: la linea de un listado cuyo encabezado ya
+            # anuncio designaciones. En un cartel de jornada la palabra va
+            # arriba —"Designaciones de la jornada 4"— y las lineas de abajo
+            # son solo "Equipo - Equipo: Nombre". Se admite unicamente lo que
+            # va tras los dos puntos, no la frase entera.
+            if hay_encabezado and tiene_local and tiene_visit:
+                cola = _cola_de_listado(frase)
+                if cola:
+                    fuertes.append(cola)
+            continue                      # no habla de arbitrar: no interesa
+
+        hay_encabezado = True
         if tiene_local and tiene_visit:
+            # Nombrar a los dos no basta: tienen que estar emparejados entre
+            # si. Un titular que reparte designaciones de varios partidos los
+            # nombra a los dos, pero cada uno con su rival, y de ahi salia el
+            # arbitro de otro encuentro.
+            if _pareja_es_nuestra(fn, home, away) is False:
+                continue
             fuertes.append(frase)
-        elif (tiene_local or tiene_visit) and tiene_clave:
+        elif tiene_local or tiene_visit:
+            # Con un solo equipo nuestro, la aparicion de un tercer club delata
+            # que la designacion es de otro partido. En una frase que nombra a
+            # los DOS no se aplica: alli el tercer club es incidental ("Munuera
+            # Montero, que arbitro al Madrid, dirigira el Alaves - Athletic").
+            if _menciona_otro_club(fn, home, away):
+                continue
             debiles.append(frase)
 
     if solo_fuerte and not fuertes:
@@ -339,9 +536,12 @@ def _extraer_designacion(texto: str, home: str, away: str,
 
     for frase in (fuertes if solo_fuerte else fuertes + debiles):
         for candidato in _candidatos_en_frase(frase):
-            # Un candidato que resulta ser el nombre de un equipo no vale.
+            # Un candidato que resulta ser el nombre de un equipo no vale:
+            # ni de los dos del partido, ni de ningun otro club.
             cn = _norm(candidato)
             if _menciona_equipo(cn, home) or _menciona_equipo(cn, away):
+                continue
+            if _es_nombre_de_equipo(candidato):
                 continue
 
             en_censo = pertenece_al_censo(candidato, liga)

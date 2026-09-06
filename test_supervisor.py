@@ -545,6 +545,79 @@ comprobar("    una inicial que no existe no casa con nadie",
 
 
 # =============================================================================
+# =============================================================================
+# 10. Prensa: nombres que NO son el arbitro designado
+# =============================================================================
+print("\n--- 10. Prensa: lo que no es el arbitro designado ---")
+
+# Los titulares de esta seccion los devolvio Google News de verdad al buscar el
+# Alaves - Athletic del 06/09/2026, y todos pasaban como designacion.
+print("  (cronicas: nombran a los dos equipos, pero no hablan de arbitrar)")
+for cronica in [
+    "La mejor versión de Nico Williams impulsa al Athletic y deja tocado al Alavés",
+    "Oyarzabal marca el gol de la victoria del Athletic ante el Alavés",
+    "Resumen del Alavés - Athletic Club: goles y mejores jugadas",
+]:
+    comprobar(f"    no da candidato: {cronica[:44]}...",
+              iw._extraer_designacion(cronica, "Alaves", "Athletic Club", "La Liga"),
+              None)
+
+print("  (nombres de equipo tomados por arbitros)")
+comprobar("    un club no arbitra, aunque el titular hable de arbitros",
+          iw._extraer_designacion(
+              "¿Quién es Juan Martínez Munuera? Árbitro del Real Madrid - Osasuna",
+              "Alaves", "Athletic Club", "La Liga"),
+          None)
+for club in ["Real Madrid", "Athletic Club", "Bayern Munich", "Ajax"]:
+    comprobar(f"    {club} se reconoce como equipo",
+              iw._es_nombre_de_equipo(club), True)
+for arbitro in ["Munuera Montero", "Del Cerro Grande", "Isidro Díaz de Mera",
+                "Ricardo de Burgos Bengoetxea"]:
+    comprobar(f"    {arbitro} NO se confunde con un equipo",
+              iw._es_nombre_de_equipo(arbitro), False)
+
+print("  (designaciones de OTRO partido)")
+comprobar("    un solo equipo nuestro y un tercer club: es otro encuentro",
+          iw._extraer_designacion(
+              "García Verdura, árbitro del Valencia-Athletic, y Quintero González del Betis",
+              "Alaves", "Athletic Club", "La Liga"),
+          None)
+
+# El caso mas fino: el titular nombra a NUESTROS DOS equipos, pero cada uno
+# emparejado con otro rival. Salen los dos, y aun asi no habla de nuestro
+# partido. Titular real de IUSPORT.
+comprobar("    los dos equipos, pero emparejados con otros: no vale",
+          iw._extraer_designacion(
+              "García Verdura, árbitro del Valencia-Athletic, y "
+              "Quintero González del Alavés-Real Sociedad",
+              "Alaves", "Athletic Club", "La Liga"),
+          None)
+
+print("  (y las designaciones de verdad siguen pasando)")
+for texto, esperado in [
+    ("Munuera Montero, árbitro del Alavés - Athletic Club", "Munuera Montero"),
+    ("Designación arbitral: Munuera Montero dirigirá el Alavés - Athletic",
+     "Munuera Montero"),
+    ("El Alavés - Athletic lo arbitrará Munuera Montero", "Munuera Montero"),
+    ("Munuera Montero será el árbitro del Alavés este sábado", "Munuera Montero"),
+    # Un tercer club en una frase que SI empareja a los nuestros es incidental.
+    ("Munuera Montero, que arbitró al Real Madrid, dirigirá el Alavés - Athletic",
+     "Munuera Montero"),
+]:
+    comprobar(f"    {esperado} <- {texto[:44]}...",
+              iw._extraer_designacion(texto, "Alaves", "Athletic Club", "La Liga"),
+              esperado)
+
+# Cartel de jornada: la palabra "designaciones" va en el encabezado y no se
+# repite en cada linea, asi que la linea suelta tiene que seguir valiendo.
+comprobar("    la linea de un cartel de designaciones sigue valiendo",
+          iw._extraer_designacion(
+              "Designaciones arbitrales de la jornada 4.\nAlavés - Athletic Club: Munuera Montero.",
+              "Alaves", "Athletic Club", "La Liga"),
+          "Munuera Montero")
+
+
+# =============================================================================
 print("\n" + "=" * 62)
 if _fallos:
     print(f"FALLOS: {len(_fallos)}")
