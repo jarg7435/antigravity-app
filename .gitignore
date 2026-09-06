@@ -2,6 +2,15 @@
 .env
 .streamlit/secrets.toml
 
+# Copias que deja rotar_llaves.py al sustituir una llave. Llevan dentro la
+# llave VIEJA, que es justo la que se esta retirando por haberse filtrado: sin
+# estas lineas, rotar una llave podia volver a publicarla.
+#
+# El patron va por el sufijo .bak- y no por .env.*, que ademas de las copias se
+# tragaba .env.example, que si tiene que versionarse por ser la plantilla.
+*.bak-*
+*.bak
+
 # --- Artefactos de Python ---
 __pycache__/
 *.pyc
