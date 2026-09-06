@@ -396,6 +396,26 @@ _MAPA_POSICION = (
 )
 
 
+def posicion_desde_etiqueta(etiqueta: str):
+    """
+    PlayerPosition a partir de la etiqueta cruda de la fuente, o None.
+
+    football-data.org mezcla etiquetas genericas ("Defence", "Offence") con
+    especificas ("Centre-Back", "Left Winger"), asi que se resuelve por palabra
+    clave. Es publica porque la necesita quien monta un once a partir del
+    listado y no solo quien pregunta por un jugador suelto.
+    """
+    from src.models.base import PlayerPosition
+
+    texto = (etiqueta or "").strip().lower()
+    if not texto:
+        return None
+    for clave, nombre_enum in _MAPA_POSICION:
+        if clave in texto:
+            return getattr(PlayerPosition, nombre_enum)
+    return None
+
+
 def plantilla_detallada(equipo: str, liga: str = None) -> List[Dict]:
     """Plantilla vigente con la posicion de cada jugador."""
     if not equipo:
@@ -439,11 +459,9 @@ def demarcacion_de(jugador: str, equipo: str, liga: str = None) -> Dict:
 
     miembro = next(m for m in detalle if m["nombre"] == nombre_inscrito)
     etiqueta = (miembro.get("posicion") or "").strip()
-    clave_texto = etiqueta.lower()
-    for clave, nombre_enum in _MAPA_POSICION:
-        if clave in clave_texto:
-            return {"posicion": getattr(PlayerPosition, nombre_enum),
-                    "etiqueta": etiqueta, "motivo": ""}
+    posicion = posicion_desde_etiqueta(etiqueta)
+    if posicion is not None:
+        return {"posicion": posicion, "etiqueta": etiqueta, "motivo": ""}
 
     return {"posicion": None, "etiqueta": etiqueta,
             "motivo": (f"La fuente da la demarcación como «{etiqueta}», que no "

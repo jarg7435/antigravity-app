@@ -22,6 +22,9 @@ class MockDataProvider(DataProvider):
     
     def __init__(self):
         self.teams_db = self._init_teams()
+        # Equipos ya refrescados con la plantilla vigente, para no repetir la
+        # consulta en cada repintado de Streamlit.
+        self._vigentes: Dict[str, Team] = {}
 
     def get_upcoming_matches(self, league: str) -> List[Match]:
         # Legacy support, though UI is moving to builder
@@ -78,7 +81,119 @@ class MockDataProvider(DataProvider):
     def get_team_data(self, team_name: str) -> Team:
         if not team_name:
             team_name = "Equipo Desconocido"
-        return self.teams_db.get(team_name, self._create_dummy_team(team_name))
+        base = self.teams_db.get(team_name) or self._create_dummy_team(team_name)
+        return self._con_plantilla_vigente(base)
+
+    # Cupo de un 4-3-3, que es la forma con la que la aplicacion razona los
+    # nodos del BPA. No pretende adivinar el once real: ordena la plantilla para
+    # que haya un portero, cuatro defensas, tres medios y tres delanteros en vez
+    # de once nombres seguidos.
+    _CUPO = (
+        (PlayerPosition.GOALKEEPER, 1),
+        (PlayerPosition.DEFENDER, 4),
+        (PlayerPosition.MIDFIELDER, 3),
+        (PlayerPosition.FORWARD, 3),
+    )
+
+    def _once_desde_plantilla(self, detalle):
+        """
+        Once representativo a partir del listado de inscritos.
+
+        No se pueden coger los once primeros del listado: football-data.org lo
+        devuelve agrupado por demarcacion, asi que salian tres porteros y ocho
+        defensas. Se reparte por cupos usando la demarcacion real de cada uno,
+        que ademas es mejor que la plantilla 4-3-3 por indice que se usaba
+        antes, donde la posicion dependia del ORDEN en que estuviera escrito el
+        nombre y no de donde juega.
+
+        Returns:
+            (nombres, posiciones) alineados posicion a posicion.
+        """
+        from src.data import plantillas
+
+        por_puesto = {pos: [] for pos, _ in self._CUPO}
+        sin_clasificar = []
+        for j in detalle:
+            pos = plantillas.posicion_desde_etiqueta(j.get("posicion"))
+            if pos in por_puesto:
+                por_puesto[pos].append(j["nombre"])
+            else:
+                sin_clasificar.append(j["nombre"])
+
+        nombres, posiciones = [], []
+        for pos, cuantos in self._CUPO:
+            for nombre in por_puesto[pos][:cuantos]:
+                nombres.append(nombre)
+                posiciones.append(pos)
+
+        # Si algun puesto viene corto, se completa con los sobrantes antes que
+        # devolver un equipo de nueve.
+        if len(nombres) < 11:
+            usados = set(nombres)
+            resto = ([n for lista in por_puesto.values() for n in lista]
+                     + sin_clasificar)
+            for nombre in resto:
+                if len(nombres) >= 11:
+                    break
+                if nombre in usados:
+                    continue
+                usados.add(nombre)
+                nombres.append(nombre)
+                posiciones.append(PlayerPosition.DESCONOCIDA)
+
+        return nombres, posiciones
+
+    def _con_plantilla_vigente(self, equipo: Team) -> Team:
+        """
+        Sustituye los jugadores escritos a mano por los inscritos de hoy.
+
+        Las listas de _init_teams() estan codificadas y envejecen: la del FC
+        Barcelona seguia con Lewandowski, Inaki Pena, Inigo Martinez y Casado
+        cuando ninguno de los cuatro figuraba ya en la plantilla. Como la
+        interfaz las usaba de relleno mientras no hubiera alineacion
+        confirmada, el supervisor los señalaba uno a uno y el analisis se
+        quedaba atascado por culpa de un dato escrito hace dos temporadas.
+
+        Si no se puede obtener la plantilla vigente se devuelve el equipo tal
+        cual: sirve para que la interfaz no se quede vacia, y el supervisor ya
+        avisa de que no ha podido contrastarla.
+        """
+        if equipo.name in self._vigentes:
+            return self._vigentes[equipo.name]
+
+        try:
+            from src.data import plantillas
+            detalle = plantillas.plantilla_detallada(equipo.name, equipo.league)
+        except Exception as e:
+            print(f"  [MockProvider] plantilla vigente de {equipo.name}: "
+                  f"{type(e).__name__}: {e}")
+            detalle = []
+
+        if not detalle:
+            self._vigentes[equipo.name] = equipo
+            return equipo
+
+        nombres, posiciones = self._once_desde_plantilla(detalle)
+        if not nombres:
+            self._vigentes[equipo.name] = equipo
+            return equipo
+
+        actualizado = self._create_team(
+            equipo.name, equipo.league, nombres,
+            base_rating=self._rating_base(equipo),
+            avg_xg=getattr(equipo, "avg_xg_season", 0.0),
+            avg_xg_c=getattr(equipo, "avg_xg_conceded_season", 0.0),
+            posiciones=posiciones,
+        )
+        self._vigentes[equipo.name] = actualizado
+        return actualizado
+
+    @staticmethod
+    def _rating_base(equipo: Team) -> float:
+        """Nota media del equipo escrita a mano, que si sigue siendo util."""
+        if not equipo.players:
+            return 8.0
+        return round(sum(p.rating_last_5 for p in equipo.players) / len(equipo.players), 2)
 
     def get_match_conditions(self, match_id: str, location: str, date_time: str) -> Optional[dict]:
         return {"temp": 20, "rain": 0}
@@ -370,11 +485,23 @@ class MockDataProvider(DataProvider):
 
         return teams
 
-    def _create_team(self, name, league, key_players, base_rating=8.0, avg_xg=0.0, avg_xg_c=0.0):
+    # Nodo del BPA que corresponde a cada demarcacion. Sustituye al reparto por
+    # indice: el papel de un jugador lo decide donde juega, no en que puesto de
+    # la lista este escrito su nombre.
+    _ROL_POR_POSICION = {
+        PlayerPosition.GOALKEEPER: NodeRole.KEEPER,
+        PlayerPosition.DEFENDER: NodeRole.DEFENSIVE,
+        PlayerPosition.MIDFIELDER: NodeRole.CREATOR,
+        PlayerPosition.FORWARD: NodeRole.FINALIZER,
+    }
+
+    def _create_team(self, name, league, key_players, base_rating=8.0, avg_xg=0.0,
+                     avg_xg_c=0.0, posiciones=None):
         # Create players with DETERMINISTIC ratings (reproducible, sin random puro)
         import hashlib
         players = []
-        # Standard 4-3-3 mapping template for rosters [GK, 4xDEF, 3xMID, 3xFWD]
+        # Plantilla 4-3-3 por indice, que solo se usa cuando NO se conocen las
+        # demarcaciones reales: las listas escritas a mano si van en ese orden.
         positions = [
             PlayerPosition.GOALKEEPER,
             PlayerPosition.DEFENDER, PlayerPosition.DEFENDER,
@@ -393,10 +520,14 @@ class MockDataProvider(DataProvider):
             NodeRole.FINALIZER, NodeRole.FINALIZER,
             NodeRole.FINALIZER
         ]
-        
+
         for i, p_name in enumerate(key_players[:11]):
-            role = roles[i] if i < len(roles) else NodeRole.NONE
-            pos = positions[i] if i < len(positions) else PlayerPosition.MIDFIELDER
+            if posiciones and i < len(posiciones):
+                pos = posiciones[i]
+                role = self._ROL_POR_POSICION.get(pos, NodeRole.NONE)
+            else:
+                role = roles[i] if i < len(roles) else NodeRole.NONE
+                pos = positions[i] if i < len(positions) else PlayerPosition.MIDFIELDER
             
             # Seed determinista basado en nombre del jugador → siempre el mismo resultado
             seed_val = int(hashlib.md5(p_name.encode()).hexdigest()[:8], 16)

@@ -438,6 +438,57 @@ comprobar("Un colegiado del censo gana a un intruso con mas medios",
 
 
 # =============================================================================
+# 8. El proveedor de equipos sirve la plantilla vigente
+# =============================================================================
+print("\n--- 8. MockDataProvider: plantilla vigente, no la escrita a mano ---")
+
+from src.data.mock_provider import MockDataProvider
+from src.models.base import NodeRole
+
+# Listado agrupado por demarcacion, tal y como lo devuelve football-data.org.
+PLANTILLA_FD = (
+    [{"nombre": f"Portero {i}", "posicion": "Goalkeeper"} for i in range(1, 4)] +
+    [{"nombre": f"Defensa {i}", "posicion": "Defence"} for i in range(1, 9)] +
+    [{"nombre": f"Medio {i}", "posicion": "Midfield"} for i in range(1, 9)] +
+    [{"nombre": f"Punta {i}", "posicion": "Offence"} for i in range(1, 9)]
+)
+plantillas.plantilla_detallada = lambda equipo, liga=None: list(PLANTILLA_FD)
+
+_dp = MockDataProvider()
+_equipo = _dp.get_team_data("FC Barcelona")
+_nombres = [p.name for p in _equipo.players]
+
+comprobar("Los jugadores escritos a mano desaparecen",
+          any(n in _nombres for n in
+              ["Iñaki Peña", "Iñigo Martínez", "Casadó", "Lewandowski"]),
+          False)
+comprobar("El once sale del listado vigente", _nombres[0], "Portero 1")
+
+# Coger los once primeros del listado daba tres porteros y ocho defensas,
+# porque la fuente lo devuelve agrupado por demarcacion.
+_reparto = [p.position.value for p in _equipo.players]
+comprobar("Un solo portero", _reparto.count("Portero"), 1)
+comprobar("Cuatro defensas", _reparto.count("Defensa"), 4)
+comprobar("Tres centrocampistas", _reparto.count("Centrocampista"), 3)
+comprobar("Tres delanteros", _reparto.count("Delantero"), 3)
+
+# El nodo del BPA lo decide la demarcacion, no el orden de la lista.
+comprobar("El portero es nodo Portero",
+          _equipo.players[0].node_role, NodeRole.KEEPER)
+comprobar("El delantero es nodo Finalizador",
+          _equipo.players[-1].node_role, NodeRole.FINALIZER)
+
+# Sin listado vigente se conserva lo que hubiera: mejor eso que un equipo vacio.
+plantillas.plantilla_detallada = lambda equipo, liga=None: []
+_dp2 = MockDataProvider()
+comprobar("Sin plantilla vigente, el equipo no se queda vacio",
+          len(_dp2.get_team_data("FC Barcelona").players) > 0, True)
+
+plantillas.plantilla_detallada = _original_detallada
+plantillas.plantilla_actual = _original_actual
+
+
+# =============================================================================
 print("\n" + "=" * 62)
 if _fallos:
     print(f"FALLOS: {len(_fallos)}")
