@@ -98,6 +98,27 @@ def dato(clave, valor):
     print(f"          {clave:<26} {valor}")
 
 
+# Pausa de seguridad entre consultas que salen a la red.
+#
+# El diagnostico encadena calendario, arbitro, alineaciones y dos plantillas, y
+# cada uno de esos pasos golpea varias fuentes seguidas. El plan gratuito de
+# football-data.org admite 10 peticiones por minuto, y SofaScore corta la
+# conexion (ECONNRESET) cuando le llegan muchas de golpe. Sin respirar entre
+# pasos, el informe acaba culpando a las fuentes de no tener datos cuando lo
+# que pasa es que las estamos saturando.
+PAUSA_POR_DEFECTO = 15
+
+
+def pausa(segundos, motivo):
+    """Espera anunciando por que, para que no parezca que se ha colgado."""
+    if segundos <= 0:
+        return
+    print(f"\n  ... pausa de {segundos}s antes de {motivo} "
+          f"(para no saturar las fuentes gratuitas)")
+    sys.stdout.flush()
+    time.sleep(segundos)
+
+
 # =============================================================================
 # 0. Configuracion
 # =============================================================================
@@ -307,11 +328,12 @@ def revisar_plantilla(equipo, liga, once):
         bien("Todos los jugadores del once están en el listado.")
 
 
-def revisar_plantillas(local, visitante, liga, cuando, buscar_once):
+def revisar_plantillas(local, visitante, liga, cuando, buscar_once, espera):
     titulo("3. PLANTILLAS VIGENTES")
 
     once_local, once_visitante = [], []
     if buscar_once:
+        pausa(espera, "buscar las alineaciones")
         print("  Buscando la alineación probable (esto tarda)...")
         try:
             from src.data.mock_provider import MockDataProvider
@@ -321,16 +343,33 @@ def revisar_plantillas(local, visitante, liga, cuando, buscar_once):
                                              cuando or datetime.now(), liga)
             once_local = res.get("home") or []
             once_visitante = res.get("away") or []
+
+            # De donde sale el once es EL dato que se busca aqui: es la fuente
+            # que estaba sirviendo un equipo de otra temporada.
             bien(f"Alineación obtenida de: {res.get('source', '?')}")
+            dato("Frescura:", res.get("freshness", "?"))
+            dato("¿Oficial?:", res.get("is_official", False))
+            if res.get("verification_link"):
+                dato("Verificar en:", res["verification_link"])
+            meta = res.get("metadata") or {}
+            if meta:
+                dato("Metadatos:", meta)
             dato("Local:", ", ".join(once_local) or "(vacía)")
             dato("Visitante:", ", ".join(once_visitante) or "(vacía)")
         except Exception as e:
             mal(f"No se ha podido obtener la alineación: {type(e).__name__}: {e}")
+            print("          ECONNRESET aquí suele ser una fuente cortando la")
+            print("          conexión, no el límite de peticiones. Sube la espera")
+            print("          con --pausa 30 y vuelve a intentarlo.")
     else:
         aviso("Búsqueda de alineaciones omitida (--sin-alineacion).")
 
+    pausa(espera, f"pedir el listado de inscritos de {local}")
     revisar_plantilla(local, liga, once_local)
+
+    pausa(espera, f"pedir el listado de inscritos de {visitante}")
     revisar_plantilla(visitante, liga, once_visitante)
+
     return once_local, once_visitante
 
 
@@ -374,8 +413,26 @@ def revisar_supervisor(local, visitante, liga, cuando, arbitro, once_l, once_v):
 
 # =============================================================================
 
+def _leer_pausa(argv):
+    """Segundos de espera entre pasos, de --pausa N."""
+    if "--pausa" in argv:
+        i = argv.index("--pausa")
+        if i + 1 < len(argv):
+            try:
+                return max(0, int(argv[i + 1]))
+            except ValueError:
+                pass
+    return PAUSA_POR_DEFECTO
+
+
 def main():
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    espera = _leer_pausa(sys.argv)
+    # El valor de --pausa es un numero suelto, no un nombre de equipo.
+    saltar = set()
+    if "--pausa" in sys.argv:
+        saltar.add(sys.argv.index("--pausa") + 1)
+    args = [a for i, a in enumerate(sys.argv)
+            if i > 0 and not a.startswith("--") and i not in saltar]
     buscar_once = "--sin-alineacion" not in sys.argv
 
     local = args[0] if len(args) > 0 else "Valencia"
@@ -385,12 +442,17 @@ def main():
     print("=" * ANCHO)
     print(f" DIAGNÓSTICO — {local} vs {visitante} ({liga})")
     print(f" {datetime.now():%d/%m/%Y %H:%M}")
+    print(f" Pausa entre consultas: {espera}s   (cámbiala con --pausa N)")
     print("=" * ANCHO)
 
     revisar_claves()
     cuando = revisar_fecha(local, visitante, liga)
+
+    pausa(espera, "investigar la designación arbitral")
     arbitro = revisar_arbitro(local, visitante, liga, cuando)
-    once_l, once_v = revisar_plantillas(local, visitante, liga, cuando, buscar_once)
+
+    once_l, once_v = revisar_plantillas(local, visitante, liga, cuando,
+                                        buscar_once, espera)
     revisar_supervisor(local, visitante, liga, cuando, arbitro, once_l, once_v)
 
     print("\n" + "=" * ANCHO)
