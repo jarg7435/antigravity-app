@@ -265,7 +265,206 @@ def _find_fixture_id(af_client, home, away, league, match_date):
     return None
 
 
+# =============================================================================
+# DIAGNOSTICO DE CONECTIVIDAD
+# =============================================================================
+
+# Segundos por sonda. Corto a proposito: esto se pulsa desde la barra lateral y
+# son seis fuentes seguidas. Una que tarde diez segundos es, para el caso, una
+# fuente que no sirve.
+ESPERA_DIAGNOSTICO = 8
+
+# Los tres estados que sabe pintar la interfaz. Cualquier otro sale en rojo.
+OK = "OK"
+LIMITED = "LIMITED"
+ERROR = "ERROR"
+
+
+def _estado(status, detalle):
+    return {"status": status, "detail": detalle}
+
+
+def _diag_api_football():
+    """
+    Estado de la fuente de pago.
+
+    Se pregunta primero al cortacircuitos, que es quien sabe si la suscripcion
+    esta caida, y solo se sale a la red si dice que la fuente esta viva: si ya
+    consta como averiada, gastar una peticion para confirmarlo no aporta nada.
+    """
+    try:
+        from src.data import resiliencia_api as _res
+        if not _res.disponible():
+            resumen = _res.resumen()
+            estado = LIMITED if resumen.get("averia") == "cuota" else ERROR
+            return _estado(estado, resumen.get("motivo") or "fuera de servicio")
+
+        from src.data.api_football import diagnosticar
+        d = diagnosticar()
+        if d["ok"]:
+            return _estado(OK, f"plan {d['plan']}, {d['peticiones']} peticiones hoy")
+        if d["causa"] == "cuota_agotada":
+            return _estado(LIMITED, d["mensaje"][:120])
+        return _estado(ERROR, d["mensaje"][:120])
+    except Exception as e:
+        return _estado(ERROR, f"{type(e).__name__}: {str(e)[:90]}")
+
+
+def _diag_football_data():
+    """football-data.org: se pide una competicion pequena y se mira el codigo."""
+    try:
+        from src.data.api_manager import FootballDataClient
+        cliente = FootballDataClient()
+        if not getattr(cliente, "api_key", ""):
+            return _estado(ERROR, "sin FOOTBALL_DATA_API_KEY configurada")
+        import requests
+        r = requests.get("https://api.football-data.org/v4/competitions/PD",
+                         headers={"X-Auth-Token": cliente.api_key},
+                         timeout=ESPERA_DIAGNOSTICO)
+        if r.status_code == 200:
+            return _estado(OK, "responde y acepta la llave")
+        if r.status_code == 429:
+            return _estado(LIMITED, "limite de peticiones alcanzado; se repone solo")
+        if r.status_code in (401, 403):
+            return _estado(ERROR, f"llave rechazada (HTTP {r.status_code})")
+        return _estado(ERROR, f"HTTP {r.status_code}")
+    except Exception as e:
+        return _estado(ERROR, f"{type(e).__name__}: {str(e)[:90]}")
+
+
+def _diag_sofascore():
+    """SofaScore: el mismo buscador de eventos que usa la cascada."""
+    try:
+        import requests
+        from src.data.scrapers.sofascore_api import HEADERS
+        r = requests.get(
+            "https://api.sofascore.com/api/v1/search/events?q=barcelona",
+            headers=HEADERS, timeout=ESPERA_DIAGNOSTICO)
+        if r.status_code != 200:
+            return _estado(ERROR, f"HTTP {r.status_code}")
+        datos = r.json()
+        # Un 200 con una respuesta que no trae partidos es la senal de que han
+        # vuelto a cambiar la forma del JSON, que es justo como esta fuente
+        # estuvo meses sin aportar nada sin que se notara.
+        from src.data.scrapers.sofascore_api import _eventos_de_respuesta
+        n = len(_eventos_de_respuesta(datos))
+        if n:
+            return _estado(OK, f"responde y devuelve partidos ({n} en la prueba)")
+        return _estado(LIMITED, "responde, pero no devuelve partidos: revisar el formato")
+    except Exception as e:
+        return _estado(ERROR, f"{type(e).__name__}: {str(e)[:90]}")
+
+
+def _diag_prensa_rss():
+    """Google News RSS, de donde salen las designaciones de la prensa."""
+    try:
+        import requests
+        import xml.etree.ElementTree as ET
+        from src.data.scrapers.sofascore_api import RSS_HEADERS
+        r = requests.get(
+            "https://news.google.com/rss/search?q=arbitro&hl=es&gl=ES&ceid=ES:es",
+            headers=RSS_HEADERS, timeout=ESPERA_DIAGNOSTICO)
+        if r.status_code != 200:
+            return _estado(ERROR, f"HTTP {r.status_code}")
+        n = len(ET.fromstring(r.content).findall(".//item"))
+        if n:
+            return _estado(OK, f"responde ({n} titulares en la prueba)")
+        return _estado(LIMITED, "responde, pero sin titulares")
+    except Exception as e:
+        return _estado(ERROR, f"{type(e).__name__}: {str(e)[:90]}")
+
+
+def _diag_buscador_web():
+    """DuckDuckGo, que es lo que usa el investigador de designaciones."""
+    try:
+        import requests
+        r = requests.post("https://html.duckduckgo.com/html/",
+                          data={"q": "arbitro designado"},
+                          headers={"User-Agent": "Mozilla/5.0"},
+                          timeout=ESPERA_DIAGNOSTICO)
+        if r.status_code != 200:
+            return _estado(ERROR, f"HTTP {r.status_code}")
+        if "result" in r.text:
+            return _estado(OK, "responde con resultados")
+        return _estado(LIMITED, "responde, pero sin resultados legibles")
+    except Exception as e:
+        return _estado(ERROR, f"{type(e).__name__}: {str(e)[:90]}")
+
+
+def _diag_besoccer():
+    """BeSoccer, ultimo recurso de la cascada de arbitros."""
+    try:
+        import requests
+        r = requests.get("https://es.besoccer.com/",
+                         headers={"User-Agent": "Mozilla/5.0"},
+                         timeout=ESPERA_DIAGNOSTICO)
+        if r.status_code == 200:
+            return _estado(OK, "responde")
+        if r.status_code in (403, 429):
+            return _estado(LIMITED, f"bloquea el acceso automatico (HTTP {r.status_code})")
+        return _estado(ERROR, f"HTTP {r.status_code}")
+    except Exception as e:
+        return _estado(ERROR, f"{type(e).__name__}: {str(e)[:90]}")
+
+
+def _diag_claude():
+    """
+    Consulta a Claude con busqueda web. Es opcional en la cascada.
+
+    Aqui solo se mira si hay clave: una llamada de verdad cuesta dinero, y un
+    diagnostico no deberia gastar por comprobarse.
+    """
+    import os
+    if os.getenv("ANTHROPIC_API_KEY", "").strip():
+        return _estado(OK, "clave configurada (no se consulta por no gastar)")
+    return _estado(LIMITED, "sin ANTHROPIC_API_KEY; la cascada sigue sin esta fuente")
+
+
+# Orden de la cascada de arbitros, para que el panel se lea como se consulta.
+SONDAS = (
+    ("Investigador web (DuckDuckGo)", _diag_buscador_web),
+    ("football-data.org", _diag_football_data),
+    ("Claude (búsqueda web)", _diag_claude),
+    ("SofaScore", _diag_sofascore),
+    ("Prensa (Google News)", _diag_prensa_rss),
+    ("BeSoccer", _diag_besoccer),
+    ("API-Football (respaldo)", _diag_api_football),
+)
+
+
 class MultiSourceFetcher:
+
+    def diagnose_connectivity(self, incluir=None):
+        """
+        Estado de conexion de todas las fuentes de la cascada.
+
+        Sondea cada una contra su endpoint REAL, el mismo que usa la busqueda,
+        en lugar de mirar si hay una clave configurada. La diferencia importa:
+        SofaScore estuvo meses devolviendo 200 sin un solo partido porque habian
+        cambiado la forma del JSON, y cualquier comprobacion que solo mirase el
+        codigo de estado lo habria dado por sano.
+
+        Devuelve un diccionario listo para la barra lateral:
+
+            {"SofaScore": {"status": "OK", "detail": "responde y devuelve..."}}
+
+        con tres estados: OK (verde), LIMITED (ambar, la fuente responde pero
+        no sirve del todo) y ERROR (rojo). Una sonda que falle no tumba a las
+        demas: se anota su error y se sigue.
+
+        Args:
+            incluir: nombres a sondear. Por defecto, todas.
+        """
+        resultados = {}
+        for nombre, sonda in SONDAS:
+            if incluir is not None and nombre not in incluir:
+                continue
+            try:
+                resultados[nombre] = sonda()
+            except Exception as e:
+                resultados[nombre] = _estado(
+                    ERROR, f"la sonda fallo: {type(e).__name__}: {str(e)[:70]}")
+        return resultados
 
     # =========================================================================
     # ÁRBITROS — cascada de 7 fuentes (API-Football es FUENTE 0)
