@@ -333,6 +333,32 @@ def fetch_referee(home, away, fecha=None):
 # =============================================================================
 # FUENTE 2: Google News RSS — busca "árbitro EQUIPO1 EQUIPO2"
 # =============================================================================
+def _sin_medio(texto: str, medio: str) -> str:
+    """
+    Quita del texto el nombre del periodico que publica la noticia.
+
+    Google News mete el medio en tres sitios: al final del titular tras un
+    guion, dentro de un <font> en la descripcion y en el elemento <source>. Ese
+    nombre tiene forma de nombre propio y aparece pegado al titular, asi que el
+    extractor lo tomaba por el arbitro designado. Caso real, buscando
+    Alaves - Athletic:
+
+        "El peor arbitro posible para el Alaves en el derbi - Norte Expres"
+
+    de donde salia "Norte Expres" como arbitro. El medio nunca forma parte de lo
+    que la noticia afirma, asi que se quita antes de extraer nada.
+    """
+    if not texto:
+        return ""
+    limpio = texto
+    if medio:
+        # El titular acaba en " - Medio"; la descripcion lo trae suelto.
+        if limpio.rstrip().endswith(f"- {medio}"):
+            limpio = limpio.rstrip()[: -len(f"- {medio}")]
+        limpio = limpio.replace(medio, " ")
+    return limpio
+
+
 def fetch_referee_rss(home, away, league=""):
     """
     Busca el arbitro en Google News RSS.
@@ -371,7 +397,10 @@ def fetch_referee_rss(home, away, league=""):
             for item in root.findall('.//item')[:10]:
                 title = item.findtext('title', '') or ''
                 desc  = item.findtext('description', '') or ''
-                name = _extraer_designacion(f"{title}. {desc}", home, away, league)
+                medio = (item.findtext('source', '') or '').strip()
+                name = _extraer_designacion(
+                    f"{_sin_medio(title, medio)}. {_sin_medio(desc, medio)}",
+                    home, away, league)
                 if name:
                     print(f"  [RSS] Árbitro: {name} (de: {title[:50]})")
                     return {"name": name, "source": "Google News",
