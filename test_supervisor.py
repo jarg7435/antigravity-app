@@ -238,14 +238,37 @@ comprobar("Demarcacion desconocida avisa pero NO bloquea", r.bloqueado, False)
 comprobar("  y queda registrada como aviso",
           [i.codigo for i in r.leves], ["DEMARCACION_DESCONOCIDA"])
 
-# Falso positivo masivo. Cuando falla un tercio del once, el sospechoso es el
-# listado de inscritos, no los jugadores: la app llego a acusar a cuatro
-# titulares del Barcelona de haberse ido del club a la vez.
+# De quien sospechar cuando falla medio once lo decide el TAMANO del listado.
+# Con un listado corto (aqui 8 inscritos) el patron no sirve y el sospechoso es
+# el propio listado.
 ONCE_AJENO = ONCE_OK[:5] + ["Fulano Uno", "Mengano Dos", "Zutano Tres", "Perengano Cuatro"]
 r = sup.supervisar("Real Betis", "Sevilla FC", "La Liga", None,
                    ARB_VERIFICADO, ONCE_AJENO, ONCE_OK, revisar_temporada=False)
-comprobar("4 de 9 sin casar -> se sospecha del listado, no de los jugadores",
+comprobar("Listado corto + 4 fallos -> se sospecha del listado",
           [i.codigo for i in r.graves], ["ONCE_LISTADO_DUDOSO"])
+
+# Pero con un listado COMPLETO la conclusion es la contraria, y este es el caso
+# real: football-data.org devolvia 27 jugadores del Barcelona —plantilla sana— y
+# los cuatro que no casaban ya no estaban en el club. Quien servia datos viejos
+# era la fuente de alineaciones. Con la regla anterior, que solo miraba la
+# proporcion, se habria culpado al listado y tapado el problema de verdad.
+PLANTILLA_LARGA = [{"nombre": f"Jugador Inscrito {i:02d}", "posicion": "Midfield"}
+                   for i in range(1, 25)]
+plantillas.plantilla_detallada = lambda equipo, liga=None: list(PLANTILLA_LARGA)
+plantillas.plantilla_actual = lambda equipo, liga=None: [j["nombre"] for j in PLANTILLA_LARGA]
+
+ONCE_LARGO = [j["nombre"] for j in PLANTILLA_LARGA[:5]] + [
+    "Fulano Uno", "Mengano Dos", "Zutano Tres", "Perengano Cuatro"]
+_inf = plantillas.auditar_alineacion(ONCE_LARGO, "FC Barcelona", "La Liga")
+comprobar("Listado de 24 inscritos NO se marca como dudoso",
+          _inf["listado_dudoso"], False)
+r = sup.supervisar("FC Barcelona", "Sevilla FC", "La Liga", None,
+                   ARB_VERIFICADO, ONCE_LARGO, ONCE_LARGO, revisar_temporada=False)
+comprobar("...y los jugadores se senalan como ausentes del club",
+          sorted({i.codigo for i in r.graves}), ["ONCE_TRASPASADOS"])
+
+plantillas.plantilla_detallada = lambda equipo, liga=None: list(PLANTILLA_BETIS)
+plantillas.plantilla_actual = lambda equipo, liga=None: [j["nombre"] for j in PLANTILLA_BETIS]
 
 # Uno o dos si son un traspaso plausible y se senalan como tales.
 r = sup.supervisar("Real Betis", "Sevilla FC", "La Liga", None,

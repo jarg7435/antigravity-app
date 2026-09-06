@@ -38,9 +38,26 @@ Autor: Antigravity - La Gema JARG74
 import io
 import os
 import sys
+import time
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# TLS ANTES QUE NADA, igual que en app/main.py.
+#
+# Esto faltaba, y hacia que el diagnostico no fuera comparable con la app: los
+# antivirus de escritorio interceptan el trafico HTTPS y lo re-firman con una CA
+# propia que Python no conoce, y el resultado es un
+# "CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate" en unos
+# hosts si y en otros no. La app llama a activar_tls() como primerisima cosa del
+# arranque; sin hacer lo mismo aqui, el script culpaba a las fuentes de un fallo
+# que era del almacen de certificados.
+_TLS_ACTIVO = False
+try:
+    from src.utils.tls import activar_tls
+    _TLS_ACTIVO = bool(activar_tls())
+except Exception as _e:
+    _TLS_ERROR = f"{type(_e).__name__}: {_e}"
 
 # La consola de Windows va en cp1252 y se atraganta con los acentos y los
 # simbolos. Sin esto, el diagnostico se cae al imprimir el primer nombre propio.
@@ -87,6 +104,14 @@ def dato(clave, valor):
 
 def revisar_claves():
     titulo("0. CLAVES Y CONFIGURACION")
+
+    if _TLS_ACTIVO:
+        bien("TLS contra el almacén del sistema activado (igual que la app).")
+    else:
+        aviso("truststore no está activo: se validará con el bundle de certifi. "
+              "Si un antivirus intercepta HTTPS, verás errores "
+              "'unable to get local issuer certificate' en unas fuentes sí y en "
+              "otras no. Instálalo con: pip install truststore")
 
     necesarias = {
         "FOOTBALL_DATA_API_KEY": "plantillas, calendario y árbitro (la más importante)",
@@ -218,22 +243,38 @@ def revisar_plantilla(equipo, liga, once):
     from src.data import plantillas
 
     print(f"\n  --- {equipo} ---")
-    try:
-        detalle = plantillas.plantilla_detallada(equipo, liga)
-    except Exception as e:
-        mal(f"No se ha podido obtener la plantilla: {type(e).__name__}: {e}")
-        return
+
+    # El plan gratuito de football-data.org permite 10 peticiones por minuto, y
+    # a estas alturas del diagnostico ya se han gastado varias entre la fecha y
+    # el arbitro. Al toparse con el limite, la plantilla volvia vacia y el
+    # informe culpaba a la fuente de no tener datos cuando lo que pasaba era que
+    # habia que esperar. Se reintenta una vez, con pausa.
+    detalle = []
+    for intento in (1, 2):
+        try:
+            detalle = plantillas.plantilla_detallada(equipo, liga)
+        except Exception as e:
+            mal(f"No se ha podido obtener la plantilla: {type(e).__name__}: {e}")
+            return
+        if detalle or intento == 2:
+            break
+        aviso("Listado vacío. Puede ser el límite de 10 peticiones/minuto del "
+              "plan gratuito: esperando 20 s y reintentando...")
+        time.sleep(20)
 
     if not detalle:
         mal(f"football-data.org no devuelve plantilla para {equipo}.")
         print("          Sin listado no se puede contrastar nada, y el supervisor")
         print("          bloqueará el análisis por ONCE_SIN_REFERENCIA.")
+        print("          Si acabas de ejecutar el diagnóstico, espera un minuto:")
+        print("          el plan gratuito permite 10 peticiones por minuto.")
         return
 
     bien(f"Listado de inscritos: {len(detalle)} jugadores")
-    if len(detalle) < 18:
+    if len(detalle) < plantillas.PLANTILLA_MINIMA:
         aviso(f"Solo {len(detalle)} jugadores. Una plantilla de primera división "
-              f"ronda los 25: este listado parece INCOMPLETO.")
+              f"ronda los 25: este listado parece INCOMPLETO, y por eso no se "
+              f"usará para acusar a nadie de haberse ido del club.")
 
     for j in detalle:
         pos = j.get("posicion") or "(sin demarcación)"

@@ -37,6 +37,11 @@ logger = logging.getLogger(__name__)
 # día evita servir un fichaje reciente como si no existiera.
 TTL_PLANTILLA = 24 * 3600
 
+# Inscritos por debajo de los cuales un listado se considera cortado. Una
+# plantilla de primera division ronda los 25; con menos de esto no sirve como
+# patron con el que acusar a nadie de haberse ido del club.
+PLANTILLA_MINIMA = 18
+
 # Caché persistente: sobrevive a los redeploy y ahorra peticiones del plan
 # gratuito de football-data.org (10 por minuto).
 _CACHE = CacheManager(persist=True, cache_dir="data/cache")
@@ -309,14 +314,24 @@ def auditar_alineacion(jugadores: List[str], equipo: str,
     for jugador in jugadores:
         (vigentes if esta_en_plantilla(jugador, plantilla) else descartados).append(jugador)
 
-    # ¿Que es mas probable, que se hayan ido cuatro titulares o que el listado
-    # este incompleto? Lo segundo, casi siempre. Un once real arrastra como
-    # mucho uno o dos nombres de la temporada pasada; cuando falla un tercio
-    # entero, el que no es de fiar es el listado, y acusar uno a uno a los
-    # jugadores convierte un fallo de la fuente en cuatro acusaciones falsas.
-    # Se marca la sospecha aqui y decide el supervisor que hacer con ella.
+    # ¿De quien hay que sospechar cuando falla medio once: del listado o de la
+    # alineacion? La respuesta la da el TAMANO del listado, no el numero de
+    # fallos.
+    #
+    # Se probo primero con la proporcion sola —mas de un tercio sin casar,
+    # luego el listado es malo— y con datos reales resulto ser al reves. Para el
+    # Valencia - Barcelona del 06/09/2026, football-data.org devolvia 27
+    # jugadores del Barcelona, una plantilla completa y sana, y los cuatro que
+    # no casaban simplemente ya no estaban en el club: quien servia datos viejos
+    # era la fuente de alineaciones, no la de plantillas. Marcar aquel listado
+    # como sospechoso habria tapado el problema de verdad.
+    #
+    # Una plantilla de primera division ronda los 25 inscritos. Por debajo de
+    # PLANTILLA_MINIMA el listado esta claramente cortado y no sirve de patron;
+    # por encima, si un jugador no aparece es que no esta.
     umbral = max(2, -(-len(jugadores) // 3))          # un tercio, redondeando
-    listado_dudoso = len(descartados) > umbral
+    listado_dudoso = (len(descartados) > umbral
+                      and len(plantilla) < PLANTILLA_MINIMA)
 
     if descartados:
         logger.warning(
