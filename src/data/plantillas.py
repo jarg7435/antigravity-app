@@ -146,12 +146,31 @@ def resolver_en_plantilla(jugador: str, plantilla: List[str]) -> Optional[str]:
         if j == m or palabras_j <= palabras_m or palabras_m <= palabras_j:
             return miembro
 
-    # Segunda pasada: apellido compartido. Solo se acepta si ese apellido
+    # Segunda pasada: nombre abreviado con inicial, "E. Garcia".
+    #
+    # SofaScore publica asi los onces, y con la regla del apellido unico de
+    # abajo no habia forma de resolverlo: el Barcelona tiene a Joan Garcia y a
+    # Eric Garcia, dos portadores del mismo apellido, asi que "E. Garcia" se
+    # quedaba sin casar y salia como traspasado. La inicial es justo el dato
+    # que los distingue.
+    palabras_orden = _norm(jugador).split()
+    if len(palabras_orden) >= 2 and len(palabras_orden[0]) == 1:
+        inicial = palabras_orden[0]
+        apellidos = set(palabras_orden[1:])
+        portadores = [
+            m for m in plantilla
+            if apellidos <= set(_norm(m).split())
+            and _norm(m).split()[0].startswith(inicial)
+        ]
+        if len(portadores) == 1:
+            return portadores[0]
+
+    # Tercera pasada: apellido compartido. Solo se acepta si ese apellido
     # identifica a UN unico miembro de la plantilla. Antes bastaba con que
     # coincidiera, y en un equipo con dos Garcia cualquiera de los dos valia
     # por el otro: un traspasado sobrevivia al filtro gracias a su homonimo.
     if len(palabras_j) >= 2:
-        apellido = _norm(jugador).split()[-1]
+        apellido = palabras_orden[-1]
         if len(apellido) >= 4:
             portadores = [m for m in plantilla if apellido in _norm(m).split()]
             if len(portadores) == 1:

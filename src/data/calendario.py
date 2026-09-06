@@ -152,6 +152,8 @@ def _desde_football_data(home: str, away: str, liga: str) -> Optional[Dict]:
 def _desde_sofascore(home: str, away: str, liga: str) -> Optional[Dict]:
     try:
         from src.data.scrapers.sofascore_api import _find_event
+        # Sin fecha a proposito: aqui la incognita ES la fecha, asi que
+        # _find_event se queda con el enfrentamiento mas proximo a hoy.
         evento = _find_event(home, away)
     except Exception as e:
         logger.debug(f"[calendario/sofascore] {type(e).__name__}: {e}")

@@ -326,7 +326,7 @@ class MultiSourceFetcher:
         # ── FUENTE 2: SofaScore API ───────────────────────────────────────────
         try:
             from src.data.scrapers.sofascore_api import fetch_referee as sf_ref
-            sf = sf_ref(home, away)
+            sf = sf_ref(home, away, safe_date)
             if sf:
                 sofa_link = sf.get("verification_link")
                 if sf.get("name") and not sf.get("_is_fallback") and _arbitro_valido(sf["name"], "2-SofaScore"):
@@ -464,7 +464,7 @@ class MultiSourceFetcher:
         # ── FUENTE 1: SofaScore API ───────────────────────────────────────────
         try:
             from src.data.scrapers.sofascore_api import fetch_lineups as sf_lu
-            sf = sf_lu(home, away)
+            sf = sf_lu(home, away, safe_date)
             if sf and (sf.get("home") or sf.get("away")):
                 sf.setdefault("bajas", [])
                 print(f"  [1-SofaScore] ✅ {len(sf.get('home',[]))}+{len(sf.get('away',[]))}")

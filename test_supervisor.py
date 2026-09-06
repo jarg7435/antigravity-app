@@ -489,6 +489,62 @@ plantillas.plantilla_actual = _original_actual
 
 
 # =============================================================================
+# 9. SofaScore: forma de la respuesta y eleccion del partido
+# =============================================================================
+print("\n--- 9. SofaScore: leer la respuesta nueva y elegir el partido ---")
+
+from src.data.scrapers import sofascore_api as sofa
+
+# SofaScore cambio la forma de la respuesta del buscador: antes {"events": [...]}
+# y ahora {"results": [{"type": "event", "entity": {...}}]}. El codigo seguia
+# leyendo "events", asi que la lista salia SIEMPRE vacia y la fuente llevaba
+# tiempo muerta sin que se notara.
+RESP_NUEVA = {"results": [
+    {"type": "team", "entity": {"name": "Valencia"}},
+    {"type": "event", "entity": {"id": 16416325, "startTimestamp": 1788704100,
+                                 "homeTeam": {"name": "Valencia"},
+                                 "awayTeam": {"name": "FC Barcelona"}}},
+    {"type": "event", "entity": {"id": 15717433, "startTimestamp": 349282800,
+                                 "homeTeam": {"name": "Valencia"},
+                                 "awayTeam": {"name": "FC Barcelona"}}},
+]}
+RESP_ANTIGUA = {"events": [
+    {"id": 111, "startTimestamp": 1788704100,
+     "homeTeam": {"name": "Valencia"}, "awayTeam": {"name": "FC Barcelona"}},
+]}
+
+comprobar("Se leen los partidos de la forma NUEVA",
+          [e["id"] for e in sofa._eventos_de_respuesta(RESP_NUEVA)],
+          [16416325, 15717433])
+comprobar("...y la forma antigua sigue funcionando",
+          [e["id"] for e in sofa._eventos_de_respuesta(RESP_ANTIGUA)], [111])
+comprobar("Los resultados que no son partidos se ignoran",
+          len(sofa._eventos_de_respuesta({"results": [{"type": "player",
+                                                       "entity": {"name": "X"}}]})),
+          0)
+comprobar("Una respuesta inesperada no revienta",
+          sofa._eventos_de_respuesta(None), [])
+
+# El buscador devuelve TODOS los enfrentamientos historicos entre los dos
+# equipos —para Valencia - Barcelona salen veinte, algunos de los ochenta— asi
+# que quedarse con el primero era jugar a la ruleta.
+comprobar("Entre 20 candidatos hay que elegir por fecha, no por orden",
+          len(sofa._eventos_de_respuesta(RESP_NUEVA)) > 1, True)
+
+# Nombres abreviados: SofaScore publica los onces como "E. García", y el
+# Barcelona tiene dos Garcia. La inicial es lo unico que los distingue.
+BARCA_FD = ["Joan García", "Eric García", "Pau Cubarsí", "João Cancelo",
+            "Fermín López", "Pedri", "Raphinha", "Anthony Gordon"]
+print("  (nombres abreviados de SofaScore)")
+for corto, esperado in [("J. García", "Joan García"), ("E. García", "Eric García"),
+                        ("J. Cancelo", "João Cancelo"), ("Pedri", "Pedri")]:
+    comprobar(f"    {corto} -> {esperado}",
+              plantillas.resolver_en_plantilla(corto, BARCA_FD), esperado)
+comprobar("    una inicial que no existe no casa con nadie",
+          plantillas.resolver_en_plantilla("L. Messi", BARCA_FD), None)
+
+
+# =============================================================================
 print("\n" + "=" * 62)
 if _fallos:
     print(f"FALLOS: {len(_fallos)}")

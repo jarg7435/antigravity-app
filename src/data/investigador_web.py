@@ -551,7 +551,7 @@ def _fuente_duckduckgo(home, away, liga, timeout=10) -> List[Dict]:
     return hallazgos
 
 
-def _fuente_sofascore(home, away, timeout=8) -> List[Dict]:
+def _fuente_sofascore(home, away, fecha=None, timeout=8) -> List[Dict]:
     """
     Ficha del partido en SofaScore, que publica el arbitro cuando ya consta.
 
@@ -560,7 +560,7 @@ def _fuente_sofascore(home, away, timeout=8) -> List[Dict]:
     """
     try:
         from src.data.scrapers.sofascore_api import fetch_referee as sofa_ref
-        r = sofa_ref(home, away)
+        r = sofa_ref(home, away, fecha)
     except Exception as e:
         print(f"  [investigador/sofascore] {type(e).__name__}: {e}")
         return []
@@ -769,7 +769,7 @@ def investigar_arbitro(home: str, away: str, fecha: datetime = None,
     hallazgos: List[Dict] = []
     for nombre_fuente, funcion in (
         ("football-data.org", lambda: _fuente_football_data(home, away, liga)),
-        ("SofaScore", lambda: _fuente_sofascore(home, away)),
+        ("SofaScore", lambda: _fuente_sofascore(home, away, fecha)),
         ("Prensa (RSS)", lambda: _fuente_google_news(home, away, liga, fecha)),
         ("Buscador web", lambda: _fuente_duckduckgo(home, away, liga)),
         ("Claude web_search", lambda: _fuente_claude(home, away, liga)),

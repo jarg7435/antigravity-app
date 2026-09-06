@@ -99,50 +99,111 @@ def _matches(query, sofa_name):
     return bool(qw & sw)
 
 
-def _find_event(home, away, timeout=10):
-    """Encuentra el partido en SofaScore mediante estrategia insistente."""
+def _eventos_de_respuesta(datos):
+    """
+    Extrae los partidos de la respuesta del buscador de SofaScore.
+
+    SofaScore cambio la forma de la respuesta: antes venia {"events": [...]} y
+    ahora viene {"results": [{"type": "event", "entity": {...}}, ...]}. El
+    codigo seguia leyendo "events", asi que la lista salia SIEMPRE vacia y
+    SofaScore llevaba tiempo sin aportar nada —ni alineaciones ni arbitro— sin
+    que se notara, porque una fuente que no encuentra el partido no se
+    distingue de una que no tiene el dato.
+
+    Se leen las dos formas: la nueva primero, la antigua como respaldo, por si
+    vuelven a cambiarla o quedan respuestas cacheadas.
+    """
+    if not isinstance(datos, dict):
+        return []
+
+    eventos = []
+    for r in datos.get("results", []) or []:
+        if not isinstance(r, dict):
+            continue
+        if r.get("type") not in (None, "", "event"):
+            continue
+        ev = r.get("entity") or r.get("event") or {}
+        if ev.get("homeTeam") and ev.get("awayTeam"):
+            eventos.append(ev)
+
+    for ev in datos.get("events", []) or []:      # forma antigua
+        if isinstance(ev, dict) and ev.get("homeTeam"):
+            eventos.append(ev)
+
+    return eventos
+
+
+def _find_event(home, away, fecha=None, timeout=10):
+    """
+    Encuentra el partido en SofaScore.
+
+    LA FECHA IMPORTA. El buscador devuelve TODOS los enfrentamientos historicos
+    entre los dos equipos —para Valencia - Barcelona salen veinte, algunos de
+    los anos ochenta— y quedarse con el primero era jugar a la ruleta. Con
+    fecha se elige el mas cercano a ella; sin fecha, el mas proximo a hoy.
+    """
+    from datetime import datetime
+
     hv, av = _variants(home), _variants(away)
-    
-    # Estrategia agresiva de insistencia:
-    # 1. Combinaciones cruzadas (Fiorentina Inter)
-    # 2. Solo local (Fiorentina)
-    # 3. Solo visitante (Inter)
+
     queries = []
     for h in hv[:2]:
         for a in av[:2]:
             queries.append(f"{h} {a}")
     queries.extend(hv[:2])
     queries.extend(av[:2])
-    
-    # Limpiar duplicados manteniendo el orden
+
     unique_queries = []
     for q in queries:
         if q not in unique_queries:
             unique_queries.append(q)
 
+    if fecha is None:
+        referencia = datetime.now().timestamp()
+    elif hasattr(fecha, "timestamp"):
+        referencia = fecha.timestamp()
+    else:
+        try:
+            referencia = datetime.fromisoformat(str(fecha)[:19]).timestamp()
+        except (ValueError, TypeError):
+            referencia = datetime.now().timestamp()
+
+    candidatos = []
     for q in unique_queries:
         try:
             r = requests.get(
                 f"https://api.sofascore.com/api/v1/search/events?q={requests.utils.quote(q)}",
                 headers=HEADERS, timeout=timeout
             )
-            if r.status_code != 200: continue
-            events = r.json().get("events", [])
-            for ev in events[:20]:  # Buscar más profundo
+            if r.status_code != 200:
+                continue
+            for ev in _eventos_de_respuesta(r.json()):
                 hn = ev.get("homeTeam", {}).get("name", "")
                 an = ev.get("awayTeam", {}).get("name", "")
-                
-                # Check if matches home AND away robustly
                 home_match = any(_matches(v, hn) for v in hv) or any(_matches(v, an) for v in hv)
                 away_match = any(_matches(v, an) for v in av) or any(_matches(v, hn) for v in av)
-                
                 if home_match and away_match:
-                    print(f"  [SofaScore] Búsqueda Insistente: Partido encontrado con query '{q}': {hn} vs {an}")
-                    return ev
+                    candidatos.append(ev)
         except Exception as e:
             print(f"  [SofaScore] find_event error on '{q}': {e}")
-            
-    return None
+
+        if candidatos:
+            break     # con una consulta que da resultados basta
+
+    if not candidatos:
+        return None
+
+    # Sin marca de tiempo no se puede juzgar la cercania: van al final.
+    def distancia(ev):
+        ts = ev.get("startTimestamp")
+        return abs(ts - referencia) if isinstance(ts, (int, float)) else float("inf")
+
+    elegido = min(candidatos, key=distancia)
+    hn = elegido.get("homeTeam", {}).get("name", "")
+    an = elegido.get("awayTeam", {}).get("name", "")
+    print(f"  [SofaScore] Partido: {hn} vs {an} (id={elegido.get('id')}, "
+          f"{len(candidatos)} candidatos)")
+    return elegido
 
 
 def _expandir_nombre(texto, ini, fin):
@@ -237,9 +298,17 @@ def _extract_from_text(text):
 # =============================================================================
 # FUENTE 1: SofaScore API
 # =============================================================================
-def fetch_referee(home, away):
+def fetch_referee(home, away, fecha=None):
+    """
+    Arbitro de la ficha del partido en SofaScore.
+
+    Es la fuente mas limpia de todas: el nombre viene en un campo propio, sin
+    que haya que interpretar el texto de ningun titular. Ahora recibe la fecha
+    para que _find_event no se quede con un enfrentamiento historico entre los
+    mismos equipos y devuelva el arbitro de un partido de hace anos.
+    """
     try:
-        ev = _find_event(home, away)
+        ev = _find_event(home, away, fecha)
         if not ev:
             return None
         eid = ev.get("id")
@@ -367,38 +436,72 @@ def fetch_referee_via_claude(home, away, league=""):
 # =============================================================================
 # ALINEACIONES — SofaScore
 # =============================================================================
-def fetch_lineups(home, away):
+def fetch_lineups(home, away, fecha=None):
+    """
+    Once inicial segun SofaScore, que lo publica antes que nadie.
+
+    Tres cosas cambian respecto a la version anterior:
+
+    - Se pide el nombre COMPLETO ("Eric García") en vez del corto ("E.
+      García"). El corto obliga a adivinar la inicial contra la plantilla, y en
+      el Barcelona hay dos Garcia —Joan y Eric— con los que se puede fallar.
+    - Los suplentes se descartan por su marca `substitute`, que es la que trae
+      la respuesta. Antes se miraba `position` contra la cadena "S", que en
+      este endpoint vale "G"/"D"/"M"/"F" y nunca "S": los suplentes se colaban
+      en el once y el "[:11]" se quedaba con los once primeros de la lista.
+    - `is_official` sale del campo `confirmed`, que es exactamente lo que
+      significa. Antes se deducia de si el partido habia empezado, asi que un
+      once ya confirmado por el club figuraba como no oficial hasta el pitido
+      inicial.
+    """
     try:
-        ev = _find_event(home, away)
+        ev = _find_event(home, away, fecha)
         if not ev:
             return None
         eid = ev.get("id")
+        enlace = f"https://www.sofascore.com/es/partido/{eid}"
+
         r = requests.get(f"https://api.sofascore.com/api/v1/event/{eid}/lineups",
                          headers=HEADERS, timeout=8)
         if r.status_code == 404:
+            # El partido existe pero aun no hay alineaciones publicadas.
             return {"home": [], "away": [], "source": "SofaScore",
-                    "verification_link": f"https://www.sofascore.com/es/partido/{eid}",
+                    "verification_link": enlace,
                     "_is_fallback": True, "not_available_yet": True}
         if r.status_code != 200:
             return None
+
         lu = r.json()
-        def _extract(side):
-            players = lu.get(side, {}).get("players", [])
-            result = []
-            for p in players:
-                pdata = p.get("player", {})
-                name = pdata.get("shortName") or pdata.get("name", "")
-                pos = p.get("position", "")
-                if name and pos not in ["S", "substitute"]:
-                    result.append(name)
-            return result[:11] or [p.get("player",{}).get("name","")
-                                    for p in players if p.get("player",{}).get("name")][:11]
-        hp, ap = _extract("home"), _extract("away")
-        if hp or ap:
-            is_live = ev.get("status", {}).get("type", "") in ["inprogress", "finished"]
-            return {"home": hp, "away": ap, "source": "SofaScore",
-                    "verification_link": f"https://www.sofascore.com/es/partido/{eid}",
-                    "_is_fallback": False, "is_official": is_live}
+        confirmada = bool(lu.get("confirmed"))
+
+        def _titulares(lado):
+            salida = []
+            for p in lu.get(lado, {}).get("players", []) or []:
+                if p.get("substitute"):
+                    continue
+                datos = p.get("player", {}) or {}
+                nombre = datos.get("name") or datos.get("shortName") or ""
+                if nombre:
+                    salida.append(nombre)
+            return salida[:11]
+
+        casa, visita = _titulares("home"), _titulares("away")
+        if not (casa or visita):
+            return {"home": [], "away": [], "source": "SofaScore",
+                    "verification_link": enlace,
+                    "_is_fallback": True, "not_available_yet": True}
+
+        etiqueta = "confirmada" if confirmada else "probable"
+        print(f"  [SofaScore] Alineación {etiqueta}: {len(casa)}+{len(visita)}")
+        return {
+            "home": casa, "away": visita,
+            "source": f"SofaScore ({etiqueta})",
+            "verification_link": enlace,
+            "_is_fallback": False,
+            "is_official": confirmada,
+            "formation_home": lu.get("home", {}).get("formation", ""),
+            "formation_away": lu.get("away", {}).get("formation", ""),
+        }
     except Exception as e:
         print(f"  [SofaScore] lineups: {e}")
     return None
