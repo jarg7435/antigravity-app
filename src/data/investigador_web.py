@@ -189,6 +189,25 @@ _PARTICULAS_NOMBRE = {
 # Signos que cierran un nombre: lo que va detras ya es otra cosa.
 _CIERRA_NOMBRE = ",;:.!?)»\"'"
 
+# Palabras que delatan que lo capturado es una competicion, una cadena o un
+# producto, no una persona. Vienen de los titulares de programacion, que son
+# mayoria cuando se busca un partido del dia: "Valencia - Barcelona: TV,
+# horario y cómo ver LaLiga EA Sports online" producia el candidato "LaLiga EA
+# Sports", con mayusculas impecables y forma de nombre propio.
+#
+# Solo entran palabras que NUNCA son un apellido europeo. "Rey", "Leon" o
+# "Campos" quedan fuera de la lista a proposito: son competiciones, si, pero
+# tambien apellidos reales.
+_NO_ES_PERSONA = {
+    "laliga", "sports", "sport", "tv", "dazn", "movistar", "eurosport",
+    "vavel", "online", "streaming", "horario", "horarios", "jornada",
+    "clasificacion", "champions", "supercopa", "premier", "bundesliga",
+    "eredivisie", "ligue", "seriea", "efe", "directos", "resultados",
+    "estadisticas", "alineaciones", "pronostico", "pronosticos", "cuotas",
+    "previa", "goles", "futbol", "deportes", "diario", "periodico", "mundo",
+    "marca", "as", "onefootball", "flashscore", "besoccer", "sofascore",
+}
+
 
 def _candidatos_en_frase(frase: str) -> List[str]:
     """
@@ -257,6 +276,11 @@ def _candidatos_en_frase(frase: str) -> List[str]:
             nombre = " ".join(tramo)
             clave = nombre.lower()
             if clave in vistos:
+                continue
+            # Basta con que UNA palabra delate a una competicion o a una cadena
+            # para tirar el candidato entero: "LaLiga EA Sports" cae por
+            # "laliga" y por "sports".
+            if any(_sin_tildes(p).lower() in _NO_ES_PERSONA for p in tramo):
                 continue
             if es_nombre_plausible(nombre):
                 vistos.add(clave)
@@ -801,14 +825,24 @@ def _dictaminar(hallazgos: List[Dict], liga: str) -> Dict:
         return base
 
     grupos = _agrupar(hallazgos)
-    # El grupo mas respaldado gana: primero por numero de fuentes oficiales,
-    # luego por numero de fuentes distintas.
+
+    # Manda, por este orden: ser un colegiado reconocido de la competicion,
+    # tener respaldo oficial, y aparecer en mas fuentes.
+    #
+    # El censo va PRIMERO, y no es un detalle. Al buscar el Valencia -
+    # Barcelona, la prensa devolvia "Díaz de Mera" en un medio y "LaLiga EA
+    # Sports" —sacado de titulares de programacion de television— en dos. Con el
+    # recuento de fuentes por delante ganaba la basura, y el arbitro real, que
+    # estaba encontrado, quedaba descartado. Contar cuantos lo dicen solo tiene
+    # sentido entre candidatos que puedan ser el arbitro.
     def peso(g):
-        return (sum(1 for h in g if h["oficial"]),
+        return (1 if pertenece_al_censo(_nombre_mas_completo(g), liga) is True else 0,
+                sum(1 for h in g if h["oficial"]),
                 len({h["fuente"] for h in g}))
 
     grupos.sort(key=peso, reverse=True)
     grupo = grupos[0]
+
 
     nombre = _nombre_mas_completo(grupo)
     fuentes = {h["fuente"] for h in grupo}

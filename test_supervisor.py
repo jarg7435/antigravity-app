@@ -388,6 +388,31 @@ comprobar("Se lee la fecha de publicacion del feed",
 comprobar("Un item sin fecha no revienta",
           iw._publicado(_ET.fromstring("<item/>")), None)
 
+# Titulares de programacion, que son mayoria al buscar un partido del dia.
+# Producian el candidato "LaLiga EA Sports", con mayusculas impecables y forma
+# de nombre propio.
+print("  (titulares de programacion)")
+for programacion in [
+    "Valencia - Barcelona: TV, horario y cómo ver LaLiga EA Sports online",
+    "Valencia – FC Barcelona: horario y dónde ver hoy por TV el partido de fútbol de LaLiga EA Sports",
+]:
+    comprobar(f"    no da candidato: {programacion[:40]}...",
+              iw._extraer_designacion(programacion, "Valencia", "FC Barcelona", "La Liga"),
+              None)
+
+# Y aunque colara, el censo tiene que pesar mas que el numero de medios: la
+# basura salia en dos y el arbitro real en uno, y ganaba la basura.
+_MEZCLA = [
+    {"name": "Díaz de Mera", "fuente": "Prensa · IUSPORT", "url": "",
+     "oficial": False, "extracto": "", "anclaje": "fuerte"},
+    {"name": "LaLiga EA Sports", "fuente": "Prensa · Diario AS", "url": "",
+     "oficial": False, "extracto": "", "anclaje": "fuerte"},
+    {"name": "LaLiga EA Sports", "fuente": "Prensa · La Vanguardia", "url": "",
+     "oficial": False, "extracto": "", "anclaje": "fuerte"},
+]
+comprobar("Un colegiado del censo gana a un intruso con mas medios",
+          iw._dictaminar(_MEZCLA, "La Liga")["name"], "Díaz de Mera")
+
 
 # =============================================================================
 print("\n" + "=" * 62)
