@@ -50,7 +50,7 @@ import os
 import re
 import unicodedata
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional
 from urllib.parse import quote_plus
 
@@ -348,12 +348,73 @@ def _consultas(home: str, away: str, liga: str) -> List[str]:
     ]
 
 
-def _fuente_google_news(home, away, liga, timeout=10) -> List[Dict]:
-    """Titulares y entradillas de prensa a traves del RSS publico de Google News."""
+# Ventana de publicacion aceptable alrededor del partido. Las designaciones se
+# publican uno o dos dias antes, y las cronicas del dia siguiente tambien
+# nombran al colegiado.
+DIAS_ANTES = 5
+DIAS_DESPUES = 1
+
+
+def _ventana(fecha) -> tuple:
+    """Fechas entre las que una noticia puede hablar de este partido."""
+    dia = (fecha.date() if isinstance(fecha, datetime)
+           else fecha if isinstance(fecha, date) else datetime.now().date())
+    return dia - timedelta(days=DIAS_ANTES), dia + timedelta(days=DIAS_DESPUES)
+
+
+def _publicado(item) -> Optional[date]:
+    """Fecha de publicacion de un item del feed, o None si no la trae."""
+    texto = item.findtext("pubDate", "") or ""
+    if not texto:
+        return None
+    try:
+        from email.utils import parsedate_to_datetime
+        return parsedate_to_datetime(texto).date()
+    except (TypeError, ValueError):
+        return None
+
+
+def _sin_medio(titulo: str) -> str:
+    """
+    Quita el " - Medio" que Google News anade al final de cada titular.
+
+    Sin esto, "Estos son el árbitro y el VAR del Barça - Valencia - El
+    Periódico" daba "El Periódico" como nombre del arbitro. Se corta por la
+    ULTIMA aparicion, que es la del medio: la primera separa a los equipos.
+    """
+    return titulo.rsplit(" - ", 1)[0] if " - " in titulo else titulo
+
+
+def _fuente_google_news(home, away, liga, fecha=None, timeout=10) -> List[Dict]:
+    """
+    Titulares y entradillas de prensa a traves del RSS publico de Google News.
+
+    LA FECHA ES IMPRESCINDIBLE, y no estarlo era un fallo serio. El feed
+    devuelve noticias de cualquier epoca, asi que al buscar el Valencia -
+    Barcelona del 6 de septiembre de 2026 llegaban titulares de otras
+    temporadas y de otros partidos:
+
+        "Ortiz Arias, el árbitro del FC Barcelona - Athletic Club"
+        "Cuadra Fernández, árbitro designado para el Barça-Valencia"
+        "¿Quién es Alberto Undiano Mallenco, árbitro de la final de la Copa
+         del Rey entre Barcelona - Valencia?"
+
+    El ultimo es el peor: nombra a los DOS equipos del partido buscado, asi que
+    pasaba incluso el anclaje fuerte. Ningun analisis del texto puede
+    distinguirlo, porque el texto es correcto; lo que esta mal es la fecha.
+
+    Se acota por tanto por los dos lados: la consulta lleva after:/before:
+    alrededor del partido, y ademas se descarta por pubDate todo lo que caiga
+    fuera de la ventana, que es la garantia de verdad —el operador es una
+    optimizacion, el filtro es el que no se puede burlar.
+    """
+    desde, hasta = _ventana(fecha)
+    rango = f" after:{desde.isoformat()} before:{hasta.isoformat()}"
+
     articulos = []
     vistos = set()
     for consulta in _consultas(home, away, liga):
-        url = (f"https://news.google.com/rss/search?q={quote_plus(consulta)}"
+        url = (f"https://news.google.com/rss/search?q={quote_plus(consulta + rango)}"
                f"&hl=es&gl=ES&ceid=ES:es")
         try:
             r = requests.get(url, headers={**_CABECERAS,
@@ -370,6 +431,11 @@ def _fuente_google_news(home, away, liga, timeout=10) -> List[Dict]:
             enlace = item.findtext("link", "") or ""
             if enlace and enlace in vistos:
                 continue
+
+            publicado = _publicado(item)
+            if publicado is not None and not (desde <= publicado <= hasta):
+                continue
+
             vistos.add(enlace)
             articulos.append((item.findtext("title", "") or "",
                               item.findtext("description", "") or "",
@@ -384,7 +450,8 @@ def _fuente_google_news(home, away, liga, timeout=10) -> List[Dict]:
     def _recoger(solo_fuerte):
         salida = []
         for titulo, desc, enlace in articulos:
-            nombre = _extraer_designacion(f"{titulo}. {desc}", home, away, liga,
+            nombre = _extraer_designacion(f"{_sin_medio(titulo)}. {desc}",
+                                          home, away, liga,
                                           solo_fuerte=solo_fuerte)
             if nombre:
                 medio = titulo.rsplit(" - ", 1)[-1] if " - " in titulo else "Google News"
@@ -679,7 +746,7 @@ def investigar_arbitro(home: str, away: str, fecha: datetime = None,
     for nombre_fuente, funcion in (
         ("football-data.org", lambda: _fuente_football_data(home, away, liga)),
         ("SofaScore", lambda: _fuente_sofascore(home, away)),
-        ("Prensa (RSS)", lambda: _fuente_google_news(home, away, liga)),
+        ("Prensa (RSS)", lambda: _fuente_google_news(home, away, liga, fecha)),
         ("Buscador web", lambda: _fuente_duckduckgo(home, away, liga)),
         ("Claude web_search", lambda: _fuente_claude(home, away, liga)),
     ):

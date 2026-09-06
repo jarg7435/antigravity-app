@@ -332,6 +332,64 @@ comprobar("La zona de referencia de LaLiga es la peninsular",
 
 
 # =============================================================================
+# 7. Prensa: la fecha manda
+# =============================================================================
+print("\n--- 7. Prensa: acotar por fecha y quitar el medio ---")
+
+import xml.etree.ElementTree as _ET
+from datetime import date as _date
+
+# Titulares REALES devueltos por el RSS de Google News al buscar el
+# Valencia - Barcelona del 06/09/2026. Sin acotar por fecha, el feed mezcla
+# noticias de cualquier epoca y de otros partidos.
+TITULAR_BUENO = ("Díaz de Mera, árbitro del Valencia - Barcelona, "
+                 "y Miguel Sesma del Espanyol - Sevilla - IUSPORT")
+TITULAR_MEDIO = "Estos son el árbitro y el VAR del Barça - Valencia - El Periódico"
+TITULAR_COPA = ("¿Quién es Alberto Undiano Mallenco, árbitro de la final de la "
+                "Copa del Rey entre Barcelona - Valencia? - Goal.com")
+
+comprobar("El titular de la designacion da el arbitro correcto",
+          iw._extraer_designacion(iw._sin_medio(TITULAR_BUENO),
+                                  "Valencia", "FC Barcelona", "La Liga"),
+          "Díaz de Mera")
+
+# Google News anade " - Medio" al final de cada titular, y de ahi salia
+# "El Periodico" como nombre de arbitro.
+comprobar("El nombre del medio ya no se toma por un arbitro",
+          iw._extraer_designacion(iw._sin_medio(TITULAR_MEDIO),
+                                  "Valencia", "FC Barcelona", "La Liga"),
+          None)
+comprobar("...y el corte es por la ULTIMA raya, no por la de los equipos",
+          iw._sin_medio("Estos son el árbitro y el VAR del Barça - Valencia - El Periódico"),
+          "Estos son el árbitro y el VAR del Barça - Valencia")
+
+# Este es el caso que ningun analisis del texto puede resolver: nombra a los dos
+# equipos del partido buscado y da un arbitro, pero es de otra temporada. Solo
+# la fecha lo descarta.
+comprobar("Un titular de otra temporada SI pasa el filtro de texto...",
+          iw._extraer_designacion(iw._sin_medio(TITULAR_COPA),
+                                  "Valencia", "FC Barcelona", "La Liga"),
+          "Alberto Undiano Mallenco")
+
+_desde, _hasta = iw._ventana(_date(2026, 9, 6))
+comprobar("...pero su fecha queda fuera de la ventana del partido",
+          _desde <= _date(2025, 4, 20) <= _hasta, False)
+comprobar("La vispera del partido si entra",
+          _desde <= _date(2026, 9, 5) <= _hasta, True)
+comprobar("El dia siguiente tambien, por las cronicas",
+          _desde <= _date(2026, 9, 7) <= _hasta, True)
+comprobar("Dos semanas antes, no",
+          _desde <= _date(2026, 8, 23) <= _hasta, False)
+
+_item = _ET.fromstring(
+    "<item><pubDate>Sat, 05 Sep 2026 15:38:34 GMT</pubDate></item>")
+comprobar("Se lee la fecha de publicacion del feed",
+          iw._publicado(_item), _date(2026, 9, 5))
+comprobar("Un item sin fecha no revienta",
+          iw._publicado(_ET.fromstring("<item/>")), None)
+
+
+# =============================================================================
 print("\n" + "=" * 62)
 if _fallos:
     print(f"FALLOS: {len(_fallos)}")
