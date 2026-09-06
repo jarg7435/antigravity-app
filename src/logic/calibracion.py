@@ -221,6 +221,17 @@ class CalibradorGoles:
         que aplica el propio motor, en lugar de tirarlas: son el historial que
         arranca la calibración.
         """
+        # Los estudios guardados por versiones anteriores usan otro vocabulario
+        # (total_goals_xg, predicted_goals_home como rango...). Se traducen con
+        # el mismo conversor que usa la carga de la base: sin esto, el historial
+        # antiguo no aportaba ni una muestra y la calibracion no arrancaba nunca
+        # por mucho que la base estuviera llena.
+        try:
+            from src.data.db_manager import _traducir_prediccion_antigua
+            prediccion = _traducir_prediccion_antigua(prediccion)
+        except Exception:
+            pass
+
         h = prediccion.get("lambda_home")
         a = prediccion.get("lambda_away")
         if isinstance(h, (int, float)) and isinstance(a, (int, float)) and h > 0 and a > 0:

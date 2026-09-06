@@ -1459,6 +1459,86 @@ with st.sidebar:
         st.markdown('<p style="color:#888;font-size:0.7rem;">Las APIs proporcionan datos de árbitros, alineaciones, clasificación y H2H reales.</p>', unsafe_allow_html=True)
 
     # =====================================================================
+    # 🔄 SINCRONIZACIÓN AUTOMÁTICA DE RESULTADOS
+    # =====================================================================
+
+    def _pintar_sincronizacion(informe):
+        """Muestra lo que ha hecho una pasada de sincronización."""
+        if informe.encontrados:
+            st.success(f"✅ {informe.guardados} resultado(s) volcado(s)")
+            for _r in informe.encontrados:
+                st.markdown(
+                    f"- **{_r.home_team} {_r.home_score}-{_r.away_score} {_r.away_team}** "
+                    f"<span style='color:#94a3b8;font-size:0.8rem;'>({_r.fuente})</span>",
+                    unsafe_allow_html=True)
+            st.caption(
+                "Córners, tarjetas y remates no vienen en estas fuentes: quedan "
+                "sin medir, no a cero, para que no cuenten como fallo. Puedes "
+                "completarlos a mano en el estudio si los necesitas.")
+        if informe.calibracion:
+            st.info(f"🎯 {informe.calibracion}")
+        if informe.no_encontrados:
+            st.caption("Sin marcador publicado todavía: "
+                       + ", ".join(informe.no_encontrados[:5])
+                       + ("…" if len(informe.no_encontrados) > 5 else ""))
+        if informe.sin_jugar:
+            st.caption(f"{informe.sin_jugar} estudio(s) de partidos aún por jugar.")
+        for _e in informe.errores:
+            st.warning(_e)
+        if not informe.encontrados and not informe.errores:
+            st.caption(informe.resumen())
+
+    with st.expander("🔄 Resultados automáticos", expanded=False):
+        st.caption(
+            "Busca el marcador final de los estudios pendientes en "
+            "football-data.org y SofaScore, lo vuelca y recalibra el modelo. "
+            "Evita tener que teclear los resultados uno a uno.")
+
+        try:
+            _pend = db_manager.get_pendientes_para_resultado(limit=100)
+            from src.data.resultados_auto import ya_termino, sincronizar
+            _jugados = [e for e in _pend if ya_termino(e.get("date"))]
+            if _jugados:
+                st.markdown(f"**{len(_jugados)}** estudio(s) pendientes de partidos "
+                            f"ya jugados.")
+            elif _pend:
+                st.caption(f"{len(_pend)} estudio(s) pendientes, ninguno jugado aún.")
+            else:
+                st.caption("No hay estudios pendientes de resultado.")
+
+            # Comprobacion al arrancar. Va detras de una casilla y de una
+            # bandera de sesion a proposito: Streamlit reejecuta el script
+            # entero con cada clic, y sin la bandera esto saldria a la red en
+            # cada interaccion, gastando la cuota de las APIs a un ritmo
+            # absurdo. Asi se hace una sola vez por sesion.
+            _auto = st.checkbox(
+                "Comprobar al abrir la aplicación", value=False,
+                key="sync_auto",
+                help="Una sola comprobación por sesión, al abrir la app.")
+
+            _pulsado = st.button("🔄 Sincronizar Resultados Automáticos",
+                                 key="sync_ahora", width="stretch",
+                                 type="primary" if _jugados else "secondary")
+
+            _toca_auto = (_auto and _jugados
+                          and not st.session_state.get("sync_hecho_sesion"))
+
+            if _pulsado or _toca_auto:
+                st.session_state["sync_hecho_sesion"] = True
+                with st.spinner("Buscando marcadores finales..."):
+                    _inf = sincronizar(db_manager)
+                _pintar_sincronizacion(_inf)
+                # El predictor cachea los factores de calibracion; si la
+                # sincronizacion los ha movido, hay que decirselo.
+                try:
+                    if _inf.encontrados and predictor.calibrador:
+                        predictor.calibrador.refrescar()
+                except Exception:
+                    pass
+        except Exception as e:
+            st.warning(f"No se pudo sincronizar: {str(e)[:120]}")
+
+    # =====================================================================
     # 🎯 CALIBRACIÓN DEL MODELO DE GOLES
     # =====================================================================
     with st.expander("🎯 Calibración de goles", expanded=False):

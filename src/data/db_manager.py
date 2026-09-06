@@ -37,12 +37,99 @@ def _cargar_match(raw, origen: str = "") -> Optional[Match]:
         return None
 
 
+# Nombres que usaba PredictionResult en versiones anteriores. Los estudios
+# guardados entonces siguen en la base y con el vocabulario nuevo no cargan:
+# fallan por `total_goals_expected`, que antes se llamaba `total_goals_xg`.
+#
+# Importa rescatarlos porque son el historial del que aprende el modelo. Sin
+# esta traduccion, cada estudio antiguo se descartaba con un aviso y el bucle de
+# calibracion se quedaba sin muestras aunque la base estuviera llena.
+_CAMPOS_ANTIGUOS = {
+    "total_goals_xg": "total_goals_expected",
+    "confidence_level": "confidence_score",
+    "predicted_goals_home": "lambda_home",
+    "predicted_goals_away": "lambda_away",
+}
+
+# Pares que antes iban separados por equipo y ahora viajan en una sola cadena
+# con el formato que pinta la interfaz.
+_PARES_ANTIGUOS = {
+    "predicted_corners": ("predicted_corners_home", "predicted_corners_away"),
+    "predicted_cards": ("predicted_cards_home", "predicted_cards_away"),
+    "predicted_shots": ("predicted_shots_home", "predicted_shots_away"),
+}
+
+
+# La confianza era una etiqueta, no un numero. Se traduce al centro del tramo
+# que representaba cada palabra.
+_CONFIANZA_ANTIGUA = {
+    "high": 0.80, "alta": 0.80, "alto": 0.80,
+    "medium": 0.55, "media": 0.55, "medio": 0.55,
+    "low": 0.30, "baja": 0.30, "bajo": 0.30,
+}
+
+
+def _a_numero(valor):
+    """
+    Numero a partir de lo que guardaba el esquema antiguo, o None.
+
+    Hay que contemplar dos formas ademas del numero suelto: los goles por
+    equipo se guardaban como RANGO ([0.0, 2.0]), del que se toma el centro, y
+    la confianza como etiqueta ("Medium").
+    """
+    if isinstance(valor, bool):
+        return None
+    if isinstance(valor, (int, float)):
+        return float(valor)
+    if isinstance(valor, (list, tuple)) and valor:
+        numeros = [float(v) for v in valor if isinstance(v, (int, float))]
+        if numeros:
+            return sum(numeros) / len(numeros)      # centro del rango
+        return None
+    if isinstance(valor, str):
+        etiqueta = _CONFIANZA_ANTIGUA.get(valor.strip().lower())
+        if etiqueta is not None:
+            return etiqueta
+        try:
+            return float(valor.replace(",", "."))
+        except ValueError:
+            return None
+    return None
+
+
+def _traducir_prediccion_antigua(datos: dict) -> dict:
+    """Reescribe una prediccion del esquema viejo al actual, sin perder nada."""
+    salida = dict(datos)
+    for viejo, nuevo in _CAMPOS_ANTIGUOS.items():
+        if viejo in salida and nuevo not in salida:
+            convertido = _a_numero(salida[viejo])
+            if convertido is not None:
+                salida[nuevo] = convertido
+    for nuevo, (casa, fuera) in _PARES_ANTIGUOS.items():
+        if nuevo not in salida and (casa in salida or fuera in salida):
+            salida[nuevo] = f"🏠 {salida.get(casa, '?')} | ✈️ {salida.get(fuera, '?')}"
+    # Los goles esperados por lado bastan para reconstruir el total, que es el
+    # campo sin el cual la prediccion entera no carga.
+    if "total_goals_expected" not in salida:
+        gh, ga = salida.get("lambda_home"), salida.get("lambda_away")
+        if isinstance(gh, (int, float)) and isinstance(ga, (int, float)):
+            salida["total_goals_expected"] = gh + ga
+    return salida
+
+
 def _cargar_prediction(raw, origen: str = "") -> Optional[PredictionResult]:
     """Equivalente a _cargar_match para las predicciones."""
     try:
         if isinstance(raw, dict):
             return PredictionResult.model_validate(raw)
         return PredictionResult.model_validate_json(raw)
+    except Exception:
+        pass
+
+    # Segundo intento con el vocabulario antiguo traducido.
+    try:
+        datos = raw if isinstance(raw, dict) else json.loads(raw)
+        return PredictionResult.model_validate(_traducir_prediccion_antigua(datos))
     except Exception as e:
         print(f"[DB] ⚠️ Prediccion ilegible{origen}: {type(e).__name__}")
         return None
@@ -550,6 +637,57 @@ class DataManager:
                 print(f"[DB] Error get_all_studies: {e}")
 
         return studies
+    def get_pendientes_para_resultado(self, limit: int = 100) -> List[dict]:
+        """
+        Estudios con predicción guardada y SIN resultado, con su fecha completa.
+
+        Se separa de `get_all_studies` porque aquella recorta la fecha a diez
+        caracteres para pintarla, y ahí se pierde la hora del saque inicial, que
+        es justo lo que hace falta para saber si el partido ya ha terminado. Un
+        partido de hoy a las 21:00 no está jugado a las 18:00.
+        """
+        pendientes = []
+        try:
+            if self.use_supabase:
+                res_ids = {r["match_id"] for r in (self._sb_get("resultados", "select=match_id") or [])}
+                preds = self._sb_get(
+                    "predictions", f"select=match_id&order=created_at.desc&limit={limit}") or []
+                matches = {m.get("id"): m for m in (self._sb_get("matches", "select=id,data_json") or [])}
+                for pr in preds:
+                    mid = pr.get("match_id")
+                    if not mid or mid in res_ids:
+                        continue
+                    fila = {"match_id": mid, "home_team": "?", "away_team": "?",
+                            "date": "", "competition": ""}
+                    try:
+                        md = json.loads((matches.get(mid) or {}).get("data_json", "{}"))
+                        ht, at = md.get("home_team", {}), md.get("away_team", {})
+                        fila.update({
+                            "home_team": ht.get("name", "?") if isinstance(ht, dict) else str(ht),
+                            "away_team": at.get("name", "?") if isinstance(at, dict) else str(at),
+                            "date": str(md.get("date", "")),
+                            "competition": md.get("competition", ""),
+                        })
+                    except Exception:
+                        pass
+                    pendientes.append(fila)
+            else:
+                conn = sqlite3.connect(self.db_path)
+                filas = conn.execute("""
+                    SELECT p.match_id, m.home_team, m.away_team, m.date, m.competition
+                    FROM predictions p
+                    LEFT JOIN matches m ON p.match_id = m.id
+                    WHERE p.match_id NOT IN (SELECT match_id FROM resultados)
+                    ORDER BY m.date DESC LIMIT ?
+                """, (limit,)).fetchall()
+                conn.close()
+                pendientes = [{"match_id": r[0], "home_team": r[1] or "?",
+                               "away_team": r[2] or "?", "date": r[3] or "",
+                               "competition": r[4] or ""} for r in filas]
+        except Exception as e:
+            logger.error(f"get_pendientes_para_resultado: {e}")
+        return pendientes
+
     def delete_study(self, match_id: str) -> bool:
         """
         Elimina un estudio (predicción + partido) de la BD.
@@ -684,9 +822,15 @@ class DataManager:
                 fecha = (res.get("created_at") or "")[:10]
 
                 real_winner = res.get("winner","")
-                real_corners = int(res.get("corners") or 0)
-                real_cards = int(res.get("cards") or 0)
-                real_shots = int(res.get("shots") or 0)
+                # Se conserva el None. La sincronizacion automatica de
+                # resultados trae los goles pero no los corners ni las
+                # tarjetas, y esos campos quedan a NULL. Convertirlos en 0
+                # aqui, como se hacia, los daba por medidos y en cero: el
+                # semaforo pintaba un fallo en cada mercado que nadie habia
+                # llegado a medir.
+                real_corners = res.get("corners")
+                real_cards = res.get("cards")
+                real_shots = res.get("shots")
 
                 mercados = {}
 
@@ -717,6 +861,9 @@ class DataManager:
                     ("Tarjetas", "predicted_cards",   real_cards),
                     ("Remates",  "predicted_shots",   real_shots),
                 ]:
+                    if real_val is None:
+                        continue          # sin medir: ni acierto ni fallo
+                    real_val = int(real_val)
                     lo, hi = parse_range(pred_json.get(pred_key,""))
                     if lo is not None:
                         hit = lo <= real_val <= hi

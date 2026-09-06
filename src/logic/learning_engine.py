@@ -149,6 +149,54 @@ class LearningEngine:
 
         return "\n".join(report)
 
+    def registrar_1x2_automatico(self, resultado, competition: str = "") -> dict:
+        """
+        Aprendizaje de un resultado traido por la sincronizacion automatica.
+
+        Registra SOLO el 1X2, y es a proposito: las fuentes que dan marcadores
+        de partidos pasados —football-data.org y SofaScore— dan goles, no
+        corners ni tarjetas ni remates. Llamar aqui a `process_result`, que
+        analiza los cuatro mercados, obligaria a inventarse esas cifras, y un
+        cero inventado no se distingue de un cero medido: cada partido
+        sincronizado apuntaria un fallo en tres mercados que nadie comprobo, y
+        la precision historica se hundiria sola.
+
+        Lo que si se puede comprobar con un marcador se comprueba: el ganador y,
+        a traves de la calibracion, los goles.
+
+        Args:
+            resultado: ResultadoAuto de src.data.resultados_auto.
+            competition: nombre de la competicion, para el registro.
+
+        Returns:
+            El analisis del 1X2, o un dict vacio si no habia prediccion guardada.
+        """
+        prediccion = self.db.get_prediction(resultado.match_id)
+        if not prediccion:
+            return {}
+
+        class _Marcador:
+            """Lo minimo que mira _analyze_1x2: ganador y goles."""
+            def __init__(self, r):
+                self.match_id = r.match_id
+                self.home_score = r.home_score
+                self.away_score = r.away_score
+                self.actual_winner = r.winner
+
+        analisis = self._analyze_1x2(prediccion, _Marcador(resultado),
+                                     resultado.home_team, resultado.away_team)
+
+        self.db.save_aprendizaje([{
+            "match_id": resultado.match_id, "mercado": "1X2",
+            "predicho": analisis["predicho"], "real": resultado.winner,
+            "error_magnitud": analisis["error_magnitud"],
+            "acierto": analisis["acierto"], "ajuste_aplicado": analisis["ajuste"],
+            "home_team": resultado.home_team, "away_team": resultado.away_team,
+            "competition": competition,
+        }])
+        self._apply_team_adjustments(analisis, resultado.home_team, resultado.away_team)
+        return analisis
+
     def _recalibrar_goles(self) -> str:
         """
         Vuelve a medir el error de goles del modelo y ajusta su escala.
