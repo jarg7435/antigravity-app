@@ -132,7 +132,7 @@ if os.path.exists(css_path):
     load_css(css_path)
 
 # Initialize Services
-CURRENT_VERSION = "6.70.2"
+CURRENT_VERSION = "6.73.0"
 
 @st.cache_resource
 def get_services(version: str = CURRENT_VERSION):
@@ -148,8 +148,43 @@ def get_services(version: str = CURRENT_VERSION):
 
     return data_provider, db_manager, bpa_engine, predictor, validator, bankroll_manager, report_engine
 
+
+# Lo que la interfaz da por hecho que saben hacer los servicios. Se comprueba en
+# cada arranque, y no es paranoia: es el fallo que se dio de verdad.
+#
+# st.cache_resource guarda el OBJETO, no la clase. Cuando se anaden metodos y la
+# clave de cache no cambia, Streamlit sigue devolviendo la instancia construida
+# con la clase vieja, que no los tiene, y la interfaz nueva se rompe contra un
+# servicio antiguo: "'DataManager' object has no attribute
+# 'get_pendientes_para_resultado'", con el metodo escrito y desplegado.
+#
+# Subir CURRENT_VERSION lo arregla, pero hay que acordarse cada vez, y olvidarlo
+# no avisa hasta que un usuario pulsa el boton. Esta comprobacion lo detecta y
+# rehace la cache sola.
+_METODOS_DB = (
+    "get_pendientes_para_resultado",   # sincronizacion de resultados
+    "get_calibracion",                 # bucle de aprendizaje
+    "get_pares_prediccion_resultado",
+)
+_METODOS_PREDICTOR = ("calibrador",)
+
+
+def _servicios_al_dia(servicios) -> bool:
+    """¿El paquete cacheado sabe hacer lo que la interfaz le va a pedir?"""
+    try:
+        _, _db, _, _pred, _, _, _ = servicios
+    except (TypeError, ValueError):
+        return False
+    return (all(hasattr(_db, m) for m in _METODOS_DB)
+            and all(hasattr(_pred, m) for m in _METODOS_PREDICTOR))
+
+
 # --- SERVICE INITIALIZATION ---
-data_provider, db_manager, bpa_engine, predictor, validator, bankroll_manager, report_engine = get_services(CURRENT_VERSION)
+_servicios = get_services(CURRENT_VERSION)
+if not _servicios_al_dia(_servicios):
+    get_services.clear()
+    _servicios = get_services(CURRENT_VERSION)
+data_provider, db_manager, bpa_engine, predictor, validator, bankroll_manager, report_engine = _servicios
 
 # --- MAIN LAYOUT ---
 render_header()
