@@ -553,8 +553,13 @@ if home_team and away_team and home_team.name != away_team.name:
                     or st.session_state.get("hora_partido_auto") != _nueva_hora):
                 st.session_state["fecha_partido_auto"] = _nueva_fecha
                 st.session_state["hora_partido_auto"] = _nueva_hora
+                # Se guarda tambien la hora de la competicion: los carteles del
+                # CTA y la prensa van en peninsular, asi que teniendo las dos
+                # delante no hay que hacer la resta mentalmente.
+                _ref = _hallazgo.get("referencia")
                 st.session_state["origen_fecha_auto"] = (
-                    f"{_hallazgo['fuente']} ({_hallazgo['zona']})")
+                    f"{_hallazgo['fuente']} · {_hallazgo['zona']}"
+                    + (f" — son las {_ref}" if _ref else ""))
                 st.rerun()
         else:
             # Sin fecha encontrada no se toca lo que haya puesto el usuario.

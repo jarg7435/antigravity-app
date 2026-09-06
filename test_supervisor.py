@@ -294,28 +294,41 @@ plantillas.plantilla_actual = _original_actual
 # =============================================================================
 # 6. Calendario: la fecha del partido y su hora local
 # =============================================================================
-print("\n--- 6. Calendario: hora de la competicion, no del servidor ---")
+print("\n--- 6. Calendario: hora canaria, no la del servidor ---")
 
 from src.data import calendario as cal
 
-# El caso real: Valencia - Barcelona se jugaba a las 14:15 UTC, que son las
-# 16:15 en Espana. Convertirlo con la hora del proceso daria 14:15 en Streamlit
-# Cloud, que va en UTC, y el partido apareceria dos horas antes.
-comprobar("14:15 UTC en LaLiga son las 16:15 peninsulares",
+# El caso real: el Valencia - Barcelona empezaba a las 14:15 UTC. Son las 15:15
+# en Canarias, que es donde se usa la aplicacion y lo que marca el SofaScore del
+# usuario, y las 16:15 peninsulares, que es lo que pone el cartel del CTA.
+# Convertirlo con la hora del proceso daria 14:15 en Streamlit Cloud, que va en
+# UTC, y el partido apareceria una hora antes de lo que toca.
+comprobar("14:15 UTC son las 15:15 en Canarias",
           cal._a_local("2026-09-06T14:15:00Z", "La Liga (España)").strftime("%Y-%m-%d %H:%M"),
-          "2026-09-06 16:15")
-comprobar("La misma hora en enero son las 15:15 (sin horario de verano)",
-          cal._a_local("2026-01-06T14:15:00Z", "La Liga").strftime("%H:%M"), "15:15")
-comprobar("La Premier se anuncia en hora de Londres",
+          "2026-09-06 15:15")
+comprobar("...y las 16:15 peninsulares, que es la referencia del cartel",
+          cal._a_hora_competicion("2026-09-06T14:15:00Z", "La Liga").strftime("%H:%M"),
+          "16:15")
+comprobar("En enero, sin horario de verano, son las 14:15 canarias",
+          cal._a_local("2026-01-06T14:15:00Z", "La Liga").strftime("%H:%M"), "14:15")
+comprobar("La Premier: 14:00 UTC son las 15:00 canarias",
           cal._a_local("2026-09-06T14:00:00Z", "Premier League").strftime("%H:%M"), "15:00")
-comprobar("La Serie A, en hora de Italia",
-          cal._a_local("2026-09-06T18:45:00Z", "Serie A").strftime("%H:%M"), "20:45")
+comprobar("...y tambien las 15:00 en Londres, misma hora que Canarias",
+          cal._a_hora_competicion("2026-09-06T14:00:00Z", "Premier League").strftime("%H:%M"),
+          "15:00")
+comprobar("La Serie A: 18:45 UTC son las 19:45 canarias",
+          cal._a_local("2026-09-06T18:45:00Z", "Serie A").strftime("%H:%M"), "19:45")
+comprobar("...y las 20:45 en Italia",
+          cal._a_hora_competicion("2026-09-06T18:45:00Z", "Serie A").strftime("%H:%M"),
+          "20:45")
 comprobar("Una marca de tiempo ilegible no revienta, devuelve None",
           cal._a_local("no-es-una-fecha", "La Liga"), None)
 comprobar("Sin equipos no se inventa fecha",
           cal.fecha_del_partido("", "", "La Liga"), None)
-comprobar("La etiqueta de zona se nombra para poder mostrarla",
-          cal._zona("La Liga (España)")[1], "hora peninsular")
+comprobar("La zona que se muestra es siempre la canaria",
+          cal._zona("La Liga (España)")[1], "hora canaria")
+comprobar("La zona de referencia de LaLiga es la peninsular",
+          cal._zona_competicion("La Liga (España)")[1], "peninsular")
 
 
 # =============================================================================
