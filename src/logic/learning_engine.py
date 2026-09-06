@@ -34,6 +34,14 @@ class LearningEngine:
     def __init__(self, bpa_engine: BPAEngine, db_manager: DataManager = None):
         self.bpa = bpa_engine
         self.db = db_manager or DataManager()
+        # Calibrador global de goles. Va aparte de los factores de equipo
+        # porque corrige otra cosa: aquellos dicen "el Betis en casa marca mas
+        # de lo que digo", este dice "yo estimo largo de goles en general".
+        try:
+            from src.logic.calibracion import CalibradorGoles
+            self.calibrador = CalibradorGoles(self.db)
+        except Exception:
+            self.calibrador = None
 
     # =========================================================================
     # PROCESO PRINCIPAL
@@ -116,6 +124,15 @@ class LearningEngine:
         if bias_report:
             report.append(f"\n### 🧠 Patrón Detectado y Corregido\n{bias_report}")
 
+        # 5b. Recalibrar la escala de goles del modelo con TODO el historial.
+        # Es el bucle que faltaba: las tablas `predictions` y `resultados`
+        # estaban las dos ahi, pero nadie las cruzaba, asi que un sesgo global
+        # de goles no se veia por ningun lado. El acierto por mercado puede
+        # seguir siendo bueno mientras el modelo estima medio gol de mas.
+        cal_report = self._recalibrar_goles()
+        if cal_report:
+            report.append(f"\n### 🎯 Calibración de Goles\n{cal_report}")
+
         # 6. Resumen final
         hits = sum(1 for r in market_results.values() if r.get("acierto"))
         total_mkts = len(market_results)
@@ -131,6 +148,29 @@ class LearningEngine:
             )
 
         return "\n".join(report)
+
+    def _recalibrar_goles(self) -> str:
+        """
+        Vuelve a medir el error de goles del modelo y ajusta su escala.
+
+        Se ejecuta despues de cada resultado registrado, que es cuando hay un
+        dato nuevo que puede cambiar la medida. El calibrador se planta solo si
+        no hay muestras suficientes, asi que llamarlo siempre es seguro.
+        """
+        if self.calibrador is None:
+            return ""
+        try:
+            informe = self.calibrador.calibrar()
+        except Exception as e:
+            return f"No se pudo recalibrar: {type(e).__name__}: {str(e)[:80]}"
+
+        if not informe.aplicada:
+            return f"Todavía sin calibrar — {informe.motivo}."
+
+        lineas = [informe.resumen()]
+        for aviso in informe.avisos:
+            lineas.append(f"\n⚠️ {aviso}")
+        return "\n".join(lineas)
 
     # =========================================================================
     # ANÁLISIS POR MERCADO

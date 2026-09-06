@@ -88,8 +88,27 @@ class PoissonEngine:
         missing_key_players_home: int = 0,
         missing_key_players_away: int = 0,
         league_name: Optional[str] = None,
+        coef_ataque_home: float = 1.0,
+        coef_ataque_away: float = 1.0,
+        coef_encaje_home: float = 1.0,
+        coef_encaje_away: float = 1.0,
+        factor_calibracion_home: float = 1.0,
+        factor_calibracion_away: float = 1.0,
         **kwargs
     ):
+        """
+        Goles esperados de cada equipo.
+
+        Los coeficientes de ausencias llegan de `src.logic.ausencias` y separan
+        dos efectos que el contador `missing_key_players_*` metia en el mismo
+        saco: que falte un delantero baja TU lambda, que falte tu portero sube
+        el lambda del RIVAL. De ahi que el lambda local se corrija con el ataque
+        del local y con el encaje del visitante.
+
+        Los factores de calibracion vienen de `src.logic.calibracion`, que mide
+        contra los resultados reales si el modelo se queda corto o largo de
+        goles y corrige el sesgo de forma incremental.
+        """
         if league_avg_goals <= 0.5:
             league_avg_goals = 1.35
 
@@ -125,8 +144,20 @@ class PoissonEngine:
         home_lambda *= (1.0 + bpa_impact)
         away_lambda *= (1.0 - bpa_impact * 0.7)
 
+        # Contador antiguo de bajas. Se conserva porque hay llamadas que aun lo
+        # usan, pero el camino bueno son los coeficientes de abajo: este trata
+        # igual al portero titular que al tercer central.
         home_lambda *= (0.92 ** missing_key_players_home)
         away_lambda *= (0.92 ** missing_key_players_away)
+
+        # Ausencias criticas: lo que marca el local depende de SU ataque y de lo
+        # vulnerable que este el visitante, y al reves.
+        home_lambda *= coef_ataque_home * coef_encaje_away
+        away_lambda *= coef_ataque_away * coef_encaje_home
+
+        # Correccion aprendida de los partidos ya jugados.
+        home_lambda *= factor_calibracion_home
+        away_lambda *= factor_calibracion_away
 
         if freshness_confidence < 0.5:
             home_min, home_max = 0.6, 2.5

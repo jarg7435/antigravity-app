@@ -11,11 +11,14 @@ Para activar Supabase, añade en Streamlit Cloud Secrets:
 
 import os
 import json
+import logging
 import sqlite3
 from datetime import datetime
 from typing import List, Optional, Dict
 import requests
 from src.models.base import Match, PredictionResult
+
+logger = logging.getLogger(__name__)
 
 
 def _cargar_match(raw, origen: str = "") -> Optional[Match]:
@@ -114,6 +117,12 @@ class DataManager:
             match_id TEXT, mercado TEXT, predicho TEXT, real TEXT,
             error_magnitud REAL, acierto INTEGER, ajuste_aplicado REAL,
             home_team TEXT, away_team TEXT, competition TEXT, created_at TEXT)''')
+        # Parametros globales que el bucle de aprendizaje ajusta con los
+        # resultados reales. Van aparte de factores_equipo porque no son de un
+        # equipo: corrigen el sesgo de goles del modelo entero.
+        c.execute('''CREATE TABLE IF NOT EXISTS calibracion (
+            parametro TEXT PRIMARY KEY, valor REAL, muestras INTEGER,
+            error_medio REAL, sesgo REAL, updated_at TEXT)''')
         c.execute('''CREATE TABLE IF NOT EXISTS factores_equipo (
             equipo TEXT PRIMARY KEY, sesgo_local REAL DEFAULT 0.0,
             sesgo_visitante REAL DEFAULT 0.0, sesgo_empate REAL DEFAULT 0.0,
@@ -279,6 +288,84 @@ class DataManager:
             d["precision"] = round(d["aciertos"] / d["total"] * 100, 1) if d["total"] > 0 else 0
             d["error_medio"] = round(d["error_total"] / d["total"], 2) if d["total"] > 0 else 0
         return mercados
+
+    # =========================================================================
+    # API PÚBLICA — Calibración global del modelo
+    # =========================================================================
+
+    def get_calibracion(self) -> Dict[str, dict]:
+        """Parámetros de calibración vigentes, indexados por nombre."""
+        try:
+            if self.use_supabase:
+                filas = self._sb_get("calibracion", "select=*") or []
+            else:
+                conn = sqlite3.connect(self.db_path)
+                cur = conn.execute(
+                    "SELECT parametro, valor, muestras, error_medio, sesgo, updated_at "
+                    "FROM calibracion")
+                filas = [{"parametro": r[0], "valor": r[1], "muestras": r[2],
+                          "error_medio": r[3], "sesgo": r[4], "updated_at": r[5]}
+                         for r in cur.fetchall()]
+                conn.close()
+            return {f["parametro"]: f for f in filas}
+        except Exception as e:
+            logger.error(f"get_calibracion: {e}")
+            return {}
+
+    def save_calibracion(self, parametro: str, valor: float, muestras: int,
+                         error_medio: float = 0.0, sesgo: float = 0.0):
+        """Guarda un parámetro de calibración, sustituyendo el anterior."""
+        now = datetime.now().isoformat()
+        try:
+            if self.use_supabase:
+                self._sb_upsert("calibracion", {
+                    "parametro": parametro, "valor": valor, "muestras": muestras,
+                    "error_medio": error_medio, "sesgo": sesgo, "updated_at": now})
+            else:
+                conn = sqlite3.connect(self.db_path)
+                conn.execute(
+                    "INSERT OR REPLACE INTO calibracion "
+                    "(parametro, valor, muestras, error_medio, sesgo, updated_at) "
+                    "VALUES (?,?,?,?,?,?)",
+                    (parametro, float(valor), int(muestras),
+                     float(error_medio), float(sesgo), now))
+                conn.commit(); conn.close()
+        except Exception as e:
+            logger.error(f"save_calibracion({parametro}): {e}")
+
+    def get_pares_prediccion_resultado(self, limit: int = 500) -> List[dict]:
+        """
+        Predicciones que ya tienen resultado, para medir el error del modelo.
+
+        Es el cruce que necesitaba el bucle de aprendizaje: la tabla
+        `predictions` guarda lo que se esperaba y `resultados` lo que paso, pero
+        nadie las juntaba. Devuelve un diccionario por partido con los goles
+        estimados y los reales.
+        """
+        pares = []
+        try:
+            if self.use_supabase:
+                preds = {p["match_id"]: p for p in (self._sb_get("predictions") or [])}
+                for res in (self._sb_get("resultados") or []):
+                    p = preds.get(res.get("match_id"))
+                    if p:
+                        pares.append({"prediction_json": p.get("prediction_json"),
+                                      "home_score": res.get("home_score"),
+                                      "away_score": res.get("away_score"),
+                                      "created_at": res.get("created_at")})
+            else:
+                conn = sqlite3.connect(self.db_path)
+                cur = conn.execute(
+                    "SELECT p.prediction_json, r.home_score, r.away_score, r.created_at "
+                    "FROM predictions p JOIN resultados r ON p.match_id = r.match_id "
+                    "ORDER BY r.created_at DESC LIMIT ?", (limit,))
+                pares = [{"prediction_json": r[0], "home_score": r[1],
+                          "away_score": r[2], "created_at": r[3]}
+                         for r in cur.fetchall()]
+                conn.close()
+        except Exception as e:
+            logger.error(f"get_pares_prediccion_resultado: {e}")
+        return pares
 
     # =========================================================================
     # API PÚBLICA — Factores de Equipo

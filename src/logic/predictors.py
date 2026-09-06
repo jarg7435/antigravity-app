@@ -19,6 +19,8 @@ from src.logic.external_analyst import ExternalAnalyst
 from src.logic.poisson_engine import PoissonEngine
 from src.logic.ml_engine import MLEngine
 from src.logic.value_engine import ValueEngine
+from src.logic import ausencias as _ausencias
+from src.logic.calibracion import CalibradorGoles
 
 logging.basicConfig(
     level=logging.INFO,
@@ -76,6 +78,13 @@ class Predictor:
         self.poisson = PoissonEngine()
         self.ml = MLEngine()
         self.value_engine = ValueEngine()
+        # La calibracion se lee de la BD una vez y se cachea: es un parametro
+        # global que solo cambia cuando se procesa un resultado nuevo.
+        try:
+            self.calibrador = CalibradorGoles()
+        except Exception as e:
+            logger.error(f"No se pudo inicializar el calibrador: {e}")
+            self.calibrador = None
         logger.info("Predictor v4.0 inicializado con pesos dinámicos")
 
     def _calculate_dynamic_weights(self, freshness: str, lineup_quality: Dict) -> ModelWeights:
@@ -146,17 +155,43 @@ class Predictor:
             logger.error(f"Error en cálculo BPA: {e}")
             return 0.5, 0.5, {'error': str(e)}
 
-    def _safe_poisson_calculation(self, match: Match, bpa_h: float, bpa_a: float) -> Tuple:
+    def _safe_poisson_calculation(self, match: Match, bpa_h: float, bpa_a: float,
+                                  inf_local=None, inf_visitante=None,
+                                  lineup_freshness: str = 'confirmed') -> Tuple:
         """
         Calcula Poisson con manejo de errores y lambdas seguros.
+
+        Aqui entran las dos correcciones nuevas. Antes esta funcion llamaba a
+        estimate_lambdas sin pasarle ni la frescura de la alineacion ni las
+        bajas, de modo que sus parametros `missing_key_players_*` y
+        `lineup_freshness` se quedaban en sus valores por defecto y no hacian
+        nada: el once confirmado no movia un decimal del pronostico.
         """
+        neutro = _ausencias.InformeAusencias(equipo="")
+        inf_local = inf_local or neutro
+        inf_visitante = inf_visitante or neutro
+
+        factor_l, factor_v = 1.0, 1.0
+        if self.calibrador is not None:
+            try:
+                factor_l, factor_v = self.calibrador.factores()
+            except Exception as e:
+                logger.error(f"No se pudieron leer los factores de calibración: {e}")
+
         try:
             h_lambda, a_lambda = self.poisson.estimate_lambdas(
                 match.home_team, 
                 match.away_team, 
                 home_bpa=bpa_h, 
                 away_bpa=bpa_a,
-                league_name=match.competition  # Nuevo: pasar nombre de liga
+                league_name=match.competition,  # Nuevo: pasar nombre de liga
+                lineup_freshness=lineup_freshness,
+                coef_ataque_home=inf_local.coef_ataque,
+                coef_ataque_away=inf_visitante.coef_ataque,
+                coef_encaje_home=inf_local.coef_encaje,
+                coef_encaje_away=inf_visitante.coef_encaje,
+                factor_calibracion_home=factor_l,
+                factor_calibracion_away=factor_v,
             )
             
             # Validar lambdas
@@ -259,7 +294,9 @@ class Predictor:
         return final_home / total, final_draw / total, final_away / total
 
     def predict_match(self, match: Match, lineup_freshness: str = 'confirmed', 
-                     lineup_quality: Optional[Dict] = None) -> PredictionResult:
+                     lineup_quality: Optional[Dict] = None,
+                     once_local: Optional[List[str]] = None,
+                     once_visitante: Optional[List[str]] = None) -> PredictionResult:
         """
         Predicción completa con pesos dinámicos y manejo de errores robusto.
         
@@ -267,9 +304,28 @@ class Predictor:
             match: Objeto Match con datos del partido
             lineup_freshness: Calidad de alineación ('live', 'confirmed', 'predicted', 'fallback', 'stale')
             lineup_quality: Metadata adicional de calidad (integridad, etc)
+            once_local: nombres del once confirmado del equipo local, si lo hay
+            once_visitante: idem del visitante
+
+        Los dos onces son opcionales a proposito: sin ellos la prediccion sale
+        como siempre. Cuando llegan, se comparan con los titulares que el modelo
+        daba por hechos y las ausencias criticas corrigen el xG y bajan la
+        confianza. No pasarlos no penaliza: no saber quien juega no es lo mismo
+        que saber que falta alguien.
         """
         if lineup_quality is None:
             lineup_quality = {}
+
+        # 0. Ausencias criticas respecto al once confirmado
+        try:
+            inf_local, inf_visitante = _ausencias.evaluar_partido(
+                match.home_team, match.away_team, once_local, once_visitante)
+        except Exception as e:
+            logger.error(f"Error evaluando ausencias: {e}")
+            inf_local = _ausencias.InformeAusencias(equipo=match.home_team.name,
+                                                    comparable=False, motivo=str(e)[:80])
+            inf_visitante = _ausencias.InformeAusencias(equipo=match.away_team.name,
+                                                        comparable=False, motivo=str(e)[:80])
         
         logger.info(f"Iniciando predicción para {match.home_team.name} vs {match.away_team.name} "
                    f"(freshness: {lineup_freshness})")
@@ -290,8 +346,9 @@ class Predictor:
         # 3. BPA Analysis (con protección)
         bpa_h, bpa_a, bpa_metadata = self._safe_bpa_calculation(match, press_impact)
         
-        # 4. Poisson Statistics (con protección)
-        poisson_result, poisson_error = self._safe_poisson_calculation(match, bpa_h, bpa_a)
+        # 4. Poisson Statistics (con protección y ausencias aplicadas)
+        poisson_result, poisson_error = self._safe_poisson_calculation(
+            match, bpa_h, bpa_a, inf_local, inf_visitante, lineup_freshness)
         
         if poisson_error:
             # Fallback: usar solo BPA con distribución equiprobable ajustada
@@ -344,8 +401,16 @@ class Predictor:
             else:
                 ref_name = getattr(match.referee, "name", "No asignado")
         
-        # 10. Calcular confianza real
+        # 10. Calcular confianza real, rebajada por las ausencias criticas.
+        # Cuando el once real no es el previsto, bajar la confianza importa mas
+        # que afinar el xG: es lo que evita apostar a ciegas sobre un equipo que
+        # no es el que se modelo.
         confidence = self._calc_confidence(final_home, final_away, bpa_h, bpa_a, p_home, p_away)
+        penalizacion = round(
+            inf_local.penalizacion_confianza + inf_visitante.penalizacion_confianza, 4)
+        if penalizacion > 0:
+            confidence = round(max(0.05, confidence - penalizacion), 2)
+            logger.info(f"Confianza rebajada {penalizacion:.2f} por ausencias críticas")
         
         # 11. Construir resultado
         pred = PredictionResult(
@@ -372,7 +437,16 @@ class Predictor:
                 'poisson': weights.poisson,
                 'bpa': weights.bpa,
                 'ml': weights.ml
-            }
+            },
+            # Los lambdas por separado: el bucle de calibracion los necesita
+            # para saber si el modelo va largo en casa, fuera, o en los dos.
+            lambda_home=round(h_lambda, 3),
+            lambda_away=round(a_lambda, 3),
+            ausencias={
+                "local": inf_local.a_dict(),
+                "visitante": inf_visitante.a_dict(),
+            },
+            penalizacion_ausencias=penalizacion,
         )
 
         # 12. Value Betting Detection

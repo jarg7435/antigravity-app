@@ -196,6 +196,25 @@ class PredictionResult(BaseModel):
     external_analysis_summary: str = ""
     referee_name: str = "Autodetectado"
 
+    # Goles esperados de cada lado. Se guardan porque son lo que de verdad
+    # estimo el motor: `total_goals_expected` es su suma, y de una suma no se
+    # puede sacar si el modelo va largo en casa o fuera. El bucle de
+    # calibracion los necesita separados para corregir cada lado por su cuenta.
+    lambda_home: float = 0.0
+    lambda_away: float = 0.0
+
+    # Trazabilidad de como se calculo. predict_match ya los enviaba, pero al no
+    # estar declarados aqui el `extra="ignore"` del modelo los tiraba en
+    # silencio: la prediccion guardada no decia con que datos ni con que pesos
+    # se hizo, y sin eso no se puede auditar un fallo despues.
+    freshness_score: str = "confirmed"
+    model_weights_used: Dict[str, float] = {}
+
+    # Ausencias criticas detectadas al comparar el once previsto con el
+    # confirmado, y lo que le restaron a la confianza.
+    ausencias: Dict[str, Any] = {}
+    penalizacion_ausencias: float = 0.0
+
 class MatchOutcome(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="ignore")
     

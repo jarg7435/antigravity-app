@@ -1126,7 +1126,16 @@ if home_team and away_team and teams_valid:
             with st.spinner("Analizando..."):
                 val_h = validator.validate_lineup(home_team, c_home)
                 val_a = validator.validate_lineup(away_team, c_away)
-                pred = predictor.predict_match(selected_match)
+                # c_home y c_away son el once que el usuario acaba de confirmar.
+                # Hasta ahora solo se usaban para validar y pintar avisos: la
+                # prediccion se calculaba con la plantilla prevista y salia
+                # identica aunque se cayera el portero titular. Pasandolos aqui,
+                # las ausencias criticas corrigen el xG y bajan la confianza.
+                pred = predictor.predict_match(
+                    selected_match,
+                    once_local=c_home,
+                    once_visitante=c_away,
+                )
                 st.session_state.last_pred = pred
                 st.session_state.last_val = (val_h, val_a)
             # Indicador del estado del motor ML
@@ -1134,6 +1143,32 @@ if home_team and away_team and teams_valid:
                 st.caption("ℹ️ Motor ML en modo base (sin historial entrenado aún). La predicción se apoya en Poisson + BPA con mayor peso.")
 
         if st.session_state.get("last_pred"):
+            # Ausencias criticas: por que el pronostico se ha movido respecto al
+            # once previsto. Va antes que nada porque explica la confianza.
+            _pred_act = st.session_state.get("last_pred")
+            _aus = getattr(_pred_act, "ausencias", None) or {}
+            _penal = getattr(_pred_act, "penalizacion_ausencias", 0.0) or 0.0
+            _bloques = [b for b in (_aus.get("local"), _aus.get("visitante"))
+                        if b and b.get("ausentes")]
+            if _bloques:
+                _lineas = []
+                for _b in _bloques:
+                    _quienes = ", ".join(
+                        f"{a['nombre']} ({a['rol']})" for a in _b["ausentes"][:4])
+                    _lineas.append(
+                        f"**{_b['equipo']}** — faltan {_quienes}. "
+                        f"Ataque ×{_b['coef_ataque']:.2f}, encaje ×{_b['coef_encaje']:.2f}.")
+                st.warning(
+                    "⚠️ **Ausencias críticas respecto al once previsto**\n\n"
+                    + "\n\n".join(_lineas)
+                    + (f"\n\nLa confianza del pronóstico baja {_penal:.0%} por esto."
+                       if _penal > 0 else ""),
+                    icon="🩹")
+            elif any(b and not b.get("comparable") for b in
+                     (_aus.get("local"), _aus.get("visitante"))):
+                st.caption("ℹ️ Sin once confirmado con el que comparar: no se ha "
+                           "aplicado penalización por ausencias.")
+
             last_val = st.session_state.get("last_val")
             if not last_val:
                 last_val = ({"alerts": []}, {"alerts": []})
@@ -1422,6 +1457,53 @@ with st.sidebar:
             st.markdown('<p style="color:#888;font-size:0.7rem;">Fuentes de la cascada: sin datos todavía (se registran al primer uso).</p>', unsafe_allow_html=True)
 
         st.markdown('<p style="color:#888;font-size:0.7rem;">Las APIs proporcionan datos de árbitros, alineaciones, clasificación y H2H reales.</p>', unsafe_allow_html=True)
+
+    # =====================================================================
+    # 🎯 CALIBRACIÓN DEL MODELO DE GOLES
+    # =====================================================================
+    with st.expander("🎯 Calibración de goles", expanded=False):
+        st.caption(
+            "Compara los goles que el modelo estimó con los que se marcaron de "
+            "verdad y corrige su escala poco a poco. Se recalcula sola cada vez "
+            "que registras un resultado.")
+        try:
+            from src.logic.calibracion import CalibradorGoles, MUESTRAS_MINIMAS
+            _cal = CalibradorGoles(db_manager)
+            _est = _cal.estado()
+
+            if _est["activa"]:
+                st.markdown(
+                    f"**Local**: ×{_est['factor_local']:.3f}  \n"
+                    f"**Visitante**: ×{_est['factor_visitante']:.3f}")
+                st.caption(f"Sobre {_est['muestras']} partidos con resultado.")
+                for _lado, _sesgo in (("Local", _est.get("sesgo_local")),
+                                      ("Visitante", _est.get("sesgo_visitante"))):
+                    if isinstance(_sesgo, (int, float)) and abs(_sesgo) > 0.01:
+                        _dir = "largo" if _sesgo > 0 else "corto"
+                        st.caption(f"{_lado}: el modelo iba {_dir} "
+                                   f"{abs(_sesgo):.2f} goles por partido.")
+            else:
+                st.info(
+                    f"Sin calibrar todavía: hacen falta {MUESTRAS_MINIMAS} partidos "
+                    f"con resultado registrado y hay {_est['muestras']}.")
+
+            if st.button("🔄 Recalibrar ahora", key="recalibrar", width="stretch"):
+                with st.spinner("Midiendo el error de goles..."):
+                    _inf = _cal.calibrar()
+                if _inf.aplicada:
+                    st.success(_inf.resumen())
+                    for _av in _inf.avisos:
+                        st.warning(_av)
+                    # El predictor cachea los factores al arrancar; hay que
+                    # decirle que los relea o seguiria usando los de antes.
+                    try:
+                        predictor.calibrador.refrescar()
+                    except Exception:
+                        pass
+                else:
+                    st.info(f"No se ha calibrado: {_inf.motivo}.")
+        except Exception as e:
+            st.warning(f"No se pudo leer la calibración: {str(e)[:100]}")
 
     # =====================================================================
     # 📋 PANEL DE ESTUDIOS GUARDADOS
