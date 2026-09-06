@@ -648,6 +648,17 @@ if home_team and away_team and teams_valid:
             with c_ref1:
                 if is_fallback:
                     st.markdown('<p style="color: #ffaa00; font-size: 0.9rem;">⚠️ No se encontró el árbitro automáticamente.</p>', unsafe_allow_html=True)
+                    # Si la fuente de pago esta caida hay que decirlo aqui, no
+                    # solo en el panel lateral: sin esta linea parece que ninguna
+                    # fuente tiene la designacion, cuando lo que pasa es que la
+                    # busqueda se ha hecho con las secundarias.
+                    _deg_ref = (st.session_state.fetched_ref or {}).get("degradacion") or {}
+                    if _deg_ref.get("degradada"):
+                        st.markdown(
+                            f'<p style="color:#94a3b8; font-size:0.8rem;">🛟 Modo degradado: '
+                            f'{_deg_ref["motivo"]} Se ha buscado en SofaScore, football-data.org '
+                            f'y la prensa deportiva.</p>',
+                            unsafe_allow_html=True)
                     _league_ref_links = {
                         "La Liga": ("RFEF Designaciones", "https://www.rfef.es/noticias/arbitros/designaciones"),
                         "Premier League": ("Premier League", "https://www.premierleague.com/referees/overview"),
@@ -708,6 +719,12 @@ if home_team and away_team and teams_valid:
                         # independientes.
                         search_log = []
                         ref_data = None
+                        try:
+                            from src.data import resiliencia_api as _res_ref
+                            if not _res_ref.disponible():
+                                search_log.append(f"⚠️ {_res_ref.texto_estado()}")
+                        except Exception:
+                            pass
                         try:
                             l_fetcher_ref = LineupFetcher(data_provider)
                             ref_data = l_fetcher_ref.fetch_match_referee(
@@ -842,7 +859,18 @@ if home_team and away_team and teams_valid:
                     res = None
                     
                     # ── PASO 1: Intentar API-Football DIRECTO para alineaciones ──
+                    # Este paso se salta entero cuando el cortacircuitos esta
+                    # abierto. Antes era lo primero que corria, asi que con la
+                    # suscripcion caducada la sincronizacion se comia el timeout
+                    # de varias peticiones muertas antes de llegar al PASO 2,
+                    # que es el que de verdad tiene las fuentes secundarias.
+                    from src.data import resiliencia_api as _resiliencia
+                    _af_ok = _resiliencia.disponible()
+                    if not _af_ok:
+                        st.info(f"ℹ️ {_resiliencia.texto_estado()}")
                     try:
+                        if not _af_ok:
+                            raise RuntimeError("API-Football fuera de servicio")
                         from src.data.api_manager import APIManager
                         api = APIManager()
                         date_str = selected_date.strftime("%Y-%m-%d") if selected_date else None
@@ -905,9 +933,15 @@ if home_team and away_team and teams_valid:
                                     }
                                     st.toast(f"✅ Alineaciones oficiales API-Football: {len(home_players)}+{len(away_players)}", icon="📋")
                     except Exception as e:
-                        st.warning(f"API-Football alineaciones: {e}")
+                        # Si la fuente esta caida ya se ha avisado arriba, y con
+                        # un mensaje que explica el desvio; repetirlo aqui como
+                        # error solo alarma sin aportar nada.
+                        if _af_ok:
+                            st.warning(f"API-Football alineaciones: {e}")
 
-                    # ── PASO 2: Fallback a LineupFetcher si API-Football no tuvo alineaciones ──
+                    # ── PASO 2: fuentes secundarias (SofaScore, scrapers de liga,
+                    # BeSoccer). Es la via normal cuando API-Football no cubre la
+                    # fecha, y la unica cuando esta fuera de servicio. ──
                     if not res or not res.get("home"):
                         l_fetcher = LineupFetcher(data_provider)
                         res = l_fetcher.fetch_smart_lineup(
@@ -1278,19 +1312,70 @@ with st.sidebar:
     # 🔌 DIAGNÓSTICO DE APIs
     # =====================================================================
     with st.expander("🔌 Estado de APIs", expanded=False):
+        # Aviso permanente de modo degradado. Va fuera del boton a proposito:
+        # el estado de la fuente de pago tiene que verse sin tener que pulsar
+        # nada, porque es lo que explica por que el arbitro no aparece solo.
+        try:
+            from src.data import resiliencia_api as _resiliencia
+            _deg = _resiliencia.resumen()
+        except Exception:
+            _deg = {"degradada": False}
+
+        if _deg.get("degradada"):
+            st.warning(
+                f"⚠️ **Modo degradado** — {_deg['motivo']}\n\n"
+                f"{_deg['desvio']} La aplicación sigue operativa: el árbitro y "
+                f"las fechas se buscan en las fuentes gratuitas verificadas.",
+                icon="🛟"
+            )
+            if _deg.get("hasta"):
+                st.caption(f"Se reintentará automáticamente a partir de {_deg['hasta']} (UTC).")
+            if st.button("🔄 Reintentar API-Football ahora", key="reset_breaker",
+                         width="stretch"):
+                _resiliencia.reiniciar()
+                st.rerun()
+
         if st.button("🔍 Verificar APIs", key="check_apis", width="stretch"):
             with st.spinner("Verificando conexión con APIs..."):
                 api_results = {}
                 # 1. API-Football
+                # Se limpia el cortacircuitos antes de comprobar: si el usuario
+                # pulsa "Verificar" es justo para saber si la fuente ha vuelto,
+                # y un circuito abierto contestaria que no sin llegar a probar.
                 try:
-                    from src.data.api_manager import APIManager
-                    api = APIManager()
-                    status_data = api.api_football._get("status")
-                    if status_data and status_data.get("response"):
-                        req = status_data.get("response", {}).get("requests", {})
-                        api_results["API-Football"] = f"✅ OK ({req.get('current', '?')}/{req.get('limit', '?')} peticiones)"
+                    from src.data import resiliencia_api as _resiliencia
+                    from src.data.api_football import diagnosticar
+                    _resiliencia.reiniciar()
+                    _diag = diagnosticar()
+                    if _diag["ok"]:
+                        api_results["API-Football"] = (
+                            f"✅ OK — plan {_diag['plan']}, {_diag['peticiones']} "
+                            f"peticiones hoy (activa hasta {_diag['suscripcion_hasta']})"
+                        )
                     else:
-                        api_results["API-Football"] = "❌ Sin respuesta (¿suscripción expirada?)"
+                        # Se deja el cortacircuitos abierto acorde al veredicto,
+                        # para que la cascada actue en consecuencia sin esperar
+                        # a tropezarse ella sola con el mismo fallo.
+                        _mapa = {
+                            "cuota_agotada": _resiliencia.Averia.CUOTA,
+                            "suscripcion_inactiva": _resiliencia.Averia.SUSCRIPCION,
+                            "llave_rechazada": _resiliencia.Averia.SUSCRIPCION,
+                            "sin_red": _resiliencia.Averia.TRANSITORIA,
+                            "sin_respuesta": _resiliencia.Averia.TRANSITORIA,
+                        }
+                        _av = _mapa.get(_diag["causa"])
+                        if _av:
+                            _resiliencia.registrar_averia(_av, _diag["mensaje"][:160])
+                        api_results["API-Football"] = (
+                            f"❌ {_diag['mensaje']}\n\n"
+                            f"   La app sigue operando con las fuentes secundarias."
+                        )
+                        api_results["_af_clave"] = (
+                            f"Llave cargada: {'sí' if _diag['clave_presente'] else 'NO'}"
+                            + (f" ({_diag['clave_longitud']} caracteres, "
+                               f"acaba en {_diag['clave_final']})"
+                               if _diag['clave_presente'] else "")
+                        )
                 except Exception as e:
                     api_results["API-Football"] = f"❌ Error: {str(e)[:60]}"
                 # 2. football-data.org
@@ -1310,8 +1395,13 @@ with st.sidebar:
                 except Exception as e:
                     api_results["Sportmonks"] = f"❌ Error: {str(e)[:60]}"
                 
+                _pie_clave = api_results.pop("_af_clave", None)
                 for api_name, status in api_results.items():
                     st.markdown(f"**{api_name}**: {status}")
+                if _pie_clave:
+                    st.caption(
+                        f"🔑 {_pie_clave}. En Streamlit Cloud la llave sale de "
+                        f"Settings → Secrets, no del .env del repositorio.")
 
         # Fuentes de la cascada de multi_source_fetcher: si una no inicializa,
         # la cascada sigue en silencio con la siguiente, asi que se muestra aqui.

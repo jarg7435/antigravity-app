@@ -33,12 +33,22 @@ De ahí salen las tres reglas:
   consultarse por liga y temporada, nunca por fecha: la ventana de fechas
   bloquea también el pasado.
 
+A esas tres se suma una cuarta, que no depende de la consulta sino del estado de
+la suscripción: si `resiliencia_api` tiene el cortacircuitos abierto —plan
+caducado o cuota agotada—, API-Football sale de la cascada entera hasta que
+vuelva a responder. Poner la regla aquí y no en cada llamada es lo que hace que
+el desvío a SofaScore, football-data.org y los scrapers de prensa sea automático:
+`api_football_puede_responder()` es el único paso por el que cruzan tanto la
+cascada de árbitros como la de alineaciones.
+
 Autor: Antigravity - La Gema JARG74
 """
 
 from datetime import date, datetime, timedelta
 from enum import Enum
 from typing import List, Optional, Union
+
+from . import resiliencia_api as _resiliencia
 
 # Ventana de fechas que acepta el plan gratuito, en días alrededor de hoy.
 VENTANA_DIAS = 1
@@ -114,6 +124,14 @@ def api_football_puede_responder(tipo: TipoConsulta,
     Devuelve False cuando el plan gratuito la va a rechazar igualmente, para no
     gastar cuota en una llamada condenada a fallar.
     """
+    # Suscripción caducada o cuota agotada: la fuente entera está caída, y da
+    # igual lo bien acotada que esté la consulta. Se comprueba lo primero, antes
+    # incluso que el caso EN_VIVO, porque una API que no acepta la llave tampoco
+    # sirve el directo. Es aquí donde se decide el desvío a las fuentes
+    # secundarias: este es el único sitio por el que pasan las dos cascadas.
+    if not _resiliencia.disponible():
+        return False
+
     if tipo == TipoConsulta.EN_VIVO:
         return True
 
@@ -131,4 +149,8 @@ def api_football_puede_responder(tipo: TipoConsulta,
 
 def describe(tipo: TipoConsulta) -> str:
     """Texto corto del orden aplicado, para los mensajes de diagnóstico."""
-    return " > ".join(orden_de_fuentes(tipo))
+    fuentes = orden_de_fuentes(tipo)
+    if not _resiliencia.disponible():
+        fuentes = [f for f in fuentes if f != API_FOOTBALL]
+        return " > ".join(fuentes) + "  (API-Football fuera de servicio)"
+    return " > ".join(fuentes)

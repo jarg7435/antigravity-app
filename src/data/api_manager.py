@@ -32,6 +32,7 @@ from dotenv import load_dotenv
 from src.data.api_football import LEAGUE_IDS as _LEAGUE_IDS_CANONICO
 from src.data.api_football import APIFootballClient as _ClienteCanonico
 from src.data.api_football import cliente_compartido as _cliente_compartido
+from src.data import resiliencia_api as _resiliencia
 from src.data.cache_manager import TTLConfig as _TTL
 from src.data import cascada as _cascada
 
@@ -176,6 +177,7 @@ class APIFootballClient:
         else:
             modes_to_try = ["rapidapi", "direct"]
         
+        ultimo_estado = None
         for mode in modes_to_try:
             config = self.MODES[mode]
             base_url = config["base_url"]
@@ -188,6 +190,7 @@ class APIFootballClient:
                     headers=headers,
                     timeout=10
                 )
+                ultimo_estado = resp.status_code
                 if resp.status_code == 200:
                     data = resp.json()
                     req = data.get("response", {}).get("requests", {})
@@ -209,6 +212,7 @@ class APIFootballClient:
                         self.session.headers[k] = v
                     
                     self._probed = True
+                    _resiliencia.registrar_exito()
                     return self._working_mode
                 elif resp.status_code in (401, 403):
                     logger.warning(f"[API-Football] Modo {mode}: AUTH ERROR ({resp.status_code})")
@@ -222,6 +226,19 @@ class APIFootballClient:
         logger.error("[API-Football] ❌ No se pudo conectar en NINGÚN modo")
         self._probed = True
         self._working_mode = "failed"
+        # Se apunta en el cortacircuitos para que la cascada entera se entere:
+        # sin esto, cada modulo descubria la caida por su cuenta y pagaba otra
+        # vez el timeout. Un 401/403 en ambos modos es la llave, no la red.
+        if ultimo_estado in (401, 403):
+            _resiliencia.registrar_averia(
+                _resiliencia.Averia.SUSCRIPCION,
+                f"probe: HTTP {ultimo_estado} en modo directo y RapidAPI"
+            )
+        else:
+            _resiliencia.registrar_averia(
+                _resiliencia.Averia.TRANSITORIA,
+                f"probe sin respuesta ({ultimo_estado or 'sin conexión'})"
+            )
         return "failed"
 
     # TTL por endpoint, para que la cache del cliente canonico no sirva datos
@@ -261,7 +278,24 @@ class APIFootballClient:
         probandolo de verdad en lugar de deducirlo del patron de la llave, y se
         mantiene el contrato de devolver None ante cualquier error.
         """
+        # El cortacircuitos manda sobre todo lo demas: con la suscripcion
+        # caducada o la cuota agotada no se toca la red, y quien llama recibe
+        # None al instante para pasar a las fuentes secundarias.
+        if not _resiliencia.disponible():
+            logger.info(f"[API-Football] {endpoint}: omitida — {_resiliencia.motivo()}")
+            return None
+
         if not self._probed:
+            if self._probe_connection() == "failed":
+                return None
+        elif self._working_mode == "failed":
+            # El probe ya fallo antes. Faltaba esta rama: con _probed a True la
+            # guarda de arriba no se evaluaba, y todas las peticiones siguientes
+            # seguian saliendo a una API que no habia contestado en ningun modo,
+            # pagando su timeout una por una. Se reintenta el probe solo cuando
+            # el cortacircuitos vuelve a dar paso, que es la condicion de la
+            # guarda anterior.
+            self._probed = False
             if self._probe_connection() == "failed":
                 return None
 

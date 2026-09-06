@@ -92,6 +92,17 @@ def _enrich(ref, estado="PROBABLE"):
 
     ref["estado"] = ref.get("estado") or estado
     ref["_is_fallback"] = ref["estado"] != "VERIFICADO"
+
+    # Todo resultado lleva el estado de API-Football, no solo el "Por Detectar"
+    # del final. La interfaz decide con esto si avisar de que la busqueda se
+    # hizo sin la fuente de pago, y la cascada corta en cuanto una fuente
+    # responde: si el dato solo se pegara al final, el aviso no aparecia nunca
+    # en los casos en los que una secundaria si encuentra algo.
+    try:
+        from src.data import resiliencia_api as _res
+        ref.setdefault("degradacion", _res.resumen())
+    except Exception:
+        pass
     return ref
 
 
@@ -115,8 +126,20 @@ def get_source_status() -> Dict[str, Dict]:
 
 
 def _get_api_football_client():
-    """Inicializa lazy del cliente API-Football."""
+    """
+    Inicializa lazy del cliente API-Football.
+
+    Devuelve None tambien cuando el cortacircuitos esta abierto: con la
+    suscripcion caducada o la cuota agotada no hay cliente que valga, y quien
+    llama ya sabe seguir sin el. El motivo queda registrado para que el panel
+    de estado lo explique en lugar de dar la fuente por ausente sin mas.
+    """
     try:
+        from src.data import resiliencia_api as _res
+        if not _res.disponible():
+            _marcar_fuente("API-Football", False, _res.texto_estado())
+            return None
+
         from src.data.api_football import cliente_compartido
         client = cliente_compartido()
         if client.is_configured:
@@ -142,6 +165,21 @@ def _get_football_data_client():
         print(f"  [MSF] Football-Data.org init error: {e}")
         _marcar_fuente("Football-Data.org", False, f"{type(e).__name__}: {e}")
     return None
+
+
+def _motivo_omision(tipo) -> str:
+    """
+    Por que se salta API-Football en esta consulta.
+
+    Distingue las dos causas, que se estaban confundiendo en el log: una es la
+    ventana del plan gratuito, que es normal y esperada, y la otra es que la
+    fuente esta caida. Solo la segunda es una averia que haya que arreglar.
+    """
+    from src.data import resiliencia_api as _res
+    if not _res.disponible():
+        _marcar_fuente("API-Football", False, _res.texto_estado())
+        return _res.texto_estado()
+    return f"fuera del alcance del plan ({tipo.value})"
 
 
 def _norm_team_name(name):
@@ -377,7 +415,8 @@ class MultiSourceFetcher:
         # de las 100 diarias solo tiene sentido dentro de su ventana de fechas.
         _tipo = _cascada.clasificar(safe_date)
         if not _cascada.api_football_puede_responder(_tipo, fecha=safe_date):
-            print(f"  [resp-API-Football] Omitida: fuera del alcance del plan ({_tipo.value})")
+            _motivo_af = _motivo_omision(_tipo)
+            print(f"  [resp-API-Football] Omitida: {_motivo_af}")
         else:
             af_client = _get_api_football_client()
             if af_client:
@@ -437,11 +476,30 @@ class MultiSourceFetcher:
             salida = _iw.a_formato_cascada(_pendiente_investigador)
             if sofa_link:
                 salida.setdefault("verification_link", sofa_link)
+            # Esta salida no pasa por _enrich, asi que el estado de la API se
+            # adjunta aqui: es la rama que se toma cuando el investigador tiene
+            # candidato pero nadie lo corrobora, justo el caso en el que saber
+            # que faltaba la fuente de pago explica la falta de corroboracion.
+            from src.data import resiliencia_api as _res_p
+            salida.setdefault("degradacion", _res_p.resumen())
             return salida
 
         from src.models.base import RefereeStrictness
+        from src.data import resiliencia_api as _res
         print(f"  [MSF] ❌ No encontrado en ninguna fuente")
         consultar = (_pendiente_investigador or {}).get("consultar", [])
+
+        # El motivo cambia segun API-Football estuviera disponible o no, y la
+        # diferencia importa: si la fuente de pago esta caida, el usuario tiene
+        # que saber que la busqueda se hizo solo con las secundarias, y que no
+        # encontrar al arbitro no significa que no este designado.
+        _degradado = _res.resumen()
+        if _degradado["degradada"]:
+            motivo = ("Ninguna de las fuentes secundarias publica todavía la "
+                      "designación. " + _res.texto_estado())
+        else:
+            motivo = "Ninguna fuente publica todavía la designación de este partido."
+
         return {
             "name": "Por Detectar",
             "strictness": RefereeStrictness.MEDIUM,
@@ -450,8 +508,9 @@ class MultiSourceFetcher:
             "verification_link": sofa_link or "https://www.sofascore.com",
             "_is_fallback": True,
             "estado": "PENDIENTE",
-            "motivo": "Ninguna fuente publica todavía la designación de este partido.",
+            "motivo": motivo,
             "consultar": consultar,
+            "degradacion": _degradado,
         }
 
     # =========================================================================
@@ -500,7 +559,8 @@ class MultiSourceFetcher:
         # de las 100 diarias solo tiene sentido dentro de su ventana de fechas.
         _tipo = _cascada.clasificar(safe_date)
         if not _cascada.api_football_puede_responder(_tipo, fecha=safe_date):
-            print(f"  [resp-API-Football] Omitida: fuera del alcance del plan ({_tipo.value})")
+            _motivo_af = _motivo_omision(_tipo)
+            print(f"  [resp-API-Football] Omitida: {_motivo_af}")
         else:
             # af_client se leia aqui sin haberse creado nunca en esta funcion:
             # solo existia en fetch_referee. Era un NameError que reventaba la

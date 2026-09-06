@@ -29,6 +29,7 @@ from datetime import datetime, timedelta
 import requests
 
 from .cache_manager import CacheManager, TTLConfig
+from . import resiliencia_api as _resiliencia
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,16 @@ class APIFootballError(Exception):
         super().__init__(message)
         self.status_code = status_code
         self.api_errors = api_errors
+
+
+class APIFootballNoDisponible(APIFootballError):
+    """
+    La API esta fuera de servicio y no se la vuelve a llamar todavia.
+
+    Se lanza sin tocar la red, para que la cascada pase a las fuentes
+    secundarias al instante en lugar de esperar el timeout de una API que ya
+    sabemos que no va a contestar.
+    """
 
 
 class APIFootballClient:
@@ -195,6 +206,15 @@ class APIFootballClient:
                 "Añade tu clave al archivo .env o como variable de entorno."
             )
 
+        # Cortacircuitos: si la suscripción está caducada o la cuota agotada, la
+        # petición está condenada a fallar. Se corta aquí, antes de gastar los
+        # 15 s de timeout que dejaban colgada la búsqueda del árbitro, para que
+        # quien llama pase de inmediato a las fuentes secundarias.
+        if not _resiliencia.disponible():
+            raise APIFootballNoDisponible(
+                f"API-Football fuera de servicio: {_resiliencia.texto_estado()}"
+            )
+
         # Rate limiting
         self._rate_limit()
 
@@ -203,14 +223,44 @@ class APIFootballClient:
 
         try:
             response = self._session.get(url, params=params, timeout=15)
-            data = response.json()
+            try:
+                data = response.json()
+            except ValueError:
+                # Cuerpo ilegible: casi siempre el HTML de un portal de error
+                # o de RapidAPI rechazando una cuenta sin suscripción.
+                data = {}
 
-            # Verificar errores de la API
-            errors = data.get("errors", {})
+            # Verificar errores de la API.
+            #
+            # API-Football contesta con HTTP 200 y mete el problema real en
+            # "errors", así que el estado por sí solo no dice si la llamada ha
+            # ido bien. Antes se trataban todos igual: un plan caducado y una
+            # consulta fuera de cobertura levantaban el mismo error, y la
+            # siguiente llamada volvía a intentarlo. Ahora se clasifican, y las
+            # que delatan la caída de la fuente abren el cortacircuitos.
+            errors = data.get("errors", {}) if isinstance(data, dict) else {}
+            averia = _resiliencia.clasificar_respuesta(
+                status_code=response.status_code, errors=errors, cuerpo=data
+            )
+            if averia is not None:
+                _resiliencia.registrar_averia(
+                    averia,
+                    f"{endpoint} → HTTP {response.status_code} {errors or data}"
+                )
+                raise APIFootballNoDisponible(
+                    f"API-Football fuera de servicio ({averia.value}): "
+                    f"{_resiliencia.texto_estado()}",
+                    status_code=response.status_code,
+                    api_errors=errors if isinstance(errors, dict) else None,
+                )
+
             if errors:
+                # Limitación de la consulta, no de la fuente: la cascada la
+                # esquiva por su cuenta y la API sigue estando sana.
                 logger.error(f"API-Football errors: {errors}")
                 raise APIFootballError(
                     f"Errores en API-Football: {errors}",
+                    status_code=response.status_code,
                     api_errors=errors
                 )
 
@@ -222,6 +272,10 @@ class APIFootballClient:
                     f"API-Football rate limit bajo: {remaining}/{limit} peticiones restantes"
                 )
 
+            # Respuesta buena: se cierra el circuito si estaba abierto, para que
+            # una suscripción renovada vuelva a la cascada sin reiniciar la app.
+            _resiliencia.registrar_exito()
+
             # Guardar en caché
             if cache_category and cache_id:
                 self._cache.set(
@@ -231,11 +285,16 @@ class APIFootballClient:
 
             return data
 
-        except requests.exceptions.Timeout:
+        except APIFootballError:
+            raise
+        except requests.exceptions.Timeout as e:
+            _resiliencia.registrar_averia_por_excepcion(e)
             raise APIFootballError(f"Timeout en petición a {endpoint}")
-        except requests.exceptions.ConnectionError:
+        except requests.exceptions.ConnectionError as e:
+            _resiliencia.registrar_averia_por_excepcion(e)
             raise APIFootballError(f"Error de conexión a {endpoint}")
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            _resiliencia.registrar_averia_por_excepcion(e)
             raise APIFootballError(f"Respuesta inválida de {endpoint}")
 
     # ============================================================
@@ -831,3 +890,178 @@ def cliente_compartido() -> "APIFootballClient":
     if _CLIENTE_COMPARTIDO is None:
         _CLIENTE_COMPARTIDO = APIFootballClient()
     return _CLIENTE_COMPARTIDO
+
+
+# =============================================================================
+# DIAGNÓSTICO DE LA CONEXIÓN
+# =============================================================================
+
+def _clasifica_intento(intento) -> Optional["_resiliencia.Averia"]:
+    """Avería que delata un intento fallido de `diagnosticar`, o None."""
+    if not intento:
+        return None
+    _, estado, detalle = intento
+    if estado is None:
+        return None
+    return _resiliencia.clasificar_respuesta(
+        status_code=estado,
+        errors=detalle if isinstance(detalle, dict) else None,
+        cuerpo=detalle if isinstance(detalle, dict) else None,
+    )
+
+
+def diagnosticar(api_key: str = None) -> Dict[str, Any]:
+    """
+    Averigua por qué API-Football no responde, sin quedarse en "sin respuesta".
+
+    El panel decía "❌ Sin respuesta (¿suscripción expirada?)" ante cualquier
+    fallo, y esa pregunta tapaba cinco causas muy distintas que se arreglan de
+    formas muy distintas: que no haya llave en los secrets, que la llave del
+    despliegue no sea la buena, que la suscripción esté caducada de verdad, que
+    la cuota del día esté agotada, o que el servidor no llegue a la API. Esta
+    función las separa preguntándoselo a la propia API.
+
+    Va directa a la red a propósito: ignora la caché y el cortacircuitos, porque
+    es justo la comprobación con la que se decide si el circuito debe cerrarse.
+
+    Devuelve siempre las mismas claves; `causa` es la que resume el veredicto.
+    """
+    raw = api_key if api_key is not None else os.getenv("API_FOOTBALL_KEY", "")
+    clave = (raw or "").strip().strip("'\"")
+
+    informe: Dict[str, Any] = {
+        "ok": False,
+        "causa": None,
+        "mensaje": "",
+        "clave_presente": bool(clave),
+        "clave_longitud": len(clave),
+        "clave_final": f"...{clave[-4:]}" if len(clave) >= 4 else "",
+        "endpoint": None,
+        "http": None,
+        "plan": None,
+        "suscripcion_activa": None,
+        "suscripcion_hasta": None,
+        "peticiones": None,
+    }
+
+    if not clave:
+        informe["causa"] = "sin_llave"
+        informe["mensaje"] = (
+            "No hay API_FOOTBALL_KEY configurada. En Streamlit Cloud se pone en "
+            "Settings → Secrets; en local, en el archivo .env."
+        )
+        return informe
+
+    es_rapidapi = APIFootballClient._detect_rapidapi_key(clave)
+    intentos = [
+        ("directo", f"{APIFootballClient.BASE_URL_DIRECT}/status",
+         {"x-apisports-key": clave, "Accept": "application/json"}),
+        ("rapidapi", f"{APIFootballClient.BASE_URL_RAPIDAPI}/status",
+         {"x-rapidapi-key": clave, "x-rapidapi-host": "v3.football.api-sports.io",
+          "Accept": "application/json"}),
+    ]
+    if es_rapidapi:
+        intentos.reverse()
+
+    ultimo = None
+    for nombre, url, cabeceras in intentos:
+        try:
+            r = requests.get(url, headers=cabeceras, timeout=15)
+        except Exception as e:
+            ultimo = ("red", None, f"{type(e).__name__}: {str(e)[:120]}")
+            continue
+
+        try:
+            cuerpo = r.json()
+        except ValueError:
+            cuerpo = {}
+
+        errores = cuerpo.get("errors", {}) if isinstance(cuerpo, dict) else {}
+        respuesta = cuerpo.get("response") if isinstance(cuerpo, dict) else None
+
+        # Una respuesta con cuenta y suscripción es la única prueba de que la
+        # llave sirve; el 200 por sí solo no lo es, porque la API contesta 200
+        # con el problema dentro de "errors".
+        if r.status_code == 200 and isinstance(respuesta, dict) and respuesta.get("subscription"):
+            sub = respuesta.get("subscription", {})
+            req = respuesta.get("requests", {})
+            actual = req.get("current")
+            tope = req.get("limit_day")
+
+            informe.update({
+                "endpoint": nombre,
+                "http": r.status_code,
+                "plan": sub.get("plan"),
+                "suscripcion_activa": sub.get("active"),
+                "suscripcion_hasta": sub.get("end"),
+                "peticiones": f"{actual}/{tope}",
+            })
+
+            if not sub.get("active"):
+                informe["causa"] = "suscripcion_inactiva"
+                informe["mensaje"] = (
+                    f"La suscripción del plan {sub.get('plan')} figura como "
+                    f"inactiva (fin: {sub.get('end')}). Renuévala en "
+                    f"api-football.com."
+                )
+                return informe
+
+            if isinstance(actual, int) and isinstance(tope, int) and actual >= tope:
+                informe["causa"] = "cuota_agotada"
+                informe["mensaje"] = (
+                    f"Cuota del día agotada ({actual}/{tope}). Se repone en el "
+                    f"reset diario; hasta entonces se opera con las fuentes "
+                    f"secundarias."
+                )
+                return informe
+
+            informe["ok"] = True
+            informe["causa"] = "ok"
+            informe["mensaje"] = (
+                f"Conectada por el endpoint {nombre}. Plan {sub.get('plan')}, "
+                f"activa hasta {sub.get('end')}, {actual}/{tope} peticiones hoy."
+            )
+            return informe
+
+        intento = (nombre, r.status_code, errores or (cuerpo if isinstance(cuerpo, dict) else {}))
+        # Se guarda el intento MÁS informativo, no el último. El endpoint que no
+        # corresponde a la llave contesta un 404 genérico ("API doesn't exists")
+        # que tapaba el veredicto bueno del otro, que sí dice si el problema es
+        # la llave o la cuota.
+        if ultimo is None or _clasifica_intento(ultimo) is None:
+            ultimo = intento
+
+    # Ningún endpoint devolvió una cuenta válida.
+    nombre, estado, detalle = ultimo if ultimo else (None, None, "")
+    informe["endpoint"] = nombre
+    informe["http"] = estado
+
+    if nombre == "red":
+        informe["causa"] = "sin_red"
+        informe["mensaje"] = (
+            f"No se alcanza api-sports.io desde este servidor ({detalle}). "
+            f"No es la suscripción: es la salida a Internet del despliegue."
+        )
+        return informe
+
+    averia = _resiliencia.clasificar_respuesta(
+        status_code=estado, errors=detalle if isinstance(detalle, dict) else None,
+        cuerpo=detalle if isinstance(detalle, dict) else None
+    )
+    if averia is _resiliencia.Averia.CUOTA:
+        informe["causa"] = "cuota_agotada"
+        informe["mensaje"] = f"Cuota de peticiones agotada (HTTP {estado}): {detalle}"
+    elif averia is _resiliencia.Averia.SUSCRIPCION:
+        informe["causa"] = "llave_rechazada"
+        informe["mensaje"] = (
+            f"La API rechaza la llave (HTTP {estado}). Es la llave que hay "
+            f"cargada en los secrets, no necesariamente la de tu cuenta: "
+            f"comprueba que API_FOOTBALL_KEY en el despliegue sea la misma que "
+            f"aparece en tu panel de api-football.com. Detalle: {detalle}"
+        )
+    else:
+        informe["causa"] = "sin_respuesta"
+        informe["mensaje"] = (
+            f"La API no devuelve una cuenta válida (HTTP {estado}): {detalle}"
+        )
+    return informe
