@@ -398,9 +398,13 @@ if st.session_state.get("review_study"):
         if st.button("👨‍⚖️ Re-buscar Árbitro", width="stretch", key="rv_ref"):
             with st.spinner("Buscando árbitro en SofaScore y fuentes oficiales..."):
                 try:
-                    lf_ref = _LF(data_provider)
-                    ref_data = lf_ref.fetch_match_referee(
-                        home_name_rs, away_name_rs, _match_date, _match_comp
+                    from src.logic.busqueda_arbitro import (buscar_designacion,
+                                                            MENSAJE_MANUAL)
+                    ref_data, _ = buscar_designacion(
+                        lambda: _LF(data_provider).fetch_match_referee(
+                            home_name_rs, away_name_rs, _match_date, _match_comp
+                        ),
+                        _match_comp
                     )
                     st.session_state[f"ref_rs_{rs['match_id']}"] = ref_data
                     if ref_data and not ref_data.get("_is_fallback"):
@@ -422,7 +426,10 @@ if st.session_state.get("review_study"):
                     else:
                         src_msg = ref_data.get("source", "") if ref_data else ""
                         vlink = ref_data.get("verification_link", "") if ref_data else ""
-                        st.warning(f"⚠️ Árbitro no detectado automáticamente.")
+                        st.warning(f"⚠️ {(ref_data or {}).get('mensaje_usuario') or MENSAJE_MANUAL}")
+                        _porque_rs = (ref_data or {}).get("motivo") or ""
+                        if _porque_rs:
+                            st.caption(_porque_rs)
                         if vlink:
                             st.markdown(f"🔗 [Consultar designaciones]({vlink})")
                         else:
@@ -459,7 +466,12 @@ if st.session_state.get("review_study"):
                                 st.success(f"✅ Árbitro guardado: {manual_ref.strip()}")
                                 st.rerun()
                 except Exception as e:
-                    st.warning(f"Error buscando árbitro: {e}")
+                    # La busqueda ya no lanza; lo que quede aqui es un fallo al
+                    # pintar o al guardar, y tampoco tiene por que salir en crudo.
+                    import logging as _log_ref
+                    _log_ref.getLogger(__name__).exception(f"Panel de arbitro (revision): {e}")
+                    st.warning("⚠️ Árbitro no disponible en fuentes automáticas. "
+                               "Por favor, introduzca el nombre manualmente en el campo inferior.")
                     st.markdown("🔗 Consulta en [RFEF](https://www.rfef.es/noticias/arbitros/designaciones) · [SofaScore](https://www.sofascore.com)")
 
     # Botón meter resultado y cerrar revisión
@@ -613,7 +625,19 @@ if home_team and away_team:
 if home_team and away_team and teams_valid:
         # Match ID
         m_id = f"{home_team.name[:3]}_{away_team.name[:3]}_{selected_date.strftime('%Y%m%d')}"
-        
+
+        # La fecha y hora del partido se arman aqui, antes de que nadie las use.
+        # Estaban mas abajo, en la seccion de confirmacion, y el boton de buscar
+        # arbitro las necesitaba antes: pulsarlo reventaba con un NameError que
+        # la interfaz pintaba como «Error en la busqueda: NameError...», dando a
+        # entender que fallaban las fuentes cuando lo que faltaba era una fecha.
+        from datetime import datetime as _dt_partido
+        try:
+            match_datetime = _dt_partido.combine(
+                selected_date, _dt_partido.strptime(selected_time, "%H:%M").time())
+        except Exception:
+            match_datetime = _dt_partido.combine(selected_date, _dt_partido.min.time())
+
         # --- STATE RESET LOGIC ---
         if "current_match_id" not in st.session_state:
             st.session_state.current_match_id = m_id
@@ -685,7 +709,23 @@ if home_team and away_team and teams_valid:
             # Auto-fetch failed or not yet searched — show manual input + search button
             with c_ref1:
                 if is_fallback:
-                    st.markdown('<p style="color: #ffaa00; font-size: 0.9rem;">⚠️ No se encontró el árbitro automáticamente.</p>', unsafe_allow_html=True)
+                    # Aviso unico para todos los finales sin arbitro: se acabo el
+                    # timeout crudo por un lado y el «No se encontro» por otro.
+                    # Debajo, en gris, el porque concreto; el detalle tecnico se
+                    # queda en el log plegable, que es donde hace falta.
+                    from src.logic.busqueda_arbitro import MENSAJE_MANUAL
+                    _ref_estado = st.session_state.fetched_ref or {}
+                    _aviso = _ref_estado.get("mensaje_usuario") or MENSAJE_MANUAL
+                    _porque = _ref_estado.get("motivo") or ""
+                    st.markdown(
+                        '<div style="background:#1e293b;border-radius:8px;padding:10px 14px;'
+                        'border-left:4px solid #fbbf24;">'
+                        f'<div style="color:#fbbf24;font-size:0.9rem;font-weight:700;">'
+                        f'⚠️ {_aviso}</div>'
+                        + (f'<div style="color:#94a3b8;font-size:0.8rem;margin-top:4px;">'
+                           f'{_porque}</div>' if _porque else "")
+                        + '</div>',
+                        unsafe_allow_html=True)
                     # Si la fuente de pago esta caida hay que decirlo aqui, no
                     # solo en el panel lateral: sin esta linea parece que ninguna
                     # fuente tiene la designacion, cuando lo que pasa es que la
@@ -755,56 +795,20 @@ if home_team and away_team and teams_valid:
                         # por el investigador web y solo da por bueno un nombre
                         # respaldado por fuente oficial o por dos fuentes
                         # independientes.
-                        search_log = []
-                        ref_data = None
-                        try:
-                            from src.data import resiliencia_api as _res_ref
-                            if not _res_ref.disponible():
-                                search_log.append(f"⚠️ {_res_ref.texto_estado()}")
-                        except Exception:
-                            pass
-                        try:
-                            l_fetcher_ref = LineupFetcher(data_provider)
-                            ref_data = l_fetcher_ref.fetch_match_referee(
+                        #
+                        # El manejo de fallos vive en busqueda_arbitro: clasifica
+                        # timeouts, competiciones fuera del plan y respuestas
+                        # vacias, y devuelve siempre una ficha pintable con el
+                        # aviso que encamina hacia el campo manual. Aqui ya no se
+                        # escapa ninguna excepcion a la pantalla.
+                        from src.logic.busqueda_arbitro import buscar_designacion
+                        ref_data, search_log = buscar_designacion(
+                            lambda: LineupFetcher(data_provider).fetch_match_referee(
                                 home_team.name, away_team.name,
                                 match_datetime, selected_league
-                            )
-                            estado = ref_data.get("estado", "—")
-                            search_log.append(f"Estado: {estado}")
-                            search_log.append(f"Fuente: {ref_data.get('source', '?')}")
-                            if ref_data.get("motivo"):
-                                search_log.append(f"Motivo: {ref_data['motivo']}")
-                            for ev in ref_data.get("evidencias", []):
-                                search_log.append(
-                                    f"  · {ev.get('name')} — {ev.get('fuente')} "
-                                    f"{'[OFICIAL]' if ev.get('oficial') else ''}")
-                                if ev.get("url"):
-                                    search_log.append(f"    {ev['url']}")
-                            if not ref_data.get("evidencias"):
-                                search_log.append(
-                                    "  · Sin evidencias web; ninguna fuente publica "
-                                    "todavía la designación.")
-                        except Exception as e:
-                            search_log.append(f"❌ Error en la búsqueda: {type(e).__name__}: {e}")
-
-                        if not ref_data:
-                            _consulta = "https://www.sofascore.com"
-                            try:
-                                from src.data.investigador_web import _enlaces_de_consulta
-                                _enlaces = _enlaces_de_consulta(selected_league)
-                                if _enlaces:
-                                    _consulta = _enlaces[0]["url"]
-                            except Exception:
-                                pass
-                            ref_data = {
-                                "name": "",
-                                "source": "Designación no publicada todavía",
-                                "verification_link": _consulta,
-                                "_is_fallback": True,
-                                "estado": "PENDIENTE",
-                                "motivo": ("No se ha podido determinar el árbitro. "
-                                           "Introdúcelo manualmente cuando se publique."),
-                            }
+                            ),
+                            selected_league
+                        )
 
                         st.session_state.fetched_ref = ref_data
                         st.session_state.ref_search_logs = "\n".join(search_log)
@@ -817,7 +821,7 @@ if home_team and away_team and teams_valid:
             # Use fallback pool ref or manual if available
             if is_fallback:
                 selected_ref = Referee(
-                    name=st.session_state.fetched_ref.get("name", "Por Confirmar"),
+                    name=(st.session_state.fetched_ref.get("name") or "").strip() or "Por Confirmar",
                     strictness=st.session_state.fetched_ref.get("strictness", RefereeStrictness.MEDIUM)
                 )
             else:
@@ -1001,12 +1005,20 @@ if home_team and away_team and teams_valid:
                     # Fetch Referee if official is available, otherwise placeholder
                     if can_fetch_official:
                         if not st.session_state.fetched_ref or st.session_state.fetched_ref.get("_is_fallback"):
-                            l_fetcher = LineupFetcher(data_provider)
-                            ref_data = l_fetcher.fetch_match_referee(
-                                home_team.name, away_team.name, selected_date, selected_league
+                            # Misma via que el boton manual: si el arbitro no sale,
+                            # la carga de alineaciones no puede romperse por ello.
+                            from src.logic.busqueda_arbitro import buscar_designacion
+                            ref_data, ref_log = buscar_designacion(
+                                lambda: LineupFetcher(data_provider).fetch_match_referee(
+                                    home_team.name, away_team.name,
+                                    selected_date, selected_league
+                                ),
+                                selected_league
                             )
                             st.session_state.fetched_ref = ref_data
-                        st.toast(f"👨‍⚖️ Árbitro: {st.session_state.fetched_ref.get('name', 'Desconocido')}", icon="⚖️")
+                            st.session_state.ref_search_logs = "\n".join(ref_log)
+                        _nombre_ref = (st.session_state.fetched_ref.get("name") or "").strip()
+                        st.toast(f"👨‍⚖️ Árbitro: {_nombre_ref or 'pendiente de introducir'}", icon="⚖️")
                     else:
                         st.session_state.fetched_ref = {
                             'name': 'Por Confirmar (1h antes)',
@@ -1107,8 +1119,15 @@ if home_team and away_team and teams_valid:
                     st.session_state.fetched_lineups = res
                     st.session_state.lineups_confirmed = True
                     # Re-fetch umpire
-                    ref_data = l_fetcher.fetch_match_referee(home_team.name, away_team.name, selected_date, selected_league)
+                    from src.logic.busqueda_arbitro import buscar_designacion
+                    ref_data, ref_log = buscar_designacion(
+                        lambda: l_fetcher.fetch_match_referee(
+                            home_team.name, away_team.name, selected_date, selected_league
+                        ),
+                        selected_league
+                    )
                     st.session_state.fetched_ref = ref_data
+                    st.session_state.ref_search_logs = "\n".join(ref_log)
                     st.rerun()
 
         # --- SUPERVISIÓN PREVIA AL ESTUDIO ---
