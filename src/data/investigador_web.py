@@ -25,12 +25,20 @@ Este modulo cambia las tres cosas que hacian falta:
 2. EXIGE PROXIMIDAD. El nombre tiene que aparecer en la misma frase que los dos
    equipos o que una palabra clave de designacion. No vale que este en la misma
    pagina.
-3. EXIGE FIRMA OFICIAL. Un nombre solo se da por bueno cuando lo confirma una
-   fuente oficial —federacion o liga— o el registro del propio partido. La
-   coincidencia de varios medios de prensa ya NO basta: dos periodicos que
-   copian el mismo teletipo no son dos fuentes independientes, son una repetida,
-   y por ahi se colo un arbitro erroneo. Lo que no llega a ese liston sale como
-   PROBABLE o PENDIENTE, se enseña como indicio y no se asigna a nadie.
+3. EXIGE EL REGISTRO DEL PARTIDO. Un nombre solo se da por bueno cuando sale
+   del acta del encuentro —los oficiales que publica football-data.org—, nunca
+   de un texto leido con una expresion regular. Dos cosas que parecian bastar y
+   no bastan:
+
+     · La coincidencia de varios medios. Dos periodicos que copian el mismo
+       teletipo no son dos fuentes independientes, son una repetida.
+     · El dominio del enlace. Un resultado de buscador alojado en laliga.com
+       sigue siendo un titular; el dominio no lo convierte en el acta del CTA.
+       Por ahi se asigno «Mario Melero López» al Getafe - Celta con la fuente
+       «Búsqueda web · DuckDuckGo».
+
+   Lo que no llega a ese liston sale como PROBABLE o PENDIENTE: se enseña como
+   indicio en el log y no se asigna a nadie.
 
 Politica de coste: por defecto solo usa fuentes gratuitas. Si existe la variable
 ANTHROPIC_API_KEY, anade ademas una consulta a Claude con busqueda web, que es
@@ -64,7 +72,7 @@ from src.data.cache_manager import CacheManager
 # Estados posibles del resultado
 # -----------------------------------------------------------------------------
 
-VERIFICADO = "VERIFICADO"   # fuente oficial, o dos fuentes independientes
+VERIFICADO = "VERIFICADO"   # registro del propio partido; lo unico que se asigna solo
 PROBABLE = "PROBABLE"       # un solo indicio serio; hay que confirmarlo
 PENDIENTE = "PENDIENTE"     # no hay designacion publicada, o no es fiable
 
@@ -80,8 +88,7 @@ _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 _CABECERAS = {"User-Agent": _UA, "Accept-Language": "es-ES,es;q=0.9,en;q=0.8"}
 
 # Portales donde se publica la designacion de cada competicion. Se ofrecen al
-# usuario como enlace de consulta cuando la busqueda queda en PENDIENTE, y su
-# dominio marca a una fuente como oficial.
+# usuario como enlace de consulta cuando la busqueda queda en PENDIENTE.
 #
 # OJO con la RFEF: el CTA publica las designaciones de cada jornada dentro de
 # una IMAGEN (el cartel "DESIGNACIONES J04"), no como texto. El nombre del
@@ -117,8 +124,10 @@ PORTALES_OFICIALES = {
     ],
 }
 
-# Dominios cuya palabra vale por si sola. Son las federaciones y las ligas: si
-# lo dice el CTA, es la designacion, no un rumor de prensa.
+# Dominios de las federaciones y las ligas. Sirven para ORDENAR los indicios y
+# para explicarse en el log —un enlace de rfef.es pesa mas que uno de un blog—,
+# nunca para dar por buena una designacion: lo que se lee de ahi sigue siendo un
+# fragmento de titular, no el acta. Ver _dominio_oficial.
 _DOMINIOS_OFICIALES = (
     "rfef.es", "laliga.com", "premierleague.com", "aia-figc.it",
     "legaseriea.it", "dfb.de", "bundesliga.com", "lfp.fr", "ligue1.fr",
@@ -297,9 +306,39 @@ def _pareja_es_nuestra(frase_norm: str, home: str, away: str) -> Optional[bool]:
     return False
 
 
-def _es_oficial(url: str) -> bool:
-    u = (url or "").lower()
-    return any(d in u for d in _DOMINIOS_OFICIALES)
+def _dominio_oficial(url: str) -> bool:
+    """
+    ¿El enlace vive en el dominio de una federacion o de una liga?
+
+    OJO CON LO QUE ESTO SIGNIFICA, porque confundirlo costo caro. Dice donde
+    esta alojado el texto, NO que el texto sea la designacion oficial. Un
+    resultado de buscador que apunta a laliga.com sigue siendo un fragmento de
+    titular leido con una expresion regular: el dominio no lo convierte en el
+    acta del CTA. Tomarlo por firma oficial es lo que asigno «Mario Melero
+    López» al Getafe - Celta con la fuente «Búsqueda web · DuckDuckGo».
+
+    Sirve para ordenar y para explicarse en el log, nunca para dar por buena una
+    designacion. Quien la da por buena es `oficial`, y esa bandera solo la pone
+    quien lee un registro estructurado del propio partido.
+
+    El cotejo va contra el HOST y no contra la url entera: antes bastaba con que
+    la cadena "laliga.com" apareciera en cualquier sitio, incluido un parametro
+    de redireccion, y los enlaces de DuckDuckGo son precisamente redirecciones
+    con la url de destino dentro.
+    """
+    u = (url or "").strip().lower()
+    if not u:
+        return False
+    if u.startswith("//"):
+        u = "https:" + u
+    elif "://" not in u:
+        u = "https://" + u
+    try:
+        from urllib.parse import urlparse
+        host = (urlparse(u).hostname or "")
+    except Exception:
+        return False
+    return any(host == d or host.endswith("." + d) for d in _DOMINIOS_OFICIALES)
 
 
 # -----------------------------------------------------------------------------
@@ -685,7 +724,11 @@ def _fuente_google_news(home, away, liga, fecha=None, timeout=10) -> List[Dict]:
                     "name": nombre,
                     "fuente": f"Prensa · {medio}",
                     "url": enlace,
-                    "oficial": _es_oficial(enlace),
+                    # Un titular sigue siendo un titular aunque lo aloje una
+                    # federacion: el dominio se anota aparte, para el log, y no
+                    # cuenta como firma de designacion.
+                    "oficial": False,
+                    "dominio_oficial": _dominio_oficial(enlace),
                     "extracto": titulo[:160],
                     # Un titular que solo nombra a uno de los dos equipos puede
                     # estar hablando de otro partido. Se marca para que el
@@ -745,7 +788,11 @@ def _fuente_duckduckgo(home, away, liga, timeout=10) -> List[Dict]:
                     "name": nombre,
                     "fuente": "Búsqueda web · DuckDuckGo",
                     "url": enlace,
-                    "oficial": _es_oficial(enlace),
+                    # Un titular sigue siendo un titular aunque lo aloje una
+                    # federacion: el dominio se anota aparte, para el log, y no
+                    # cuenta como firma de designacion.
+                    "oficial": False,
+                    "dominio_oficial": _dominio_oficial(enlace),
                     "extracto": (titulo or frag)[:160],
                 })
         if hallazgos:
@@ -885,7 +932,8 @@ def _fuente_claude(home, away, liga, timeout=40) -> List[Dict]:
         "name": nombre,
         "fuente": "Búsqueda web asistida (Claude)",
         "url": url,
-        "oficial": _es_oficial(url),
+        "oficial": False,
+        "dominio_oficial": _dominio_oficial(url),
         "extracto": linea[:160],
     }]
 
@@ -1001,9 +1049,16 @@ def _dictaminar(hallazgos: List[Dict], liga: str) -> Dict:
     La regla es deliberadamente exigente, porque el fallo que este modulo
     corrige consistia en aceptar el primer nombre disponible:
 
-      VERIFICADO  una fuente OFICIAL —federacion o liga— y el nombre no
-                  contradice al censo de la competicion. Es lo unico que se
-                  asigna solo.
+      VERIFICADO  un registro estructurado del propio partido —los oficiales
+                  que publica football-data.org— y el nombre no contradice al
+                  censo. Es lo unico que se asigna solo.
+
+                  Estar alojado en un dominio oficial NO cuenta. Un resultado
+                  de buscador que apunta a laliga.com sigue siendo un titular
+                  leido con una expresion regular, y tomarlo por firma del CTA
+                  es lo que asigno «Mario Melero López» al Getafe - Celta con
+                  la fuente «Búsqueda web · DuckDuckGo». El dominio se anota en
+                  `dominio_oficial`, se usa para ordenar y se cuenta en el log.
       PROBABLE    indicios de prensa, coincidan uno o coincidan cinco. Se
                   muestran como pista y el supervisor exige validacion manual;
                   el nombre no llega ni a la ficha ni al modelo.
@@ -1042,6 +1097,10 @@ def _dictaminar(hallazgos: List[Dict], liga: str) -> Dict:
     def peso(g):
         return (1 if pertenece_al_censo(_nombre_mas_completo(g), liga) is True else 0,
                 sum(1 for h in g if h["oficial"]),
+                # El dominio oficial baja aqui, a criterio de ORDEN. Es util
+                # para elegir entre candidatos —un enlace de rfef.es pesa mas
+                # que uno de un blog— y no da por bueno a ninguno.
+                sum(1 for h in g if h.get("dominio_oficial")),
                 len({h["fuente"] for h in g}))
 
     grupos.sort(key=peso, reverse=True)
@@ -1075,8 +1134,20 @@ def _dictaminar(hallazgos: List[Dict], liga: str) -> Dict:
         base["estado"] = VERIFICADO
         base["confianza"] = "ALTA"
         base["_is_fallback"] = False
-        base["motivo"] = f"Confirmado por fuente oficial: {oficiales[0]['fuente']}."
+        base["motivo"] = (f"Confirmado por el registro del partido: "
+                          f"{oficiales[0]['fuente']}.")
         return base
+
+    # Nota para el log: si el indicio venia de un dominio oficial, hay que decir
+    # que se ha visto y que aun asi no basta. Callarlo hace que el rechazo
+    # parezca un despiste de la busqueda.
+    en_dominio_oficial = sorted({h["fuente"] for h in grupo
+                                 if h.get("dominio_oficial")})
+    coletilla = ""
+    if en_dominio_oficial:
+        coletilla = (" Hay un enlace alojado en un dominio oficial, pero el "
+                     "nombre se ha leído de un titular, no de la designación "
+                     "publicada.")
 
     # Un titular que solo nombra a uno de los dos equipos puede estar hablando
     # de otro partido, y varios de ellos pueden equivocarse igual: es
@@ -1097,7 +1168,8 @@ def _dictaminar(hallazgos: List[Dict], liga: str) -> Dict:
         base["_is_fallback"] = True
         base["motivo"] = ("Coinciden " + str(len(fuentes)) +
                           " fuentes de prensa (" + ", ".join(sorted(fuentes)) +
-                          "), pero ninguna oficial. Confírmalo antes de usarlo.")
+                          "), pero ninguna es el registro oficial del partido." +
+                          coletilla + " Confírmalo antes de usarlo.")
         return base
 
     if solo_debiles:
@@ -1107,14 +1179,15 @@ def _dictaminar(hallazgos: List[Dict], liga: str) -> Dict:
         base["motivo"] = (
             f"«{nombre}» solo aparece en titulares que no nombran a los dos "
             f"equipos de este partido, así que podrían referirse a otro "
-            f"encuentro. Verifícalo antes de usarlo.")
+            f"encuentro." + coletilla + " Verifícalo antes de usarlo.")
         return base
 
     base["estado"] = PROBABLE
     base["confianza"] = "MEDIA"
     base["_is_fallback"] = True
-    base["motivo"] = (f"Solo lo publica una fuente ({next(iter(fuentes))}). "
-                      f"Hace falta una segunda confirmación.")
+    base["motivo"] = (f"Solo lo publica una fuente ({next(iter(fuentes))}), y "
+                      f"no es el registro oficial del partido." + coletilla +
+                      f" Confírmalo antes de usarlo.")
     return base
 
 

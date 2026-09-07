@@ -662,8 +662,10 @@ if home_team and away_team and teams_valid:
         st.markdown(
             '<p style="color: #fdffcc; font-size: 0.9rem;">🤖 El sistema busca la '
             'designación en football-data.org, SofaScore y la prensa deportiva, y '
-            'solo la da por buena si la confirma una fuente oficial o coinciden dos '
-            'independientes.<br>'
+            'solo la asigna cuando sale del registro oficial del partido. Lo que '
+            'encuentre en prensa o en buscadores se enseña en el log como indicio, '
+            'aunque coincidan varios medios, y hay que confirmarlo a mano: más vale '
+            'el campo vacío que un árbitro equivocado en el modelo.<br>'
             '<span style="color:#94a3b8; font-size:0.82rem;">La RFEF publica las '
             'designaciones en imagen, así que no se pueden leer automáticamente: '
             'ese enlace es para consultarla tú.</span></p>',

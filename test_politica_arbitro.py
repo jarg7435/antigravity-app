@@ -135,6 +135,59 @@ check("y gana el nombre del CTA, no el de la prensa",
 check("la politica lo deja pasar",
       P.es_contrastada(IW.a_formato_cascada(veredicto_of)) is True)
 
+print("\n== El caso de la captura: Getafe - Celta ==")
+# La aplicacion asigno "Mario Melero López" con la fuente «Búsqueda web ·
+# DuckDuckGo». El nombre venia de un fragmento de titular, pero el enlace del
+# resultado apuntaba a un dominio oficial, y con eso se marcaba como firma
+# oficial y se daba por VERIFICADO. Estar alojado en laliga.com no convierte un
+# titular en el acta del CTA.
+hallazgo_ddg = {
+    "name": "Mario Melero López", "fuente": "Búsqueda web · DuckDuckGo",
+    "url": "https://www.laliga.com/noticias/jornada-4",
+    "oficial": False, "dominio_oficial": True,
+    "extracto": "Melero López arbitrará en la jornada", "anclaje": "fuerte",
+}
+v_ddg = IW._dictaminar([hallazgo_ddg], "La Liga")
+check("un resultado de buscador en dominio oficial NO es VERIFICADO",
+      v_ddg["estado"] == IW.PROBABLE)
+check("y por tanto no se asigna", v_ddg["_is_fallback"] is True)
+check("la politica lo rechaza",
+      P.es_contrastada(IW.a_formato_cascada(v_ddg)) is False)
+check("el motivo explica que el dominio no basta",
+      "dominio oficial" in v_ddg["motivo"].lower())
+
+print("\n== El dominio se mide por el host, no por la cadena ==")
+check("un enlace real de la RFEF si es dominio oficial",
+      IW._dominio_oficial("https://www.rfef.es/noticias/arbitros") is True)
+check("laliga.com tambien",
+      IW._dominio_oficial("https://www.laliga.com/calendario") is True)
+check("pero no un blog que lo lleve en un parametro",
+      IW._dominio_oficial("https://blog.ejemplo.com/x?ref=laliga.com") is False)
+check("ni una redireccion de DuckDuckGo",
+      IW._dominio_oficial(
+          "//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.laliga.com%2Fx") is False)
+check("ni un dominio que solo lo imite",
+      IW._dominio_oficial("https://laliga.com.noticias-falsas.net/x") is False)
+check("un dominio cualquiera no lo es",
+      IW._dominio_oficial("https://www.marca.com/futbol") is False)
+
+print("\n== Ninguna fuente web se marca ya como oficial ==")
+# Es la raiz del fallo: 'oficial' solo lo pone quien lee un registro
+# estructurado del partido. Los buscadores y la prensa nunca.
+import inspect
+fuente_web = inspect.getsource(IW._fuente_duckduckgo)
+check("DuckDuckGo no deriva 'oficial' del dominio",
+      '"oficial": False' in fuente_web and "_dominio_oficial(enlace)" in fuente_web)
+fuente_news = inspect.getsource(IW._fuente_google_news)
+check("Google News tampoco",
+      '"oficial": False' in fuente_news and "_dominio_oficial(enlace)" in fuente_news)
+fuente_claude = inspect.getsource(IW._fuente_claude)
+check("la busqueda asistida tampoco",
+      '"oficial": False' in fuente_claude and "_dominio_oficial(url)" in fuente_claude)
+fuente_fd = inspect.getsource(IW._fuente_football_data)
+check("y football-data.org, que lee el acta, si la mantiene",
+      '"oficial": True' in fuente_fd)
+
 print("\n== Un solo indicio de prensa sigue sin bastar ==")
 uno = IW._dictaminar([hallazgos_prensa[0]], "La Liga")
 check("PROBABLE", uno["estado"] == IW.PROBABLE)
