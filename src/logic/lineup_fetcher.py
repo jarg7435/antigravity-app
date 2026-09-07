@@ -565,23 +565,42 @@ class LineupFetcher:
                 old_scraper = RefereeSourceMapper.get_scraper(league)
                 old_result = old_scraper.fetch_referee(home_team, away_team, match_date)
                 if old_result and old_result.get('name') and old_result.get('name') not in ['Por Detectar', 'TBD', '']:
-                    old_result.setdefault('_is_fallback', False)
+                    # Antes aqui habia setdefault('_is_fallback', False), que
+                    # ascendia a designacion confirmada cualquier cosa que este
+                    # scraper devolviera. Se respeta lo que traiga, y a falta de
+                    # bandera se presume sin confirmar.
+                    old_result.setdefault('_is_fallback', True)
                     result = old_result
                     logger.info(f"[Legacy] Árbitro encontrado: {result['name']}")
             except Exception as e:
                 logger.debug(f"Legacy scraper falló: {e}")
         
+        # Filtro final de politica. Va aqui ademas de en la cascada porque este
+        # metodo no solo reenvia lo que ella devuelve: los pasos 2 y 3 de arriba
+        # pueden sustituir el resultado por el de football-data.org o por el del
+        # scraper legacy, y ese ultimo es precisamente el que llego a mostrar un
+        # arbitro que no era el designado. Se filtra lo que sale, no lo que
+        # entra, asi ninguna rama se escapa.
+        from src.data import politica_arbitro as _politica
+        result = _politica.filtrar(result)
+
         # Logging final
         flag = "[POOL-FALLBACK]" if result.get('_is_fallback') else "[VERIFICADO]"
-        logger.info(f"{flag} Árbitro: {result.get('name', 'No asignado')} | "
+        logger.info(f"{flag} Árbitro: {result.get('name') or 'sin asignar'} | "
                    f"Fuente: {result.get('source', 'Unknown')}")
-        
-        # Garantizar campos mínimos
-        result.setdefault('name', 'No asignado')
+        if result.get("candidato_descartado"):
+            logger.info(f"[Política] «{result['candidato_descartado']}» se ha "
+                        f"descartado por no estar confirmado oficialmente.")
+
+        # Garantizar campos mínimos. El nombre NO se rellena con un marcador:
+        # un hueco vacio es el resultado que se busca cuando no hay designacion
+        # contrastada, y «No asignado» era un texto que despues habia que volver
+        # a reconocer como vacio en cada consumidor.
+        result.setdefault('name', '')
         result.setdefault('source', 'Unknown')
         result.setdefault('_is_fallback', True)
         result.setdefault('verification_link', None)
-        
+
         return result
 
     def fetch_injuries(self, league: str) -> Dict:

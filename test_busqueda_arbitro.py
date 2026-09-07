@@ -104,15 +104,16 @@ for nombre, resultado in vacios:
           and ficha["motivo_codigo"] == B.Motivo.SIN_DESIGNACION.value)
 
 print("\n== Un arbitro de verdad pasa intacto ==")
-bueno = {"name": "Jesús Gil Manzano", "source": "SofaScore", "_is_fallback": False,
-         "estado": "CONFIRMADO"}
+bueno = {"name": "Jesús Gil Manzano", "source": "football-data.org (oficiales del partido)",
+         "_is_fallback": False, "estado": "VERIFICADO"}
 check("se reconoce", B.hay_designacion(bueno) is True)
 ficha, registro = B.buscar_designacion(lambda: dict(bueno), "La Liga (España)")
 check("mismo nombre y fuente",
-      ficha["name"] == "Jesús Gil Manzano" and ficha["source"] == "SofaScore")
+      ficha["name"] == "Jesús Gil Manzano"
+      and "football-data.org" in ficha["source"])
 check("sin aviso de entrada manual", ficha["mensaje_usuario"] == "")
 check("el log cuenta lo que hizo la cascada",
-      any("SofaScore" in linea for linea in registro))
+      any("football-data.org" in linea for linea in registro))
 
 print("\n== Con API-Football caida se dice que es cosa del plan ==")
 R.reiniciar()

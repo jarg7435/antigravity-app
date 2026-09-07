@@ -105,8 +105,16 @@ OFICIAL = {"name": "Munuera Montero", "fuente": "football-data.org",
 
 comprobar("Una sola fuente de prensa queda en PROBABLE",
           iw._dictaminar([PRENSA], "La Liga")["estado"], iw.PROBABLE)
-comprobar("Dos fuentes independientes dan VERIFICADO",
-          iw._dictaminar([PRENSA, SOFA], "La Liga")["estado"], iw.VERIFICADO)
+# Directriz de maxima exigencia: dos medios de acuerdo ya NO bastan. Pueden
+# estar copiando el mismo teletipo, en cuyo caso son una fuente repetida, y por
+# ahi se asigno un arbitro erroneo. Sin firma oficial, el nombre se enseña como
+# indicio y lo confirma una persona.
+comprobar("Dos fuentes de prensa se quedan en PROBABLE",
+          iw._dictaminar([PRENSA, SOFA], "La Liga")["estado"], iw.PROBABLE)
+comprobar("y por tanto no se asignan solas",
+          iw._dictaminar([PRENSA, SOFA], "La Liga")["_is_fallback"], True)
+comprobar("La prensa junto a una fuente oficial si da VERIFICADO",
+          iw._dictaminar([PRENSA, SOFA, OFICIAL], "La Liga")["estado"], iw.VERIFICADO)
 comprobar("Una fuente oficial sola ya da VERIFICADO",
           iw._dictaminar([OFICIAL], "La Liga")["estado"], iw.VERIFICADO)
 comprobar("Un arbitro de otra liga se degrada a PROBABLE",

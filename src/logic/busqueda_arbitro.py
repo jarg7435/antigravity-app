@@ -108,18 +108,22 @@ def clasificar(exc: BaseException) -> Motivo:
 
 def hay_designacion(resultado: Optional[Dict]) -> bool:
     """
-    ¿Trae este resultado un árbitro de verdad?
+    ¿Trae este resultado un árbitro que se pueda asignar solo?
 
-    La cascada nunca devuelve vacío: rellena el hueco con un nombre de relleno y
-    `_is_fallback`. Sin esta comprobación, ese relleno se pinta como si fuera la
-    designación buena.
+    La decisión no se toma aquí: la dicta `politica_arbitro`, que es el único
+    sitio donde se define qué es una designación contrastada, para que la
+    interfaz y la cascada no puedan discrepar. Esta capa solo añade su propia
+    red por si el módulo no estuviera disponible, y entonces se es conservador:
+    sin poder comprobar la política, no se asigna nada.
     """
     if not isinstance(resultado, dict):
         return False
-    if resultado.get("_is_fallback"):
+    try:
+        from src.data.politica_arbitro import es_contrastada
+        return es_contrastada(resultado)
+    except Exception as e:
+        logger.warning(f"No se pudo aplicar la política de árbitro: {e}")
         return False
-    nombre = str(resultado.get("name") or "").strip()
-    return bool(nombre) and nombre.lower() not in _NOMBRES_VACIOS
 
 
 def _estado_resiliencia() -> Tuple[Dict, List[str]]:
@@ -220,6 +224,13 @@ def buscar_designacion(consultar: Callable[[], Optional[Dict]],
         resultado["mensaje_usuario"] = ""
         return resultado, registro
 
+    # Un candidato que la política ha rechazado se cuenta en el log, con su
+    # nombre y el porqué. Ahí se puede leer y contrastar; en la ficha no entra.
+    descartado = str((resultado or {}).get("candidato_descartado") or "").strip()
+    if descartado:
+        registro.append(f"✋ Candidato descartado: «{descartado}» — sin confirmación "
+                        f"oficial ni registro del partido que lo respalde.")
+
     motivo = Motivo.SIN_DESIGNACION
     if degradacion.get("degradada"):
         # La única fuente de pago está fuera de servicio: el partido puede tener
@@ -236,4 +247,6 @@ def buscar_designacion(consultar: Callable[[], Optional[Dict]],
             ficha["evidencias"] = resultado["evidencias"]
         if resultado.get("verification_link"):
             ficha["verification_link"] = resultado["verification_link"]
+        if descartado:
+            ficha["candidato_descartado"] = descartado
     return ficha, registro

@@ -495,6 +495,21 @@ class MultiSourceFetcher:
     # ÁRBITROS — cascada de 7 fuentes (API-Football es FUENTE 0)
     # =========================================================================
     def fetch_referee(self, home, away, match_date, league):
+        """
+        Designacion del partido, o hueco limpio. Nunca una aproximacion.
+
+        La cascada de aqui abajo tiene ocho fuentes y otros tantos `return`, y
+        cada uno decidia por su cuenta si su hallazgo valia. Ese reparto es lo
+        que dejaba pasar nombres sin confirmar: basta con anadir una fuente y no
+        acordarse de la regla. Ahora la busqueda entera pasa por un unico filtro
+        a la salida, que solo deja salir lo que viene del registro del partido o
+        de una fuente oficial. Lo demas sale como candidato descartado, visible
+        en el log y fuera de la ficha.
+        """
+        from src.data import politica_arbitro as _politica
+        return _politica.filtrar(self._buscar_referee(home, away, match_date, league))
+
+    def _buscar_referee(self, home, away, match_date, league):
         print(f"\n[MSF] ÁRBITRO: {home} vs {away} | {league}")
         safe_date = match_date if match_date else datetime.now()
         sofa_link = None

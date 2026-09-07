@@ -452,6 +452,11 @@ if st.session_state.get("review_study"):
                                     "avg_cards": 4.3,
                                     "source": "Introducido manualmente",
                                     "_is_fallback": False,
+                                    # Lo ha escrito una persona mirando la
+                                    # designacion: es la confirmacion de mas peso
+                                    # que hay, y la politica lo exige explicito.
+                                    "estado": "VERIFICADO",
+                                    "confianza": "ALTA",
                                 }
                                 try:
                                     new_ref = enrich_referee(new_ref)
@@ -775,6 +780,11 @@ if home_team and away_team and teams_valid:
                             "avg_cards": 4.3,
                             "source": "Introducido manualmente",
                             "_is_fallback": False,
+                            # Lo ha escrito una persona mirando la designacion: es
+                            # la confirmacion de mas peso que hay, y la politica la
+                            # exige explicita para poder asignarla.
+                            "estado": "VERIFICADO",
+                            "confianza": "ALTA",
                             "verification_link": None
                         }
                         # Buscar en BD local para enriquecer
@@ -1020,10 +1030,19 @@ if home_team and away_team and teams_valid:
                         _nombre_ref = (st.session_state.fetched_ref.get("name") or "").strip()
                         st.toast(f"👨‍⚖️ Árbitro: {_nombre_ref or 'pendiente de introducir'}", icon="⚖️")
                     else:
+                        # El nombre iba aqui como «Por Confirmar (1h antes)» y sin
+                        # bandera de fallback, asi que la interfaz lo pintaba en la
+                        # tarjeta de arbitro confirmado y ese texto acababa en la
+                        # ficha del partido como si fuera el colegiado. Se deja el
+                        # campo vacio, que es lo que de verdad se sabe.
                         st.session_state.fetched_ref = {
-                            'name': 'Por Confirmar (1h antes)',
+                            'name': '',
                             'strictness': RefereeStrictness.MEDIUM,
-                            'source': 'Pendiente'
+                            'source': 'Designación oficial disponible 1 h antes',
+                            'estado': 'PENDIENTE',
+                            '_is_fallback': True,
+                            'motivo': ('La designación oficial no se publica hasta '
+                                       'una hora antes del partido.'),
                         }
                     
                     status_emoji = "✅" if res.get('is_official') else "📊"

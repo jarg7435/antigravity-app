@@ -25,10 +25,12 @@ Este modulo cambia las tres cosas que hacian falta:
 2. EXIGE PROXIMIDAD. El nombre tiene que aparecer en la misma frase que los dos
    equipos o que una palabra clave de designacion. No vale que este en la misma
    pagina.
-3. EXIGE CORROBORACION. Un solo indicio no basta: se acepta el nombre cuando lo
-   confirma una fuente oficial o cuando coinciden dos fuentes independientes. Si
-   no se llega a ese listón, se devuelve PENDIENTE con el enlace de consulta.
-   Nunca un nombre generico ni el primero que suene.
+3. EXIGE FIRMA OFICIAL. Un nombre solo se da por bueno cuando lo confirma una
+   fuente oficial —federacion o liga— o el registro del propio partido. La
+   coincidencia de varios medios de prensa ya NO basta: dos periodicos que
+   copian el mismo teletipo no son dos fuentes independientes, son una repetida,
+   y por ahi se colo un arbitro erroneo. Lo que no llega a ese liston sale como
+   PROBABLE o PENDIENTE, se enseña como indicio y no se asigna a nadie.
 
 Politica de coste: por defecto solo usa fuentes gratuitas. Si existe la variable
 ANTHROPIC_API_KEY, anade ademas una consulta a Claude con busqueda web, que es
@@ -999,10 +1001,12 @@ def _dictaminar(hallazgos: List[Dict], liga: str) -> Dict:
     La regla es deliberadamente exigente, porque el fallo que este modulo
     corrige consistia en aceptar el primer nombre disponible:
 
-      VERIFICADO  una fuente oficial, o dos fuentes independientes de acuerdo,
-                  y el nombre no contradice al censo de la competicion.
-      PROBABLE    un unico indicio serio. Se muestra, pero marcado como sin
-                  confirmar, y el supervisor exigira validacion manual.
+      VERIFICADO  una fuente OFICIAL —federacion o liga— y el nombre no
+                  contradice al censo de la competicion. Es lo unico que se
+                  asigna solo.
+      PROBABLE    indicios de prensa, coincidan uno o coincidan cinco. Se
+                  muestran como pista y el supervisor exige validacion manual;
+                  el nombre no llega ni a la ficha ni al modelo.
       PENDIENTE   nada solido. Se devuelve sin nombre.
     """
     from src.data.referee_database import pertenece_al_censo
@@ -1082,11 +1086,18 @@ def _dictaminar(hallazgos: List[Dict], liga: str) -> Dict:
     solo_debiles = grupo and all(h.get("anclaje") == "débil" for h in grupo)
 
     if len(fuentes) >= 2 and not solo_debiles:
-        base["estado"] = VERIFICADO
-        base["confianza"] = "ALTA"
-        base["_is_fallback"] = False
+        # Antes esto era VERIFICADO y se asignaba solo. Ya no: dos medios que
+        # publican el mismo teletipo no son dos fuentes independientes, son una
+        # repetida, y el recuento no distingue una cosa de la otra. Sin firma
+        # oficial detras, el nombre se enseña como indicio y lo confirma una
+        # persona, que es justo lo que pide la directriz de no asignar por
+        # aproximacion.
+        base["estado"] = PROBABLE
+        base["confianza"] = "MEDIA"
+        base["_is_fallback"] = True
         base["motivo"] = ("Coinciden " + str(len(fuentes)) +
-                          " fuentes independientes: " + ", ".join(sorted(fuentes)) + ".")
+                          " fuentes de prensa (" + ", ".join(sorted(fuentes)) +
+                          "), pero ninguna oficial. Confírmalo antes de usarlo.")
         return base
 
     if solo_debiles:
