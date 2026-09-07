@@ -608,6 +608,22 @@ class SportmonksClient:
         """Obtiene detalles de un fixture con include de árbitro."""
         return self._get(f"fixtures/{fixture_id}", {"include": "referee"})
     
+    def get_fixtures_con_arbitros(self, date_from: str, date_to: str,
+                                  league_id: int = None) -> List[dict]:
+        """
+        Fixtures del rango con sus oficiales y sus equipos ya resueltos.
+
+        Se separa de get_fixtures_between porque necesita dos `include` que
+        aquella no pide: sin `referees.referee` la API devuelve solo los ids de
+        los colegiados, y sin `participants` no hay forma de saber que partido
+        es cada fixture.
+        """
+        params = {"include": "referees.referee;participants", "per_page": 100}
+        if league_id:
+            params["filters"] = f"fixtureLeagues:{league_id}"
+        data = self._get(f"fixtures/between/{date_from}/{date_to}", params)
+        return data if isinstance(data, list) else []
+
     def get_fixtures_between(self, date_from: str, date_to: str,
                               league_id: int = None) -> List[dict]:
         """Obtiene fixtures entre fechas."""

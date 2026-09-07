@@ -460,6 +460,174 @@ class Predictor:
         logger.info(f"Predicción completada: H={final_home:.2%}, D={final_draw:.2%}, A={final_away:.2%}")
         return pred
 
+    def recalcular_por_once(self, prediccion: PredictionResult, match: Match,
+                            once_local: Optional[List[str]] = None,
+                            once_visitante: Optional[List[str]] = None
+                            ) -> Tuple[PredictionResult, Dict]:
+        """
+        Rehace SOLO lo que cambia al conocerse el once oficial.
+
+        Existe para que se pueda trabajar con antelacion sin perder rigor: el
+        estudio se calcula con horas de margen y, cuando una hora antes aparece
+        la alineacion de verdad, se corrige lo que esa alineacion afecta en
+        lugar de repetir el analisis entero.
+
+        QUE SE REHACE Y QUE NO, Y POR QUE
+
+        Lo caro del pronostico no son los numeros, es la red. El analisis de
+        prensa y lesiones (`get_detailed_intelligence`) sale a buscar noticias y
+        partes medicos, y de ahi salen los BPA. Eso no cambia porque se confirme
+        el once —las bajas ya estaban contadas— y se conserva tal cual.
+
+        Lo que si cambia es todo lo que cuelga de quien juega:
+
+            ausencias -> lambdas -> Poisson -> mezcla -> confianza -> mercados
+
+        y eso se recalcula entero. Todo local: ni una peticion de red.
+
+        Los lambdas nuevos salen de los viejos por proporcion, no volviendo a
+        estimarlos: el lambda guardado ya lleva dentro los coeficientes de
+        ausencias que se aplicaron entonces, asi que basta dividir por aquellos
+        y multiplicar por los nuevos. Asi la correccion es exacta y no arrastra
+        diferencias por recalcular la base.
+
+        Returns:
+            (prediccion corregida, resumen de lo que ha cambiado)
+        """
+        cambios = {"aplicado": False, "motivo": "", "antes": {}, "despues": {}}
+
+        if prediccion is None:
+            cambios["motivo"] = "no hay ningún estudio previo que corregir"
+            return prediccion, cambios
+
+        lambda_h = float(getattr(prediccion, "lambda_home", 0) or 0)
+        lambda_a = float(getattr(prediccion, "lambda_away", 0) or 0)
+        if lambda_h <= 0 or lambda_a <= 0:
+            # Estudios anteriores a que se guardaran los lambdas por separado.
+            cambios["motivo"] = ("el estudio guardado no trae los goles esperados "
+                                 "por lado; recalcúlalo entero")
+            return prediccion, cambios
+
+        # 1. Ausencias con el once nuevo.
+        try:
+            inf_local, inf_visit = _ausencias.evaluar_partido(
+                match.home_team, match.away_team, once_local, once_visitante)
+        except Exception as e:
+            logger.error(f"Error evaluando ausencias en el recálculo: {e}")
+            cambios["motivo"] = f"no se pudieron evaluar las ausencias: {e}"
+            return prediccion, cambios
+
+        if not (inf_local.comparable or inf_visit.comparable):
+            cambios["motivo"] = "el once confirmado no es comparable todavía"
+            return prediccion, cambios
+
+        # 2. Coeficientes que se aplicaron entonces, para dividirlos.
+        previos = getattr(prediccion, "ausencias", None) or {}
+
+        def _coef(bloque, clave):
+            try:
+                return float((previos.get(bloque) or {}).get(clave, 1.0)) or 1.0
+            except (TypeError, ValueError):
+                return 1.0
+
+        viejo_h = _coef("local", "coef_ataque") * _coef("visitante", "coef_encaje")
+        viejo_a = _coef("visitante", "coef_ataque") * _coef("local", "coef_encaje")
+        nuevo_h = inf_local.coef_ataque * inf_visit.coef_encaje
+        nuevo_a = inf_visit.coef_ataque * inf_local.coef_encaje
+
+        cambios["antes"] = {"lambda_home": round(lambda_h, 3),
+                            "lambda_away": round(lambda_a, 3),
+                            "confianza": prediccion.confidence_score,
+                            "1x2": (prediccion.win_prob_home, prediccion.draw_prob,
+                                    prediccion.win_prob_away)}
+
+        h_lambda = max(0.4, min(4.0, lambda_h * (nuevo_h / viejo_h)))
+        a_lambda = max(0.3, min(3.5, lambda_a * (nuevo_a / viejo_a)))
+
+        # 3. Poisson con los lambdas corregidos.
+        try:
+            p_matrix = self.poisson.predict_score_matrix(h_lambda, a_lambda)
+            p_home, p_draw, p_away = self.poisson.calculate_match_probabilities(
+                h_lambda, a_lambda)
+        except Exception as e:
+            logger.error(f"Poisson falló en el recálculo: {e}")
+            cambios["motivo"] = f"el cálculo de Poisson falló: {e}"
+            return prediccion, cambios
+
+        # 4. Mezcla con los MISMOS pesos y los MISMOS BPA del estudio original:
+        # el analisis de prensa que los produjo no ha cambiado.
+        ml_probs, _ = self._safe_ml_calculation(match)
+        pesos_guardados = getattr(prediccion, "model_weights_used", None) or {}
+        pesos = ModelWeights(
+            poisson=float(pesos_guardados.get("poisson", self.DEFAULT_WEIGHTS.poisson)),
+            bpa=float(pesos_guardados.get("bpa", self.DEFAULT_WEIGHTS.bpa)),
+            ml=float(pesos_guardados.get("ml", self.DEFAULT_WEIGHTS.ml)),
+        ).normalize()
+
+        final_home, final_draw, final_away = self._blend_probabilities(
+            p_home, p_draw, p_away,
+            prediccion.bpa_home, prediccion.bpa_away,
+            ml_probs, pesos)
+
+        # 5. Confianza, con la penalizacion de las ausencias nuevas.
+        penalizacion = round(inf_local.penalizacion_confianza
+                             + inf_visit.penalizacion_confianza, 4)
+        confianza = self._calc_confidence(final_home, final_away,
+                                          prediccion.bpa_home, prediccion.bpa_away,
+                                          p_home, p_away)
+        if penalizacion > 0:
+            confianza = round(max(0.05, confianza - penalizacion), 2)
+
+        # 6. Mercados que dependen de los goles. Son locales.
+        try:
+            stats = self.external_analyst.calculate_stat_markets(
+                match, prediccion.bpa_home, prediccion.bpa_away,
+                h_lambda=h_lambda, a_lambda=a_lambda)
+        except Exception as e:
+            logger.error(f"Mercados secundarios fallaron en el recálculo: {e}")
+            stats = {}
+
+        marcador = prediccion.score_prediction
+        if p_matrix:
+            try:
+                marcador = max(p_matrix, key=p_matrix.get)
+            except Exception:
+                pass
+
+        # 7. Se escribe sobre una copia: si algo falla arriba, el estudio
+        # original queda intacto.
+        nueva = prediccion.model_copy(deep=True)
+        nueva.lambda_home = round(h_lambda, 3)
+        nueva.lambda_away = round(a_lambda, 3)
+        nueva.total_goals_expected = round(h_lambda + a_lambda, 2)
+        nueva.poisson_matrix = p_matrix
+        nueva.win_prob_home = round(final_home, 4)
+        nueva.draw_prob = round(final_draw, 4)
+        nueva.win_prob_away = round(final_away, 4)
+        nueva.both_teams_to_score_prob = self._calc_btts_prob(h_lambda, a_lambda)
+        nueva.score_prediction = marcador
+        nueva.confidence_score = confianza
+        nueva.penalizacion_ausencias = penalizacion
+        nueva.ausencias = {"local": inf_local.a_dict(),
+                           "visitante": inf_visit.a_dict()}
+        nueva.freshness_score = "confirmed"
+        if stats.get("total_goals_range"):
+            nueva.total_goals_range = stats["total_goals_range"]
+
+        cambios["aplicado"] = True
+        cambios["despues"] = {"lambda_home": nueva.lambda_home,
+                              "lambda_away": nueva.lambda_away,
+                              "confianza": nueva.confidence_score,
+                              "1x2": (nueva.win_prob_home, nueva.draw_prob,
+                                      nueva.win_prob_away)}
+        cambios["ausentes"] = ([a.nombre for a in inf_local.ausentes]
+                               + [a.nombre for a in inf_visit.ausentes])
+        logger.info("Recálculo por once oficial: λ %.2f-%.2f → %.2f-%.2f, "
+                    "confianza %.2f → %.2f",
+                    lambda_h, lambda_a, h_lambda, a_lambda,
+                    cambios["antes"]["confianza"], confianza)
+        return nueva, cambios
+
     def _calc_confidence(self, home_prob: float, away_prob: float, 
                         bpa_h: float = 0.5, bpa_a: float = 0.5,
                         p_home: float = 0.33, p_away: float = 0.33) -> float:

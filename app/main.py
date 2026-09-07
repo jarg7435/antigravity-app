@@ -132,7 +132,7 @@ if os.path.exists(css_path):
     load_css(css_path)
 
 # Initialize Services
-CURRENT_VERSION = "6.73.0"
+CURRENT_VERSION = "6.74.0"
 
 @st.cache_resource
 def get_services(version: str = CURRENT_VERSION):
@@ -166,7 +166,10 @@ _METODOS_DB = (
     "get_calibracion",                 # bucle de aprendizaje
     "get_pares_prediccion_resultado",
 )
-_METODOS_PREDICTOR = ("calibrador",)
+_METODOS_PREDICTOR = (
+    "calibrador",                      # bucle de aprendizaje
+    "recalcular_por_once",             # ajuste al once oficial de ultima hora
+)
 
 
 def _servicios_al_dia(servicios) -> bool:
@@ -989,6 +992,12 @@ if home_team and away_team and teams_valid:
                     st.session_state.fetched_lineups = res
                     st.session_state.lineups_confirmed = True
                     
+                    # El once oficial acaba de cambiar, asi que el estudio que
+                    # hubiera calculado antes ya no corresponde a este once. Se
+                    # deja pedido el recalculo y se hace mas abajo, que es donde
+                    # existen c_home y c_away: aqui todavia no se han montado.
+                    st.session_state["recalcular_criticas"] = True
+
                     # Fetch Referee if official is available, otherwise placeholder
                     if can_fetch_official:
                         if not st.session_state.fetched_ref or st.session_state.fetched_ref.get("_is_fallback"):
@@ -1143,6 +1152,46 @@ if home_team and away_team and teams_valid:
             # tampoco puede pasar por un visto bueno.
             st.warning(f"⚠️ El supervisor no pudo completar la verificación: {e}")
             puede_calcular = False
+
+        # --- RECÁLCULO POR ONCE OFICIAL ---
+        # Solo se rehace lo que depende de quien juega. El analisis de prensa y
+        # lesiones, que es lo unico caro porque sale a la red, se conserva: las
+        # bajas ya estaban contadas y no cambian porque se publique el once.
+        if st.session_state.pop("recalcular_criticas", False):
+            _previa = st.session_state.get("last_pred")
+            if _previa is not None:
+                with st.spinner("Ajustando el estudio al once oficial..."):
+                    try:
+                        _nueva, _cambios = predictor.recalcular_por_once(
+                            _previa, selected_match, c_home, c_away)
+                    except Exception as _e:
+                        _nueva, _cambios = _previa, {
+                            "aplicado": False,
+                            "motivo": f"{type(_e).__name__}: {str(_e)[:90]}"}
+
+                if _cambios.get("aplicado"):
+                    st.session_state.last_pred = _nueva
+                    _a, _d = _cambios["antes"], _cambios["despues"]
+                    _ausentes = _cambios.get("ausentes") or []
+                    st.success(
+                        "🔄 **Estudio ajustado al once oficial** — sin repetir el "
+                        "análisis de prensa.", icon="🎯")
+                    _c1, _c2, _c3 = st.columns(3)
+                    _c1.metric("Goles esperados (local)", f"{_d['lambda_home']:.2f}",
+                               f"{_d['lambda_home'] - _a['lambda_home']:+.2f}")
+                    _c2.metric("Goles esperados (visitante)", f"{_d['lambda_away']:.2f}",
+                               f"{_d['lambda_away'] - _a['lambda_away']:+.2f}")
+                    _c3.metric("Confianza", f"{_d['confianza']:.2f}",
+                               f"{_d['confianza'] - _a['confianza']:+.2f}")
+                    if _ausentes:
+                        st.caption("Ausencias que lo han movido: " + ", ".join(_ausentes))
+                    else:
+                        st.caption("El once oficial coincide con el previsto: "
+                                   "el pronóstico se mantiene.")
+                else:
+                    st.info(f"ℹ️ No se ha podido ajustar el estudio: "
+                            f"{_cambios.get('motivo', 'motivo desconocido')}. "
+                            f"Puedes recalcularlo entero abajo.")
 
         # --- PREDICTION ---
         st.divider()

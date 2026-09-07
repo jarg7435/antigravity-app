@@ -24,6 +24,11 @@ from src.data import cascada as _cascada
 def _norm_league(league):
     n = league.lower().split("(")[0].strip().replace("ea sports","").replace("santander","").strip()
     if "la liga" in n or "primera" in n or "espa" in n: return "La Liga"
+    # La escocesa va ANTES que la inglesa. "Scottish Premiership" contiene
+    # "premier", asi que caia en la regla de abajo y todo un partido escoces se
+    # trataba como de la Premier inglesa: el scraper de liga equivocado, el
+    # codigo "PL" en football-data.org y el id 39 en API-Football.
+    if "scottish" in n or "escoc" in n: return "Scottish Premiership"
     if "premier" in n: return "Premier League"
     if "serie a" in n or "italia" in n: return "Serie A"
     if "bundesliga" in n or "german" in n: return "Bundesliga"
@@ -407,6 +412,25 @@ def _diag_besoccer():
         return _estado(ERROR, f"{type(e).__name__}: {str(e)[:90]}")
 
 
+def _diag_sportmonks():
+    """
+    Sportmonks: no basta con que responda, hay que saber QUE cubre.
+
+    El plan contratado solo da acceso a la Superliga danesa y a la Premiership
+    escocesa. Un diagnostico que dijera "OK" a secas haria pensar que esta
+    fuente puede aportar algo en LaLiga, y no puede.
+    """
+    try:
+        from src.data import sportmonks_arbitros as _sm
+        ligas = _sm.ligas_cubiertas(refrescar=True)
+        if not ligas:
+            return _estado(ERROR, "no responde o la llave no es valida")
+        nombres = ", ".join(sorted(ligas))
+        return _estado(OK, f"responde; el plan cubre {len(ligas)}: {nombres}")
+    except Exception as e:
+        return _estado(ERROR, f"{type(e).__name__}: {str(e)[:90]}")
+
+
 def _diag_claude():
     """
     Consulta a Claude con busqueda web. Es opcional en la cascada.
@@ -424,6 +448,7 @@ def _diag_claude():
 SONDAS = (
     ("Investigador web (DuckDuckGo)", _diag_buscador_web),
     ("football-data.org", _diag_football_data),
+    ("Sportmonks", _diag_sportmonks),
     ("Claude (búsqueda web)", _diag_claude),
     ("SofaScore", _diag_sofascore),
     ("Prensa (Google News)", _diag_prensa_rss),
@@ -548,6 +573,22 @@ class MultiSourceFetcher:
                                 break
             except Exception as e:
                 print(f"  [0b-FootballData] Error: {e}")
+
+        # ── FUENTE 0c: Sportmonks ────────────────────────────────────────────
+        # Va con las oficiales porque lee la designacion del propio partido, no
+        # un indicio de prensa. El modulo se aparta solo cuando el plan no cubre
+        # la competicion, que es el caso de todos los partidos espanoles, asi
+        # que en LaLiga esta fuente no cuesta ni una peticion.
+        try:
+            from src.data import sportmonks_arbitros as _sm
+            sm_ref = _sm.buscar_arbitro(home, away, safe_date, league)
+            if sm_ref and _arbitro_valido(sm_ref["name"], "0c-Sportmonks"):
+                print(f"  [0c-Sportmonks] ✅ {sm_ref['name']}")
+                _marcar_fuente("Sportmonks", True)
+                return _enrich(sm_ref)
+        except Exception as e:
+            print(f"  [0c-Sportmonks] Error: {type(e).__name__}: {e}")
+            _marcar_fuente("Sportmonks", False, f"{type(e).__name__}: {e}")
 
         # ── FUENTE 1: Claude API con web_search ──────────────────────────────
         if hours < 48:

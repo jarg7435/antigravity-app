@@ -90,9 +90,11 @@ if bloque:
 
     class PredictorNuevo:
         calibrador = object()
+        def recalcular_por_once(self): pass
 
     class PredictorViejo:
-        pass
+        """El Predictor de antes: tiene el calibrador pero no el recalculo."""
+        calibrador = object()
 
     def paquete(db, pred):
         return (None, db, None, pred, None, None, None)
@@ -101,7 +103,7 @@ if bloque:
           al_dia(paquete(ServicioNuevo(), PredictorNuevo())) is True)
     check("el DataManager rancio se detecta (el fallo real)",
           al_dia(paquete(ServicioViejo(), PredictorNuevo())) is False)
-    check("un Predictor sin calibrador tambien",
+    check("un Predictor al que le falta un metodo nuevo tambien",
           al_dia(paquete(ServicioNuevo(), PredictorViejo())) is False)
     check("un paquete con otra forma no revienta",
           al_dia(("solo", "tres", "cosas")) is False)
