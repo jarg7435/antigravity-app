@@ -284,8 +284,6 @@ class MockDataProvider(DataProvider):
                 teams[name] = self._create_team(name, "La Liga", ["Dimitrievski", "Foulquier", "Mosquera", "Tárrega", "Vázquez", "Pepelu", "Barrenechea", "Almeida", "Diego López", "Hugo Duro", "Beltrán"], base_rating=7.3)
             elif name == "Getafe":
                 teams[name] = self._create_team(name, "La Liga", ["David Soria", "Iglesias", "Djené", "Alderete", "Diego Rico", "Milla", "Arambarri", "Uche", "Carles Pérez", "Mayoral", "Álex Sola"], base_rating=7.4)
-            elif name == "Girona":
-                teams[name] = self._create_team(name, "La Liga", ["Gazzaniga", "Arnau", "David López", "Blind", "Miguel", "Herrera", "Iván Martín", "Asprilla", "Bryan Gil", "Abel Ruiz", "Danjuma"], base_rating=8.2, avg_xg=1.8, avg_xg_c=1.1)
             elif name == "Osasuna":
                 teams[name] = self._create_team(name, "La Liga", ["Sergio Herrera", "Areso", "Catena", "Boyomo", "Abel Bretones", "Torró", "Moncayola", "Aimar Oroz", "Rubén García", "Budimir", "Bryan Zaragoza"], base_rating=7.6)
             elif name == "Alavés":
@@ -296,12 +294,6 @@ class MockDataProvider(DataProvider):
                 teams[name] = self._create_team(name, "La Liga", ["Guaita", "Mingueza", "Starfelt", "Marcos Alonso", "Hugo Álvarez", "Beltrán", "Hugo Sotelo", "Bamba", "Swedberg", "Iago Aspas", "Borja Iglesias"], base_rating=7.6)
             elif name == "Rayo Vallecano":
                 teams[name] = self._create_team(name, "La Liga", ["Batalla", "Ratiu", "Lejeune", "Mumin", "Chavarría", "Valentín", "Unai López", "Isi Palazón", "De Frutos", "Álvaro García", "Camello"], base_rating=7.4)
-            elif name == "Mallorca":
-                teams[name] = self._create_team(name, "La Liga", ["Greif", "Maffeo", "Valjent", "Raíllo", "Mojica", "Samu Costa", "Morlanes", "Robert Navarro", "Dani Rodríguez", "Larin", "Muriqi"], base_rating=7.6)
-            elif name == "Real Oviedo":
-                teams[name] = self._create_team(name, "La Liga", ["Escandell", "Luengo", "Dani Calvo", "David Costas", "Rahim", "Sibo", "Colombatto", "Cazorla", "Ilyas Chaira", "Sebas Moyano", "Alemao"], base_rating=7.0)
-            elif name == "Elche":
-                teams[name] = self._create_team(name, "La Liga", ["Edgar Badía", "Bigas", "Barragán", "Verdú", "Gragera", "Clerc", "Collado", "Domingos", "Boyé", "Guti", "Nico Castro"], base_rating=7.0)
             else:
                 teams[name] = self._create_dummy_team(name, "La Liga", base_rating=6.9)
 
@@ -332,8 +324,6 @@ class MockDataProvider(DataProvider):
                 teams[name] = self._create_team(name, "Premier League", ["Henderson", "Munoz", "Guehi", "Lacroix", "Mitchell", "Wharton", "Lerma", "Brennan Johnson", "Eze", "Kamada", "Strand Larsen"], base_rating=7.7)
             elif name == "Leeds Utd":
                 teams[name] = self._create_team(name, "Premier League", ["Meslier", "Bogle", "Rodon", "Byram", "Firpo", "Ampadu", "Wharton", "Gnonto", "Summerville", "Bamford", "Piroe"], base_rating=7.2)
-            elif name == "Burnley":
-                teams[name] = self._create_team(name, "Premier League", ["Flekken", "Roberts", "Beyer", "O'Shea", "Maatsen", "Brownhill", "Cork", "Cullen", "Benson", "Zeki Amdouni", "Rodriguez"], base_rating=7.1)
             elif name == "Sunderland":
                 teams[name] = self._create_team(name, "Premier League", ["Patterson", "Hume", "Ballard", "O'Nien", "Cirkin", "Neil", "Ojo", "Ekwah", "Clarke", "Mayenda", "Roberts"], base_rating=7.0)
             else:
@@ -360,10 +350,6 @@ class MockDataProvider(DataProvider):
                 teams[name] = self._create_team(name, "Serie A", ["Provedel", "Lazzari", "Gila", "Romagnoli", "Tavares", "Guendouzi", "Rovella", "Isaksen", "Dia", "Zaccagni", "Castellanos"], base_rating=7.7)
             elif name == "Sassuolo":
                 teams[name] = self._create_team(name, "Serie A", ["Moldovan", "Toljan", "Erlic", "Lovato", "Kyriakopoulos", "Mateus Henrique", "Obiang", "Boloca", "Berardi", "Pinamonti", "Laurienté"], base_rating=7.2)
-            elif name == "Pisa":
-                teams[name] = self._create_team(name, "Serie A", ["Nicolas", "Touré", "Caracciolo", "Rus", "Angori", "Marin", "Arena", "Piccinini", "Tramoni", "Moreo", "Lind"], base_rating=6.9)
-            elif name == "Cremonese":
-                teams[name] = self._create_team(name, "Serie A", ["Sarr", "Sernicola", "Bianchetti", "Antov", "Quagliata", "Collocolo", "Castagnetti", "Zanimacchia", "Buonaiuto", "Coda", "Vazquez"], base_rating=6.9)
             else:
                 teams[name] = self._create_dummy_team(name, "Serie A", base_rating=7.0)
 
@@ -404,8 +390,6 @@ class MockDataProvider(DataProvider):
                 teams[name] = self._create_team(name, "Ligue 1", ["Nardi", "Peda", "Laporte", "Talbi", "Le Goff", "Abergel", "Monconduit", "Innocent", "Fofana", "Hamel", "Kalulu"], base_rating=7.1)
             elif name == "Paris FC":
                 teams[name] = self._create_team(name, "Ligue 1", ["Letellier", "Dramé", "Laporte", "Pape", "Bakwa", "Camara", "Zigi", "Selnaes", "Lopy", "Cardona", "Lebeau"], base_rating=6.9)
-            elif name == "Metz":
-                teams[name] = self._create_team(name, "Ligue 1", ["Oukidja", "Centonze", "Bronn", "Kouyaté", "Udol", "Diallo", "Thill", "Camara", "Gueye", "Boulaya", "Adli"], base_rating=7.0)
             else:
                 teams[name] = self._create_dummy_team(name, "Ligue 1", base_rating=7.0)
 

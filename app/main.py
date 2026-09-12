@@ -132,11 +132,37 @@ if os.path.exists(css_path):
     load_css(css_path)
 
 # Initialize Services
-CURRENT_VERSION = "6.75.0"
+CURRENT_VERSION = "6.76.0"
+
+
+def huella_catalogo() -> str:
+    """
+    Huella del listado de equipos vigente, para usarla como clave de cache.
+
+    Subir CURRENT_VERSION a mano invalidaba la cache, pero habia que acordarse,
+    y olvidarlo no avisa: la aplicacion sigue sirviendo el catalogo con el que
+    nacio la instancia cacheada. Con la huella dentro de la clave eso no puede
+    pasar. Si cambia data/equipos_ligas.json —o ligas_equipos refresca contra
+    football-data.org— la clave cambia y el proveedor se construye de cero.
+    """
+    import hashlib
+    try:
+        from src.data import ligas_equipos
+        partes = [ligas_equipos.temporada_del_config()]
+        for liga in ligas_equipos.ligas_cubiertas():
+            partes.append(liga + ":" + ",".join(ligas_equipos.equipos_de(liga)))
+    except Exception:
+        return "sin-listado"
+    return hashlib.md5("|".join(partes).encode("utf-8")).hexdigest()[:10]
+
+
+HUELLA_CATALOGO = huella_catalogo()
+
 
 @st.cache_resource
-def get_services(version: str = CURRENT_VERSION):
-    # 'version' es la clave de cache: cambiar CURRENT_VERSION fuerza la reconstruccion.
+def get_services(version: str = CURRENT_VERSION, huella: str = ""):
+    # 'version' y 'huella' son la clave de cache: cambiar CURRENT_VERSION o el
+    # listado de equipos fuerza la reconstruccion.
     # Sin importlib.reload: una sola generacion de clases Pydantic viva en memoria.
     data_provider = MockDataProvider()
     db_manager = DataManager()
@@ -207,10 +233,10 @@ def _servicios_al_dia(servicios) -> bool:
 
 
 # --- SERVICE INITIALIZATION ---
-_servicios = get_services(CURRENT_VERSION)
+_servicios = get_services(CURRENT_VERSION, HUELLA_CATALOGO)
 if not _servicios_al_dia(_servicios):
     get_services.clear()
-    _servicios = get_services(CURRENT_VERSION)
+    _servicios = get_services(CURRENT_VERSION, HUELLA_CATALOGO)
 data_provider, db_manager, bpa_engine, predictor, validator, bankroll_manager, report_engine = _servicios
 
 # --- MAIN LAYOUT ---
@@ -2114,7 +2140,9 @@ with st.sidebar:
             f'<b>{_eq["temporada"]}</b> — {_nota}</div>'
             f'<div style="font-size:0.7rem;color:#888;">'
             f'{sum(_eq["ligas"].values())} equipos en {len(_eq["ligas"])} ligas'
-            f' · actualizado {_eq["actualizado"] or "—"}</div>',
+            f' · actualizado {_eq["actualizado"] or "—"}</div>'
+            f'<div style="font-size:0.66rem;color:#666;">build '
+            f'{CURRENT_VERSION} · huella {HUELLA_CATALOGO}</div>',
             unsafe_allow_html=True)
         if st.button("🔄 Actualizar equipos de las ligas", width="stretch",
                      key="refrescar_ligas_btn"):
