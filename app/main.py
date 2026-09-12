@@ -2073,6 +2073,40 @@ with st.sidebar:
     else:
         st.markdown('<p style="font-size:0.7rem;color:#888;">Pulsa para verificar el estado de las APIs</p>', unsafe_allow_html=True)
 
+    # ── COMPOSICIÓN DE LAS LIGAS ─────────────────────────────────────────
+    # Qué temporada reflejan los desplegables de equipos. Va a la vista porque
+    # una lista caducada no se nota: el selector funciona igual ofreciendo a un
+    # equipo que ya bajó a segunda.
+    st.divider()
+    st.markdown('<p style="color:#fdffcc;font-size:0.8rem;font-weight:bold;">🗂️ Equipos por liga</p>', unsafe_allow_html=True)
+    try:
+        from src.data import ligas_equipos
+        _eq = ligas_equipos.resumen()
+        _color = "#fbbf24" if _eq["caducado"] else "#4ade80"
+        _nota = ("⚠️ caducado, la vigente es "
+                 f"{_eq['temporada_vigente']}" if _eq["caducado"] else "✅ al día")
+        st.markdown(
+            f'<div style="font-size:0.75rem;color:{_color};">Temporada '
+            f'<b>{_eq["temporada"]}</b> — {_nota}</div>'
+            f'<div style="font-size:0.7rem;color:#888;">'
+            f'{sum(_eq["ligas"].values())} equipos en {len(_eq["ligas"])} ligas'
+            f' · actualizado {_eq["actualizado"] or "—"}</div>',
+            unsafe_allow_html=True)
+        if st.button("🔄 Actualizar equipos de las ligas", width="stretch",
+                     key="refrescar_ligas_btn"):
+            with st.spinner("Pidiendo los listados a football-data.org..."):
+                _logrado = ligas_equipos.refrescar()
+            if _logrado:
+                st.success(f"Actualizadas {len(_logrado)} ligas. "
+                           f"Recarga para ver los desplegables al día.")
+                st.cache_resource.clear()
+            else:
+                st.warning("No se pudo actualizar: se sigue usando el listado "
+                           "guardado. Revisa la llave de football-data.org.")
+    except Exception as _e:
+        st.markdown(f'<p style="font-size:0.7rem;color:#f87171;">No se pudo leer '
+                    f'el listado de equipos: {_e}</p>', unsafe_allow_html=True)
+
     st.divider()
     st.markdown('<p style="color:#fdffcc;font-size:0.8rem;font-weight:bold;">🧠 Aprendizaje Retroactivo</p>', unsafe_allow_html=True)
     st.markdown('<p style="color:#888;font-size:0.72rem;">Procesa estudios completados que aún no han alimentado la IA.</p>', unsafe_allow_html=True)

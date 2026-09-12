@@ -1,0 +1,703 @@
+{
+  "temporada_inicio": 2026,
+  "temporada": "2026-27",
+  "actualizado": "2026-09-12",
+  "fuente": "football-data.org — competitions/{codigo}/teams?season=2026",
+  "ligas": {
+    "La Liga": {
+      "codigo": "PD",
+      "equipos": [
+        {
+          "nombre": "Alavés",
+          "oficial": "Deportivo Alavés",
+          "id": 263
+        },
+        {
+          "nombre": "Athletic Club",
+          "oficial": "Athletic Club",
+          "id": 77
+        },
+        {
+          "nombre": "Atletico Madrid",
+          "oficial": "Club Atlético de Madrid",
+          "id": 78
+        },
+        {
+          "nombre": "Celta de Vigo",
+          "oficial": "RC Celta de Vigo",
+          "id": 558
+        },
+        {
+          "nombre": "Deportivo La Coruña",
+          "oficial": "RC Deportivo La Coruña",
+          "id": 560
+        },
+        {
+          "nombre": "Elche",
+          "oficial": "Elche CF",
+          "id": 285
+        },
+        {
+          "nombre": "Espanyol",
+          "oficial": "RCD Espanyol de Barcelona",
+          "id": 80
+        },
+        {
+          "nombre": "FC Barcelona",
+          "oficial": "FC Barcelona",
+          "id": 81
+        },
+        {
+          "nombre": "Getafe",
+          "oficial": "Getafe CF",
+          "id": 82
+        },
+        {
+          "nombre": "Levante",
+          "oficial": "Levante UD",
+          "id": 88
+        },
+        {
+          "nombre": "Málaga",
+          "oficial": "Málaga CF",
+          "id": 84
+        },
+        {
+          "nombre": "Osasuna",
+          "oficial": "CA Osasuna",
+          "id": 79
+        },
+        {
+          "nombre": "Racing de Santander",
+          "oficial": "Real Racing Club de Santander",
+          "id": 5335
+        },
+        {
+          "nombre": "Rayo Vallecano",
+          "oficial": "Rayo Vallecano de Madrid",
+          "id": 87
+        },
+        {
+          "nombre": "Real Betis",
+          "oficial": "Real Betis Balompié",
+          "id": 90
+        },
+        {
+          "nombre": "Real Madrid",
+          "oficial": "Real Madrid CF",
+          "id": 86
+        },
+        {
+          "nombre": "Real Sociedad",
+          "oficial": "Real Sociedad de Fútbol",
+          "id": 92
+        },
+        {
+          "nombre": "Sevilla FC",
+          "oficial": "Sevilla FC",
+          "id": 559
+        },
+        {
+          "nombre": "Valencia",
+          "oficial": "Valencia CF",
+          "id": 95
+        },
+        {
+          "nombre": "Villarreal",
+          "oficial": "Villarreal CF",
+          "id": 94
+        }
+      ]
+    },
+    "Premier League": {
+      "codigo": "PL",
+      "equipos": [
+        {
+          "nombre": "Arsenal",
+          "oficial": "Arsenal FC",
+          "id": 57
+        },
+        {
+          "nombre": "Aston Villa",
+          "oficial": "Aston Villa FC",
+          "id": 58
+        },
+        {
+          "nombre": "Bournemouth",
+          "oficial": "AFC Bournemouth",
+          "id": 1044
+        },
+        {
+          "nombre": "Brentford",
+          "oficial": "Brentford FC",
+          "id": 402
+        },
+        {
+          "nombre": "Brighton",
+          "oficial": "Brighton & Hove Albion FC",
+          "id": 397
+        },
+        {
+          "nombre": "Chelsea",
+          "oficial": "Chelsea FC",
+          "id": 61
+        },
+        {
+          "nombre": "Coventry City",
+          "oficial": "Coventry City FC",
+          "id": 1076
+        },
+        {
+          "nombre": "Crystal Palace",
+          "oficial": "Crystal Palace FC",
+          "id": 354
+        },
+        {
+          "nombre": "Everton",
+          "oficial": "Everton FC",
+          "id": 62
+        },
+        {
+          "nombre": "Fulham",
+          "oficial": "Fulham FC",
+          "id": 63
+        },
+        {
+          "nombre": "Hull City",
+          "oficial": "Hull City AFC",
+          "id": 322
+        },
+        {
+          "nombre": "Ipswich Town",
+          "oficial": "Ipswich Town FC",
+          "id": 349
+        },
+        {
+          "nombre": "Leeds Utd",
+          "oficial": "Leeds United FC",
+          "id": 341
+        },
+        {
+          "nombre": "Liverpool",
+          "oficial": "Liverpool FC",
+          "id": 64
+        },
+        {
+          "nombre": "Manchester City",
+          "oficial": "Manchester City FC",
+          "id": 65
+        },
+        {
+          "nombre": "Manchester Utd",
+          "oficial": "Manchester United FC",
+          "id": 66
+        },
+        {
+          "nombre": "Newcastle",
+          "oficial": "Newcastle United FC",
+          "id": 67
+        },
+        {
+          "nombre": "Nottingham Forest",
+          "oficial": "Nottingham Forest FC",
+          "id": 351
+        },
+        {
+          "nombre": "Sunderland",
+          "oficial": "Sunderland AFC",
+          "id": 71
+        },
+        {
+          "nombre": "Tottenham",
+          "oficial": "Tottenham Hotspur FC",
+          "id": 73
+        }
+      ]
+    },
+    "Bundesliga": {
+      "codigo": "BL1",
+      "equipos": [
+        {
+          "nombre": "Augsburg",
+          "oficial": "FC Augsburg",
+          "id": 16
+        },
+        {
+          "nombre": "Bayer Leverkusen",
+          "oficial": "Bayer 04 Leverkusen",
+          "id": 3
+        },
+        {
+          "nombre": "Bayern Munich",
+          "oficial": "FC Bayern München",
+          "id": 5
+        },
+        {
+          "nombre": "Dortmund",
+          "oficial": "Borussia Dortmund",
+          "id": 4
+        },
+        {
+          "nombre": "Elversberg",
+          "oficial": "SV 07 Elversberg",
+          "id": 719
+        },
+        {
+          "nombre": "Frankfurt",
+          "oficial": "Eintracht Frankfurt",
+          "id": 19
+        },
+        {
+          "nombre": "Freiburg",
+          "oficial": "SC Freiburg",
+          "id": 17
+        },
+        {
+          "nombre": "Gladbach",
+          "oficial": "Borussia Mönchengladbach",
+          "id": 18
+        },
+        {
+          "nombre": "Hamburgo",
+          "oficial": "Hamburger SV",
+          "id": 7
+        },
+        {
+          "nombre": "Hoffenheim",
+          "oficial": "TSG 1899 Hoffenheim",
+          "id": 2
+        },
+        {
+          "nombre": "Koln",
+          "oficial": "1. FC Köln",
+          "id": 1
+        },
+        {
+          "nombre": "Mainz 05",
+          "oficial": "1. FSV Mainz 05",
+          "id": 15
+        },
+        {
+          "nombre": "Paderborn",
+          "oficial": "SC Paderborn 07",
+          "id": 29
+        },
+        {
+          "nombre": "RB Leipzig",
+          "oficial": "RB Leipzig",
+          "id": 721
+        },
+        {
+          "nombre": "Schalke 04",
+          "oficial": "FC Schalke 04",
+          "id": 6
+        },
+        {
+          "nombre": "Stuttgart",
+          "oficial": "VfB Stuttgart",
+          "id": 10
+        },
+        {
+          "nombre": "Union Berlin",
+          "oficial": "1. FC Union Berlin",
+          "id": 28
+        },
+        {
+          "nombre": "Werder Bremen",
+          "oficial": "SV Werder Bremen",
+          "id": 12
+        }
+      ]
+    },
+    "Serie A": {
+      "codigo": "SA",
+      "equipos": [
+        {
+          "nombre": "AC Milan",
+          "oficial": "AC Milan",
+          "id": 98
+        },
+        {
+          "nombre": "AS Roma",
+          "oficial": "AS Roma",
+          "id": 100
+        },
+        {
+          "nombre": "Atalanta",
+          "oficial": "Atalanta BC",
+          "id": 102
+        },
+        {
+          "nombre": "Bolonia",
+          "oficial": "Bologna FC 1909",
+          "id": 103
+        },
+        {
+          "nombre": "Cagliari",
+          "oficial": "Cagliari Calcio",
+          "id": 104
+        },
+        {
+          "nombre": "Como",
+          "oficial": "Como 1907",
+          "id": 7397
+        },
+        {
+          "nombre": "Fiorentina",
+          "oficial": "ACF Fiorentina",
+          "id": 99
+        },
+        {
+          "nombre": "Frosinone",
+          "oficial": "Frosinone Calcio",
+          "id": 470
+        },
+        {
+          "nombre": "Genoa",
+          "oficial": "Genoa CFC",
+          "id": 107
+        },
+        {
+          "nombre": "Inter Milan",
+          "oficial": "FC Internazionale Milano",
+          "id": 108
+        },
+        {
+          "nombre": "Juventus",
+          "oficial": "Juventus FC",
+          "id": 109
+        },
+        {
+          "nombre": "Lazio",
+          "oficial": "SS Lazio",
+          "id": 110
+        },
+        {
+          "nombre": "Lecce",
+          "oficial": "US Lecce",
+          "id": 5890
+        },
+        {
+          "nombre": "Monza",
+          "oficial": "AC Monza",
+          "id": 5911
+        },
+        {
+          "nombre": "Napoles",
+          "oficial": "SSC Napoli",
+          "id": 113
+        },
+        {
+          "nombre": "Parma",
+          "oficial": "Parma Calcio 1913",
+          "id": 112
+        },
+        {
+          "nombre": "Sassuolo",
+          "oficial": "US Sassuolo Calcio",
+          "id": 471
+        },
+        {
+          "nombre": "Torino",
+          "oficial": "Torino FC",
+          "id": 586
+        },
+        {
+          "nombre": "Udinese",
+          "oficial": "Udinese Calcio",
+          "id": 115
+        },
+        {
+          "nombre": "Venezia",
+          "oficial": "Venezia FC",
+          "id": 454
+        }
+      ]
+    },
+    "Ligue 1": {
+      "codigo": "FL1",
+      "equipos": [
+        {
+          "nombre": "Angers",
+          "oficial": "Angers SCO",
+          "id": 532
+        },
+        {
+          "nombre": "Auxerre",
+          "oficial": "AJ Auxerre",
+          "id": 519
+        },
+        {
+          "nombre": "Brest",
+          "oficial": "Stade Brestois 29",
+          "id": 512
+        },
+        {
+          "nombre": "Le Havre",
+          "oficial": "Le Havre AC",
+          "id": 533
+        },
+        {
+          "nombre": "Le Mans",
+          "oficial": "Le Mans FC",
+          "id": 535
+        },
+        {
+          "nombre": "Lens",
+          "oficial": "Racing Club de Lens",
+          "id": 546
+        },
+        {
+          "nombre": "Lille",
+          "oficial": "Lille OSC",
+          "id": 521
+        },
+        {
+          "nombre": "Lorient",
+          "oficial": "FC Lorient",
+          "id": 525
+        },
+        {
+          "nombre": "Lyon",
+          "oficial": "Olympique Lyonnais",
+          "id": 523
+        },
+        {
+          "nombre": "Marseille",
+          "oficial": "Olympique de Marseille",
+          "id": 516
+        },
+        {
+          "nombre": "Monaco",
+          "oficial": "AS Monaco FC",
+          "id": 548
+        },
+        {
+          "nombre": "Nice",
+          "oficial": "OGC Nice",
+          "id": 522
+        },
+        {
+          "nombre": "Paris FC",
+          "oficial": "Paris FC",
+          "id": 1045
+        },
+        {
+          "nombre": "PSG",
+          "oficial": "Paris Saint-Germain FC",
+          "id": 524
+        },
+        {
+          "nombre": "Rennes",
+          "oficial": "Stade Rennais FC 1901",
+          "id": 529
+        },
+        {
+          "nombre": "Strasbourg",
+          "oficial": "RC Strasbourg Alsace",
+          "id": 576
+        },
+        {
+          "nombre": "Toulouse",
+          "oficial": "Toulouse FC",
+          "id": 511
+        },
+        {
+          "nombre": "Troyes",
+          "oficial": "ES Troyes AC",
+          "id": 531
+        }
+      ]
+    },
+    "Eredivisie": {
+      "codigo": "DED",
+      "equipos": [
+        {
+          "nombre": "ADO Den Haag",
+          "oficial": "ADO Den Haag",
+          "id": 680
+        },
+        {
+          "nombre": "Ajax",
+          "oficial": "AFC Ajax",
+          "id": 678
+        },
+        {
+          "nombre": "AZ Alkmaar",
+          "oficial": "AZ",
+          "id": 682
+        },
+        {
+          "nombre": "Cambuur",
+          "oficial": "SC Cambuur-Leeuwarden",
+          "id": 1909
+        },
+        {
+          "nombre": "Excelsior",
+          "oficial": "SBV Excelsior",
+          "id": 670
+        },
+        {
+          "nombre": "Feyenoord",
+          "oficial": "Feyenoord Rotterdam",
+          "id": 675
+        },
+        {
+          "nombre": "Fortuna Sittard",
+          "oficial": "Fortuna Sittard",
+          "id": 1920
+        },
+        {
+          "nombre": "Go Ahead Eagles",
+          "oficial": "Go Ahead Eagles",
+          "id": 718
+        },
+        {
+          "nombre": "Groningen",
+          "oficial": "FC Groningen",
+          "id": 677
+        },
+        {
+          "nombre": "Heerenveen",
+          "oficial": "SC Heerenveen",
+          "id": 673
+        },
+        {
+          "nombre": "NEC Nijmegen",
+          "oficial": "NEC",
+          "id": 1915
+        },
+        {
+          "nombre": "PEC Zwolle",
+          "oficial": "PEC Zwolle",
+          "id": 684
+        },
+        {
+          "nombre": "PSV",
+          "oficial": "PSV",
+          "id": 674
+        },
+        {
+          "nombre": "Sparta Rotterdam",
+          "oficial": "Sparta Rotterdam",
+          "id": 6806
+        },
+        {
+          "nombre": "Telstar",
+          "oficial": "Telstar 1963",
+          "id": 1912
+        },
+        {
+          "nombre": "Twente",
+          "oficial": "FC Twente '65",
+          "id": 666
+        },
+        {
+          "nombre": "Utrecht",
+          "oficial": "FC Utrecht",
+          "id": 676
+        },
+        {
+          "nombre": "Willem II",
+          "oficial": "Willem II Tilburg",
+          "id": 672
+        }
+      ]
+    },
+    "Primeira Liga": {
+      "codigo": "PPL",
+      "equipos": [
+        {
+          "nombre": "Academico de Viseu",
+          "oficial": "Académico de Viseu FC",
+          "id": 5527
+        },
+        {
+          "nombre": "Alverca",
+          "oficial": "FC Alverca",
+          "id": 7822
+        },
+        {
+          "nombre": "Arouca",
+          "oficial": "FC Arouca",
+          "id": 712
+        },
+        {
+          "nombre": "Benfica",
+          "oficial": "Sport Lisboa e Benfica",
+          "id": 1903
+        },
+        {
+          "nombre": "Braga",
+          "oficial": "Sporting Clube de Braga",
+          "id": 5613
+        },
+        {
+          "nombre": "Casa Pia",
+          "oficial": "Casa Pia AC",
+          "id": 6618
+        },
+        {
+          "nombre": "Estoril",
+          "oficial": "GD Estoril Praia",
+          "id": 582
+        },
+        {
+          "nombre": "Estrela da Amadora",
+          "oficial": "CF Estrela da Amadora",
+          "id": 9136
+        },
+        {
+          "nombre": "Famalicao",
+          "oficial": "FC Famalicão",
+          "id": 5531
+        },
+        {
+          "nombre": "FC Porto",
+          "oficial": "FC Porto",
+          "id": 503
+        },
+        {
+          "nombre": "Gil Vicente",
+          "oficial": "Gil Vicente FC",
+          "id": 5533
+        },
+        {
+          "nombre": "Maritimo",
+          "oficial": "CS Marítimo",
+          "id": 5575
+        },
+        {
+          "nombre": "Moreirense",
+          "oficial": "Moreirense FC",
+          "id": 583
+        },
+        {
+          "nombre": "Nacional",
+          "oficial": "CD Nacional",
+          "id": 5529
+        },
+        {
+          "nombre": "Rio Ave",
+          "oficial": "Rio Ave FC",
+          "id": 496
+        },
+        {
+          "nombre": "Santa Clara",
+          "oficial": "CD Santa Clara",
+          "id": 5530
+        },
+        {
+          "nombre": "Sporting CP",
+          "oficial": "Sporting Clube de Portugal",
+          "id": 498
+        },
+        {
+          "nombre": "Vitoria SC",
+          "oficial": "Vitória SC",
+          "id": 5543
+        }
+      ]
+    }
+  }
+}

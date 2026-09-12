@@ -37,11 +37,18 @@ class ExternalAnalyst:
         "Sevilla FC": {"city": "Sevilla", "country": "Spain", "papers": ["Estadio Deportivo", "Diario de Sevilla"]},
         "Real Betis": {"city": "Sevilla", "country": "Spain", "papers": ["Estadio Deportivo", "El Desmarque"]},
         "Valencia": {"city": "Valencia", "country": "Spain", "papers": ["Superdeporte", "Plaza Deportiva"]},
-        "Celta": {"city": "Vigo", "country": "Spain", "papers": ["Faro de Vigo", "La Voz de Galicia"]},
+        "Celta de Vigo": {"city": "Vigo", "country": "Spain", "papers": ["Faro de Vigo", "La Voz de Galicia"]},
         "Villarreal": {"city": "Villarreal", "country": "Spain", "papers": ["El Periódico Mediterráneo", "Marca"]},
         "Las Palmas": {"city": "Gran Canaria", "country": "Spain", "papers": ["Canarias7", "La Provincia"]},
         "Rayo Vallecano": {"city": "Madrid", "country": "Spain", "papers": ["Marca", "AS"]},
         "Levante": {"city": "Valencia", "country": "Spain", "papers": ["Superdeporte", "AS"]},
+        "Elche": {"city": "Elche", "country": "Spain", "papers": ["Informacion de Alicante", "Superdeporte"]},
+        "Getafe": {"city": "Getafe", "country": "Spain", "papers": ["Marca", "AS"]},
+        "Espanyol": {"city": "Barcelona", "country": "Spain", "papers": ["Sport", "Mundo Deportivo"]},
+        "Alavés": {"city": "Vitoria", "country": "Spain", "papers": ["El Correo", "Noticias de Alava"]},
+        "Málaga": {"city": "Malaga", "country": "Spain", "papers": ["Diario Sur", "Malaga Hoy"]},
+        "Deportivo La Coruña": {"city": "A Coruna", "country": "Spain", "papers": ["La Voz de Galicia", "La Opinion de A Coruna"]},
+        "Racing de Santander": {"city": "Santander", "country": "Spain", "papers": ["El Diario Montanes", "Alerta"]},
 
         # --- Premier League ---
         "Manchester City": {"city": "Manchester", "country": "England", "papers": ["Manchester Evening News", "City Xtra"]},
@@ -56,14 +63,14 @@ class ExternalAnalyst:
         "Inter Milan": {"city": "Milan", "country": "Italy", "papers": ["Gazzetta dello Sport", "L'Interista"]},
         "AC Milan": {"city": "Milan", "country": "Italy", "papers": ["Gazzetta dello Sport", "MilanNews"]},
         "Juventus": {"city": "Turin", "country": "Italy", "papers": ["Tuttosport", "Juventibus"]},
-        "Napoli": {"city": "Naples", "country": "Italy", "papers": ["Il Mattino", "TuttoNapoli"]},
+        "Napoles": {"city": "Naples", "country": "Italy", "papers": ["Il Mattino", "TuttoNapoli"]},
         "AS Roma": {"city": "Rome", "country": "Italy", "papers": ["Corriere dello Sport", "RomaPress"]},
         "Lazio": {"city": "Rome", "country": "Italy", "papers": ["Corriere dello Sport", "La Lazio Siamo Noi"]},
 
         # --- Bundesliga ---
         "Bayern Munich": {"city": "Munich", "country": "Germany", "papers": ["Kicker", "Bild Sport"]},
         "Dortmund": {"city": "Dortmund", "country": "Germany", "papers": ["Ruhr Nachrichten", "Kicker"]},
-        "Leverkusen": {"city": "Leverkusen", "country": "Germany", "papers": ["Kicker", "Bild"]},
+        "Bayer Leverkusen": {"city": "Leverkusen", "country": "Germany", "papers": ["Kicker", "Bild"]},
 
         # --- Ligue 1 ---
         "PSG": {"city": "Paris", "country": "France", "papers": ["L'Equipe", "Le Parisien"]},

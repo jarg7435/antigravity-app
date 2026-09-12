@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup
 from typing import Dict, List, Optional
 from datetime import datetime
 import re
+import unicodedata
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
@@ -23,6 +24,9 @@ TEAM_SLUGS = {
     "Celta de Vigo": "celta-vigo", "Osasuna": "osasuna",
     "Alavés": "alaves", "Girona": "girona", "Mallorca": "mallorca",
     "Valencia": "valencia", "Getafe": "getafe",
+    "Levante": "levante", "Elche": "elche",
+    "Málaga": "malaga", "Deportivo La Coruña": "deportivo-la-coruna",
+    "Racing de Santander": "racing-de-santander",
     "Rayo Vallecano": "rayo-vallecano", "Espanyol": "espanyol",
     "Arsenal": "arsenal", "Manchester City": "manchester-city",
     "Liverpool": "liverpool", "Chelsea": "chelsea",
@@ -41,6 +45,11 @@ def _get_slug(name: str) -> str:
     if name in TEAM_SLUGS:
         return TEAM_SLUGS[name]
     slug = re.sub(r'^(FC|CF|CD|UD|SD)\s+', '', name, flags=re.I)
+    # Sin acentos: el slug va dentro de la URL y "málaga" no la resuelve. Con
+    # los listados por liga saliendo ya de la API, aqui llegan nombres con
+    # tildes y enes que antes no aparecian.
+    slug = "".join(c for c in unicodedata.normalize("NFD", slug)
+                   if unicodedata.category(c) != "Mn")
     return slug.lower().strip().replace(' ', '-').replace('.', '')
 
 

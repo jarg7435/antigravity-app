@@ -1,7 +1,11 @@
+import logging
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict
 from src.data.interface import DataProvider
 from src.models.base import Match, Team, Player, PlayerPosition, PlayerStatus, NodeRole, MatchConditions
+
+logger = logging.getLogger(__name__)
+
 
 class MockDataProvider(DataProvider):
     """
@@ -18,6 +22,10 @@ class MockDataProvider(DataProvider):
     Para plantillas y alineaciones vigentes se usa src/data/plantillas.py, que
     consulta football-data.org. Esta clase se conserva para los ratings y
     metricas de equipo que todavia no tienen fuente real.
+
+    QUIEN juega en cada liga tampoco se decide aqui: lo dice
+    src/data/ligas_equipos.py. Las listas por liga que habia en _init_teams()
+    eran de la temporada 2025-26 y se quedaron viejas en silencio.
     """
     
     def __init__(self):
@@ -72,10 +80,27 @@ class MockDataProvider(DataProvider):
             target = target.split("(")[0].strip()
         target = self.LEAGUE_ALIASES.get(target, target)
 
+        def _liga_normalizada(team) -> str:
+            bruto = team.league.strip().lower()
+            return self.LEAGUE_ALIASES.get(bruto, bruto)
+
+        exactos = sorted([
+            name for name, team in self.teams_db.items()
+            if _liga_normalizada(team) == target
+        ])
+        if exactos:
+            return exactos
+
+        # Red de seguridad para una etiqueta que no case exactamente con
+        # ninguna liga. Solo se usa cuando la comparacion exacta no devuelve
+        # NADA: aplicarla siempre metia los equipos de la Israeli Premier
+        # League y la Ukrainian Premier League en el desplegable de la Premier
+        # inglesa (y los austriacos en la Bundesliga, y los suizos en la Super
+        # League griega), porque el nombre de la liga grande es subcadena del
+        # de las pequenas.
         return sorted([
             name for name, team in self.teams_db.items()
-            if self.LEAGUE_ALIASES.get(team.league.strip().lower(), team.league.strip().lower()) == target
-            or target in team.league.strip().lower()
+            if target in _liga_normalizada(team)
         ])
 
     def get_team_data(self, team_name: str) -> Team:
@@ -198,18 +223,39 @@ class MockDataProvider(DataProvider):
     def get_match_conditions(self, match_id: str, location: str, date_time: str) -> Optional[dict]:
         return {"temp": 20, "rain": 0}
 
+    @staticmethod
+    def _equipos_de(liga: str) -> List[str]:
+        """
+        Quien juega esta temporada en la maxima categoria de esa liga.
+
+        La composicion NO se escribe aqui. Antes si: cada liga tenia su lista a
+        mano con un comentario "2025-26" al lado, y en cuanto pasaba un verano
+        el desplegable ofrecia descendidos y se dejaba fuera a los ascendidos.
+        Ahora la lista sale de src/data/ligas_equipos.py, que la mantiene
+        contra football-data.org y la guarda en data/equipos_ligas.json.
+
+        Una liga que devuelva lista vacia no aporta equipos a este catalogo, y
+        la interfaz ofrece escribir el nombre a mano. Es preferible a rellenar
+        el hueco con la foto de una temporada pasada.
+        """
+        try:
+            from src.data import ligas_equipos
+            equipos = ligas_equipos.equipos_de(liga)
+        except Exception as e:
+            logger.error(f"No se pudo leer la composicion de {liga}: "
+                         f"{type(e).__name__}: {e}")
+            return []
+
+        if not equipos:
+            logger.warning(f"Sin listado de equipos para {liga}: no habra "
+                           f"equipos de esa liga en el selector")
+        return equipos
+
     def _init_teams(self) -> Dict[str, Team]:
         teams = {}
         
-        # --- LA LIGA (España) 2025-26 (20 equipos) ---
-        # Promovidos: Levante, Elche, Real Oviedo | Descendidos: Valladolid, Las Palmas, Leganés
-        la_liga_teams = [
-            "FC Barcelona", "Real Madrid", "Atletico Madrid", "Villarreal", "Real Betis",
-            "Espanyol", "Celta de Vigo", "Real Sociedad", "Osasuna", "Alavés",
-            "Athletic Club", "Girona", "Mallorca", "Sevilla FC",
-            "Valencia", "Getafe", "Rayo Vallecano",
-            "Levante", "Elche", "Real Oviedo"
-        ]
+        # --- LA LIGA (España) ---
+        la_liga_teams = self._equipos_de("La Liga")
         for name in la_liga_teams:
             if name == "Elche":
                 teams[name] = self._create_team(name, "La Liga", ["Dituro", "Mario Gaspar", "Bigas", "Barzic", "Salinas", "Febas", "Nico Castro", "Nico Fernández", "Josan", "Mourad", "Oscar Plano"], base_rating=7.4)
@@ -259,14 +305,8 @@ class MockDataProvider(DataProvider):
             else:
                 teams[name] = self._create_dummy_team(name, "La Liga", base_rating=6.9)
 
-        # --- PREMIER LEAGUE (Inglaterra) 2025-26 (20 equipos) ---
-        # Promovidos: Leeds Utd, Burnley, Sunderland | Descendidos: Southampton, Leicester City, Ipswich Town
-        pl_teams = [
-            "Arsenal", "Manchester City", "Liverpool", "Chelsea", "Aston Villa",
-            "Newcastle", "Manchester Utd", "West Ham", "Tottenham", "Brighton",
-            "Wolves", "Brentford", "Fulham", "Crystal Palace", "Nottingham Forest",
-            "Everton", "Bournemouth", "Leeds Utd", "Burnley", "Sunderland"
-        ]
+        # --- PREMIER LEAGUE (Inglaterra) ---
+        pl_teams = self._equipos_de("Premier League")
         for name in pl_teams:
             if name == "Manchester City":
                 # ADDED: Antoine Semenyo (Winter 2026)
@@ -299,14 +339,8 @@ class MockDataProvider(DataProvider):
             else:
                 teams[name] = self._create_dummy_team(name, "Premier League", base_rating=7.1)
 
-        # --- SERIE A (Italia) 2025-26 (20 equipos) ---
-        # Promovidos: Sassuolo, Pisa, Cremonese | Descendidos: Venezia, Empoli, Monza
-        serie_a_teams = [
-            "Inter Milan", "Napoles", "Atalanta", "Juventus", "AC Milan",
-            "Lazio", "Fiorentina", "Bolonia", "AS Roma", "Torino",
-            "Como", "Udinese", "Cagliari", "Genoa", "Parma",
-            "Verona", "Lecce", "Sassuolo", "Pisa", "Cremonese"
-        ]
+        # --- SERIE A (Italia) ---
+        serie_a_teams = self._equipos_de("Serie A")
         for name in serie_a_teams:
             if name == "Inter Milan":
                 teams[name] = self._create_team(name, "Serie A", ["Sommer", "Pavard", "Acerbi", "Bastoni", "Dumfries", "Barella", "Calhanoglu", "Mkhitaryan", "Dimarco", "Lautaro", "Thuram"], base_rating=8.9)
@@ -333,14 +367,8 @@ class MockDataProvider(DataProvider):
             else:
                 teams[name] = self._create_dummy_team(name, "Serie A", base_rating=7.0)
 
-        # --- BUNDESLIGA (Alemania) 2025-26 (18 equipos) ---
-        # Promovidos: Hamburgo, Koln | Descendidos: Holstein Kiel, Bochum
-        bundesliga_teams = [
-            "Bayern Munich", "Bayer Leverkusen", "RB Leipzig", "Dortmund", "Stuttgart",
-            "Frankfurt", "Freiburg", "Hoffenheim", "Werder Bremen", "Heidenheim",
-            "Augsburg", "Wolfsburg", "Gladbach", "Union Berlin", "Mainz 05",
-            "St. Pauli", "Hamburgo", "Koln"
-        ]
+        # --- BUNDESLIGA (Alemania) ---
+        bundesliga_teams = self._equipos_de("Bundesliga")
         for name in bundesliga_teams:
             if name == "Bayern Munich":
                 teams[name] = self._create_team(name, "Bundesliga", ["Neuer", "Guerreiro", "Upamecano", "Kim", "Davies", "Kimmich", "Palhinha", "Olise", "Musiala", "Gnabry", "Kane"], base_rating=9.2, avg_xg=2.4)
@@ -357,14 +385,8 @@ class MockDataProvider(DataProvider):
             else:
                 teams[name] = self._create_dummy_team(name, "Bundesliga", base_rating=7.0)
 
-        # --- LIGUE 1 (Francia) 2025-26 (18 equipos) ---
-        # Promovidos: Lorient, Paris FC, Metz | Descendidos: Montpellier, Saint-Etienne, Reims
-        ligue_1_teams = [
-            "PSG", "Monaco", "Marseille", "Lille", "Nice",
-            "Lens", "Rennes", "Lyon", "Toulouse", "Strasbourg",
-            "Nantes", "Le Havre", "Auxerre", "Angers", "Brest",
-            "Lorient", "Paris FC", "Metz"
-        ]
+        # --- LIGUE 1 (Francia) ---
+        ligue_1_teams = self._equipos_de("Ligue 1")
         for name in ligue_1_teams:
             if name == "PSG":
                 teams[name] = self._create_team(name, "Ligue 1", ["Donnarumma", "Hakimi", "Marquinhos", "Pacho", "Mendes", "Vitinha", "Neves", "Zaïre-Emery", "Dembélé", "Bradley Barcola", "Kolo Muani"], base_rating=8.9, avg_xg=2.6, avg_xg_c=0.8)
@@ -409,13 +431,8 @@ class MockDataProvider(DataProvider):
             else:
                 teams[name] = self._create_dummy_team(name, "Super Lig", base_rating=7.0)
 
-        # --- EREDIVISIE (Holanda) 2025-26 --- 18 equipos
-        eredivisie_teams = [
-            "Ajax", "PSV", "Feyenoord", "AZ Alkmaar", "Utrecht",
-            "Twente", "Groningen", "Heerenveen", "Sparta Rotterdam",
-            "Go Ahead Eagles", "Almere City", "NEC Nijmegen", "Heracles",
-            "RKC Waalwijk", "PEC Zwolle", "NAC Breda", "Fortuna Sittard", "Willem II",
-        ]
+        # --- EREDIVISIE (Holanda) ---
+        eredivisie_teams = self._equipos_de("Eredivisie")
         for name in eredivisie_teams:
             if name == "Ajax":
                 teams[name] = self._create_team(name, "Eredivisie", ["Pasveer", "Rensch", "Timber", "Hato", "Gaaei", "Berghuis", "Henderson", "Taylor", "Bergwijn", "Brobbey", "Godts"], base_rating=8.2, avg_xg=2.0, avg_xg_c=1.0)
@@ -430,13 +447,8 @@ class MockDataProvider(DataProvider):
             else:
                 teams[name] = self._create_dummy_team(name, "Eredivisie", base_rating=7.2)
 
-        # --- PRIMEIRA LIGA (Portugal) 2025-26 --- 18 equipos
-        primeira_liga_teams = [
-            "Benfica", "FC Porto", "Sporting CP", "Braga", "Vitoria SC",
-            "Boavista", "Gil Vicente", "Casa Pia", "Famalicao", "Rio Ave",
-            "Moreirense", "Arouca", "Vizela", "Portimonense", "Estoril",
-            "Nacional", "AVS", "Estrela da Amadora",
-        ]
+        # --- PRIMEIRA LIGA (Portugal) ---
+        primeira_liga_teams = self._equipos_de("Primeira Liga")
         for name in primeira_liga_teams:
             if name == "Benfica":
                 teams[name] = self._create_team(name, "Primeira Liga", ["Trubin", "Bah", "Otamendi", "Silva", "Carreras", "Florentino", "Kokcü", "Di Maria", "Aursnes", "Rafa Silva", "Arthur Cabral"], base_rating=8.7, avg_xg=2.2, avg_xg_c=0.8)
@@ -476,10 +488,18 @@ class MockDataProvider(DataProvider):
                 "Argentina":      "Liga Profesional",
                 "Brazil":         "Brasileirao",
             }
+            # Las ligas con fuente viva (ligas_equipos.py) ya estan servidas
+            # arriba y su composicion manda. Sin este filtro, los equipos que
+            # EUROPEAN_TEAMS trae de la Eredivisie o la Primeira Liga volvian a
+            # entrar en el desplegable aunque hubieran bajado a segunda.
+            from src.data.ligas_equipos import LIGAS_DINAMICAS
             for team_name, ctx in EUROPEAN_TEAMS.items():
-                if team_name not in teams:
-                    league_name = country_league.get(ctx.get("country", ""), "Europa")
-                    teams[team_name] = self._create_dummy_team(team_name, league_name, base_rating=7.5)
+                if team_name in teams:
+                    continue
+                league_name = country_league.get(ctx.get("country", ""), "Europa")
+                if league_name in LIGAS_DINAMICAS:
+                    continue
+                teams[team_name] = self._create_dummy_team(team_name, league_name, base_rating=7.5)
         except ImportError:
             pass
 

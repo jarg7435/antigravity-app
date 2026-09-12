@@ -207,6 +207,19 @@ def _cliente():
 
 def _id_de_equipo(equipo: str, liga: str) -> Optional[int]:
     """Id de football-data.org del equipo, cacheando el listado de la liga."""
+    # El listado de la temporada (src/data/ligas_equipos.py) ya guarda el id de
+    # cada club junto a su nombre interno. Preguntarle primero ahorra una
+    # peticion del plan gratuito y, sobre todo, acierta donde el casado por
+    # nombre falla: "Napoles" no casa con "SSC Napoli" ni "Bolonia" con
+    # "Bologna FC 1909", asi que esos dos equipos se quedaban sin plantilla.
+    try:
+        from src.data import ligas_equipos
+        id_config = ligas_equipos.id_oficial(equipo, liga)
+        if id_config:
+            return id_config
+    except Exception as e:
+        logger.debug(f"Listado de temporada no disponible para {equipo}: {e}")
+
     codigo = _codigo_competicion(liga)
     if not codigo:
         return None
