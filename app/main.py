@@ -132,7 +132,7 @@ if os.path.exists(css_path):
     load_css(css_path)
 
 # Initialize Services
-CURRENT_VERSION = "6.74.0"
+CURRENT_VERSION = "6.75.0"
 
 @st.cache_resource
 def get_services(version: str = CURRENT_VERSION):
@@ -172,14 +172,38 @@ _METODOS_PREDICTOR = (
 )
 
 
+def _catalogo_al_dia(proveedor) -> bool:
+    """
+    ¿El catalogo de equipos del proveedor cacheado es el de esta temporada?
+
+    Misma trampa que con los metodos, y por el mismo motivo: MockDataProvider
+    construye teams_db UNA vez, en __init__. Si el listado de la temporada se
+    actualiza despues —porque cambio data/equipos_ligas.json o porque
+    ligas_equipos refresco contra football-data.org— la instancia cacheada
+    sigue sirviendo el catalogo con el que nacio, y el desplegable ofrece la
+    temporada pasada sin que nada avise.
+    """
+    try:
+        from src.data import ligas_equipos
+        vigentes = set(ligas_equipos.equipos_de("La Liga"))
+    except Exception:
+        return True
+    if not vigentes:
+        # Sin listado no hay con que comparar, y rehacer la cache en bucle
+        # seria peor que servir lo que haya.
+        return True
+    return vigentes <= set(getattr(proveedor, "teams_db", {}))
+
+
 def _servicios_al_dia(servicios) -> bool:
     """¿El paquete cacheado sabe hacer lo que la interfaz le va a pedir?"""
     try:
-        _, _db, _, _pred, _, _, _ = servicios
+        _prov, _db, _, _pred, _, _, _ = servicios
     except (TypeError, ValueError):
         return False
     return (all(hasattr(_db, m) for m in _METODOS_DB)
-            and all(hasattr(_pred, m) for m in _METODOS_PREDICTOR))
+            and all(hasattr(_pred, m) for m in _METODOS_PREDICTOR)
+            and _catalogo_al_dia(_prov))
 
 
 # --- SERVICE INITIALIZATION ---
@@ -2097,9 +2121,12 @@ with st.sidebar:
             with st.spinner("Pidiendo los listados a football-data.org..."):
                 _logrado = ligas_equipos.refrescar()
             if _logrado:
-                st.success(f"Actualizadas {len(_logrado)} ligas. "
-                           f"Recarga para ver los desplegables al día.")
+                # Rehacer la cache no basta: el catalogo se construye al crear
+                # el proveedor, asi que hay que repintar para que se cree de
+                # nuevo con el listado recien traido.
                 st.cache_resource.clear()
+                st.success(f"Actualizadas {len(_logrado)} ligas.")
+                st.rerun()
             else:
                 st.warning("No se pudo actualizar: se sigue usando el listado "
                            "guardado. Revisa la llave de football-data.org.")
