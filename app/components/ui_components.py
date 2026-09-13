@@ -18,11 +18,24 @@ def format_stat_range(val: str) -> str:
         return f"🏠 {parts[0]}-{parts[1]} | ✈️ {parts[2]}-{parts[3]}"
     return val
 
-def render_header():
-    st.markdown("""
+def render_header(build: str = None, huella: str = None):
+    """
+    Cabecera de la aplicacion.
+
+    El build llega del llamante en vez de estar escrito aqui. Lo estaba, y se
+    quedo en V6.70.0 mientras la aplicacion iba por la 6.76.0, asi que mirar la
+    cabecera no decia que codigo estaba sirviendo el despliegue. La huella del
+    catalogo de equipos va al lado por lo mismo: si un desplegable ofrece la
+    temporada pasada, se ve de un vistazo si es que el codigo es viejo o es que
+    el listado lo es.
+    """
+    sello = f"v{build}" if build else "Global Generic"
+    if huella:
+        sello += f" · catálogo {huella}"
+    st.markdown(f"""
         <div style="text-align: center; padding: 40px 0; background: linear-gradient(90deg, rgba(0,212,255,0.05) 0%, rgba(0,86,179,0.05) 100%); border-radius: 20px; margin-bottom: 30px; border: 1px solid rgba(255,255,255,0.05);">
             <h1 style="margin-bottom: 0; font-family: 'Outfit', sans-serif; font-weight: 900; letter-spacing: -1px; background: linear-gradient(90deg, #fff, #00d4ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">🛡️ LAGEMA JARG74</h1>
-            <p style="margin-top: 5px; color: #fdffcc; font-weight: 500; letter-spacing: 2px; text-transform: uppercase; font-size: 0.8rem;">Capa de Inteligencia Predictiva Avanzada • V6.70.0 (Global Generic)</p>
+            <p style="margin-top: 5px; color: #fdffcc; font-weight: 500; letter-spacing: 2px; text-transform: uppercase; font-size: 0.8rem;">Capa de Inteligencia Predictiva Avanzada • {sello}</p>
         </div>
     """, unsafe_allow_html=True)
 

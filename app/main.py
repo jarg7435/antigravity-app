@@ -14,7 +14,15 @@ from dotenv import load_dotenv
 
 import streamlit as st
 
-# LAGEMA JARG74 - VERSION 6.72.0 - API-FOOTBALL DIRECTO ÁRBITROS+ALINEACIONES
+# Build de la aplicacion. Se define aqui arriba, y no junto a los servicios,
+# porque la pintan el titulo de la pestana y el aviso de acceso, que van antes.
+#
+# Es UNA sola: habia cuatro escritas a mano y ninguna coincidia —6.72.0 en este
+# comentario, V6.25 en el titulo de la pestana y en el aviso de acceso, V6.70.0
+# en la cabecera— mientras la clave de cache iba por su cuenta. Eso deja la
+# interfaz sin decir que codigo esta sirviendo, que es justo lo que hace falta
+# saber cuando un despliegue no refleja un cambio.
+CURRENT_VERSION = "6.76.0"
 # Código de acceso desde variable de entorno (seguro para GitHub/Streamlit Cloud)
 # En Streamlit Cloud: Settings → Secrets → ACCESS_CODE = "tu_codigo"
 # En local: crea un archivo .env con ACCESS_CODE=tu_codigo
@@ -37,7 +45,7 @@ def check_password():
     if st.session_state.get("password_input") == SECRET_CODE:
         st.session_state.authenticated = True
         # Visual Trace for success after restart
-        st.toast("🚀 Sistema Antigravity V6.25 Accedido", icon="✅")
+        st.toast(f"🚀 Sistema Antigravity v{CURRENT_VERSION} Accedido", icon="✅")
     else:
         st.error("❌ Código de acceso incorrecto")
 
@@ -116,7 +124,7 @@ from src.models.base import Match, MatchConditions, Referee, RefereeStrictness, 
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
-    page_title="LAGEMA JARG74 V6.25",
+    page_title=f"LAGEMA JARG74 v{CURRENT_VERSION}",
     page_icon="⚽",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -132,7 +140,6 @@ if os.path.exists(css_path):
     load_css(css_path)
 
 # Initialize Services
-CURRENT_VERSION = "6.76.0"
 
 
 def huella_catalogo() -> str:
@@ -240,7 +247,7 @@ if not _servicios_al_dia(_servicios):
 data_provider, db_manager, bpa_engine, predictor, validator, bankroll_manager, report_engine = _servicios
 
 # --- MAIN LAYOUT ---
-render_header()
+render_header(CURRENT_VERSION, HUELLA_CATALOGO)
 
 # =====================================================================
 # MODO REVISIÓN — se activa al cargar estudio desde "Mis Estudios"
