@@ -247,7 +247,35 @@ if not _servicios_al_dia(_servicios):
 data_provider, db_manager, bpa_engine, predictor, validator, bankroll_manager, report_engine = _servicios
 
 # --- MAIN LAYOUT ---
-render_header(CURRENT_VERSION, HUELLA_CATALOGO)
+# La cabecera se pinta de forma tolerante, por lo mismo que el panel del
+# supervisor: en Streamlit Cloud se dio un arranque con main.py ya actualizado
+# y ui_components.py todavia en la copia anterior, cuyo render_header() no
+# admitia argumentos. El nombre existia, asi que no saltaba el ImportError del
+# import conjunto; el desajuste salia como TypeError en la llamada y tumbaba la
+# aplicacion antes de pintar nada. Una cabecera es decoracion y nunca puede
+# impedir el arranque.
+#
+# Si el componente servido es el viejo se le pasa solo lo que sepa recibir, y
+# el sello real va debajo en un pie: esa cabecera antigua lleva la version
+# escrita a mano y mentiria sobre que build esta sirviendo, que es justo lo que
+# este dato vino a resolver.
+def _pintar_cabecera(build: str, huella: str) -> None:
+    """Cabecera con el sello del build, sobreviva o no a una interfaz vieja."""
+    import inspect
+    try:
+        admite = inspect.signature(render_header).parameters
+    except (TypeError, ValueError):
+        admite = {}
+    sello = {n: v for n, v in (("build", build), ("huella", huella)) if n in admite}
+    render_header(**sello)
+    if len(sello) < 2:
+        st.caption(
+            f"Build servido: v{build} · catálogo {huella} — la cabecera procede "
+            "de una versión anterior de `ui_components.py`."
+        )
+
+
+_pintar_cabecera(CURRENT_VERSION, HUELLA_CATALOGO)
 
 # =====================================================================
 # MODO REVISIÓN — se activa al cargar estudio desde "Mis Estudios"
